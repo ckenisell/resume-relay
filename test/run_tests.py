@@ -251,6 +251,20 @@ np_ = wait_for(lambda: (dev(LR)["playing"] or {}).get("poster") and dev(LR)["pla
 check("now playing shows S01E03 with a poster", np_ and np_["subtitle"] == "S01E03" and np_["poster"], str(np_))
 mock(LR, "stop")
 
+# ---------------------------------------------------------------- 19. a stop at 0:00 resets the title on the others
+mock(BR, "setlwt", url=BRAVE, lwt=int(time.time() * 1000), pp=3000000)
+mock(HT, "setlwt", url=BRAVE, lwt=int(time.time() * 1000), pp=3000000)
+mock(LR, "play", url=BRAVE, pos=0)
+time.sleep(4)
+mock(LR, "stop", final=0)
+check("stop at 0:00 resets Bedroom", wait_for(lambda: bookmark(BR, BRAVE)["playPoint"] == 0 and bookmark(BR, BRAVE)["lastWatchTime"] == -1), str(bookmark(BR, BRAVE)))
+check("...and Home Theater Room", wait_for(lambda: bookmark(HT, BRAVE)["playPoint"] == 0), str(bookmark(HT, BRAVE)["playPoint"]))
+w = bookmark(BR, BRAVE)["writes"][-1]
+check("reset is sent as playPoint=0 on the file's entry", w.get("playPoint") == "0" and int(w["id"]) == 18000, str(w))
+rc = wait_for(lambda: (lambda c: c if c and c.get("reset") and all(t["state"] == "Ok" and t["note"] == "reset" for t in c["targets"]) else None)(card_for("Braveheart", 0)), 20)
+check("card says reset, chips say reset", rc, str(card_for("Braveheart", 0)))
+check("logged as a reset", log_has("Reset Braveheart on Bedroom (stopped at 0:00 on Living Room)."))
+
 passed = sum(1 for _, ok in results if ok)
 print(f"\n{passed}/{len(results)} passed")
 sys.exit(0 if passed == len(results) else 1)

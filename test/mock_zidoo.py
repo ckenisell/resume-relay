@@ -195,7 +195,10 @@ def make_handler():
                     if not rec:
                         return self.send(dict(status=200, msg="success"))  # real players can say success for a bad id
                     rec["playPoint"] = int(q.get("playPoint", 0))
-                    rec["lastWatchTime"] = int(q["lastWatchTime"]) if q.get("lastWatchTime") else now_ms()
+                    if rec["playPoint"] == 0:
+                        rec["lastWatchTime"] = -1      # playPoint=0 erases the bookmark (and watched mark)
+                    else:
+                        rec["lastWatchTime"] = int(q["lastWatchTime"]) if q.get("lastWatchTime") else now_ms()
                     if p.buggy_write:
                         return self.send(dict(status=500, msg="error"))  # HT 5.1.11 / 1619B: error, but it worked
                     return self.send(dict(status=200, msg="success"))

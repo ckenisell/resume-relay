@@ -48,6 +48,7 @@ Get the latest version from the **Releases** page:
 ## How it decides
 
 - The latest stop wins: it replaces the bookmark for that file on every other player.
+- Stopping at 0:00 resets the title on the other players (bookmark and watched mark cleared).
 - It copies the exact position the player saved when it stopped, not the last one it saw
   (which can be a few seconds earlier).
 - Players are matched by file path, so each film, episode and extra is matched exactly.

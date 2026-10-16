@@ -414,17 +414,14 @@ public sealed class RelayEngine : BackgroundService
         // stopped; ask for it, so every room gets the exact second.
         int position = canAskPlayer ? await ExactStopPositionAsync(source, last) : last.PositionMs;
 
-        // Any position is copied, however short. 0:00 is the one exception: writing 0 tells the player to erase the
-        // bookmark and the watched flag, which is not what stopping at the very start means.
-        if (position <= 0)
-        {
-            _store.Log(ActivityLevel.Skip, $"{label} {how} on {source.Name} at 0:00; nothing to copy.");
-            return;
-        }
+        // Any position is copied, however short. A stop at 0:00 (under one second) means "start over": the other
+        // players get the title's progress reset, which erases their bookmark and their watched mark.
+        bool reset = position < 1000;
+        if (reset) position = 0;
 
         var info = await GetTitleInfoAsync(source, last.SourceUrl, last.Path);
         var targets = _store.Devices().Where(d => d.Enabled && d.Id != source.Id).ToList();
-        bool finished = NearEnd(position, last.DurationMs);
+        bool finished = !reset && NearEnd(position, last.DurationMs);
 
         var ev = new StopEvent
         {
@@ -435,12 +432,15 @@ public sealed class RelayEngine : BackgroundService
             PositionMs = position,
             DurationMs = last.DurationMs,
             Finished = finished,
+            Reset = reset,
             Poster = info.Poster,
             Targets = targets.Select(t => new StopTarget { DeviceId = t.Id, Name = t.Name }).ToList(),
         };
         _store.AddEvent(ev);
         _store.LogCopy(ActivityLevel.Info, $"{label} {how} on {source.Name} at {Clock(position)}" +
-                                           (targets.Count == 0 ? ". No other players to copy to." : $". Copying to {string.Join(", ", targets.Select(t => t.Name))}…"));
+                                           (targets.Count == 0 ? ". No other players to copy to."
+                                            : reset ? $". Resetting its progress on {string.Join(", ", targets.Select(t => t.Name))}…"
+                                            : $". Copying to {string.Join(", ", targets.Select(t => t.Name))}…"));
 
         long lastWatch = new DateTimeOffset(stoppedUtc).ToUnixTimeMilliseconds();
         foreach (var t in targets)
@@ -598,6 +598,8 @@ public sealed class RelayEngine : BackgroundService
             return; // stays queued until the player answers again
         }
 
+        // A stop at 0:00 is copied as a reset: the bookmark and the watched mark are cleared.
+        bool reset = job.PositionMs == 0;
         string what = $"{job.Title} ({Clock(job.PositionMs)}) from {job.FromName} to {target.Name}";
 
         if (live.Playing != null && PathMapper.Same(live.Playing.SourceUrl, job.SourceUrl))
@@ -632,8 +634,8 @@ public sealed class RelayEngine : BackgroundService
         }
         live.HomeTheaterRunning = true;
 
-        // 3. Already there?
-        if (Math.Abs(entry.PlayPointMs - job.PositionMs) <= 2_000)
+        // 3. Already there? (Not for a reset: a file can show 0:00 and still carry a watched mark to clear.)
+        if (!reset && Math.Abs(entry.PlayPointMs - job.PositionMs) <= 2_000)
         {
             _store.LogCopy(ActivityLevel.Skip, $"{target.Name} already has {job.Title} at {Clock(entry.PlayPointMs)}.");
             Finish(job, TargetState.Ok, "already there");
@@ -644,13 +646,16 @@ public sealed class RelayEngine : BackgroundService
 
         if (_store.Settings().WatchOnly)
         {
-            _store.LogCopy(ActivityLevel.Info, $"[watch-only] Would copy {what} (entry {entry.Id}, currently {Clock(entry.PlayPointMs)}).");
-            Finish(job, TargetState.WatchOnly, "watch-only: would copy");
+            _store.LogCopy(ActivityLevel.Info, reset
+                ? $"[watch-only] Would reset {job.Title} on {target.Name} (stopped at 0:00 on {job.FromName}; entry {entry.Id}, currently {Clock(entry.PlayPointMs)})."
+                : $"[watch-only] Would copy {what} (entry {entry.Id}, currently {Clock(entry.PlayPointMs)}).");
+            Finish(job, TargetState.WatchOnly, reset ? "watch-only: would reset" : "watch-only: would copy");
             return;
         }
 
         // 4. Write, then believe only what we read back.
-        await api.SetPlayPointAsync(entry.Id, job.PositionMs, job.DurationMs, job.LastWatchTimeMs, ct);
+        if (reset) await api.ResetPlayPointAsync(entry.Id, ct);
+        else await api.SetPlayPointAsync(entry.Id, job.PositionMs, job.DurationMs, job.LastWatchTimeMs, ct);
         int? readBack = null;
         for (int i = 0; i < 3 && !ct.IsCancellationRequested; i++)
         {
@@ -661,11 +666,13 @@ public sealed class RelayEngine : BackgroundService
 
         if (readBack.HasValue && Landed(readBack.Value, job))
         {
-            bool watched = NearEnd(job.PositionMs, job.DurationMs);
-            _store.LogCopy(ActivityLevel.Ok, $"Copied {what}" + (watched ? " (marked watched)." : "."));
+            bool watched = !reset && NearEnd(job.PositionMs, job.DurationMs);
+            _store.LogCopy(ActivityLevel.Ok, reset
+                ? $"Reset {job.Title} on {target.Name} (stopped at 0:00 on {job.FromName})."
+                : $"Copied {what}" + (watched ? " (marked watched)." : "."));
             string note = string.Join(", ", new[]
             {
-                watched ? "watched" : "",
+                reset ? "reset" : watched ? "watched" : "",
                 job.WaitedFor == WaitOff ? "after it woke up" : job.WaitedFor == WaitHomeTheater ? "after Home Theater opened" : "",
             }.Where(s => s.Length > 0));
             Finish(job, TargetState.Ok, note);

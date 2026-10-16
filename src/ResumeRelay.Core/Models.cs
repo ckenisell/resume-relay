@@ -77,6 +77,8 @@ public sealed class StopEvent
     public int DurationMs { get; set; }
     /// <summary>True when the stop was at the end (the other players mark it watched).</summary>
     public bool Finished { get; set; }
+    /// <summary>Stopped at 0:00: the other players get the title's progress reset.</summary>
+    public bool Reset { get; set; }
     /// <summary>File name of the cached poster, or "" when none.</summary>
     public string Poster { get; set; } = "";
     public List<StopTarget> Targets { get; set; } = new();

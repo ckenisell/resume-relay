@@ -31,8 +31,9 @@ and settings are kept.
 ## How it decides
 
 - The latest stop always wins. It replaces whatever bookmark the other players hold for
-  that file, including a later position, and is copied however short it is (only 0:00 is
-  skipped, because writing 0 would erase the bookmark).
+  that file, including a later position, and is copied however short it is.
+- Stopping at 0:00 resets that title on the other players: their bookmark and watched mark
+  are cleared, so it starts from the beginning everywhere.
 - Players are matched by file path, so each film, episode and extra is matched exactly.
 - Before writing, it checks that the player's entry really is that file. Afterwards, it
   reads the position back. A write only counts if the player shows it, because some HT

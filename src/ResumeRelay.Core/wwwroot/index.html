@@ -564,7 +564,9 @@ const CHIP = {
 const SYS_ICON = { Error: "✕", Warn: "!", Ok: "✓", Skip: "–", Info: "●" };
 
 function eventHtml(e) {
-  const what = e.finished
+  const what = e.reset
+    ? `Stopped at <b class="tnum">0:00</b> in ${esc(e.fromName)}: <b>progress reset</b>`
+    : e.finished
     ? `Finished in ${esc(e.fromName)}: <b>marked watched</b>`
     : `Stopped at <b class="tnum">${clock(e.positionMs)}</b> in ${esc(e.fromName)}`;
   const chips = e.targets.map(t => {

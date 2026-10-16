@@ -238,6 +238,18 @@ public sealed class ZidooClient
         using (doc) return Int(doc.RootElement, "status") == 200;
     }
 
+    /// <summary>
+    /// Clears a file's progress: playPoint=0 erases the bookmark and the watched mark, as if it had never been
+    /// played. Only used on purpose, for a stop at 0:00 (SetPlayPointAsync refuses 0 so it can't happen by accident).
+    /// </summary>
+    public async Task<bool> ResetPlayPointAsync(int id, CancellationToken ct = default)
+    {
+        if (id <= 0) return false;
+        var doc = await GetJsonAsync($"/ZidooPoster/v2/setPlayPoint?id={id}&playPoint=0", TimeSpan.FromSeconds(8), ct);
+        if (doc == null) return false;
+        using (doc) return Int(doc.RootElement, "status") == 200;
+    }
+
     // ---------- plumbing ----------
 
     private async Task<JsonDocument?> GetJsonAsync(string pathAndQuery, TimeSpan timeout, CancellationToken ct)

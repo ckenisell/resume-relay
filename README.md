@@ -41,7 +41,7 @@ Get the latest version from the **Releases** page:
   position back, and only counts the copy if the player shows it.
 - A player that's asleep, or on without its Home Theater app open, gets the copy once it's ready.
 
-Requires Zidoo Home Theater **5.1.03 or newer** on every player.
+Requires Zidoo Home Theater **v5.1.11 (code 5111) or newer** on every player.
 
 ## Building
 

@@ -40,7 +40,7 @@ and settings are kept.
 - A player that's asleep, or on without its Home Theater app open, gets the copy once it's
   ready. Waiting copies are listed on the page and kept for 14 days by default. If that
   player plays the same film itself in the meantime, the older waiting copy is discarded.
-- Requires Zidoo Home Theater 5.1.03 or newer on every player.
+- Requires Zidoo Home Theater v5.1.11 (code 5111) or newer on every player.
 
 ## Useful commands
 

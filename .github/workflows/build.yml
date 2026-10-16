@@ -81,4 +81,8 @@ jobs:
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "Resume Relay ${GITHUB_REF_NAME#v}" --generate-notes
+        run: |
+          # Tags with a suffix (v0.2.0-beta.1) are test builds: publish them as pre-releases.
+          PRE=""; [[ "$GITHUB_REF_NAME" == *-* ]] && PRE="--prerelease"
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" \
+            --title "Resume Relay ${GITHUB_REF_NAME#v}" --generate-notes $PRE

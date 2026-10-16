@@ -17,6 +17,10 @@ on:
 permissions:
   contents: write
 
+# The release tag being built (v0.3.1-beta.1), or empty for an ordinary build.
+env:
+  RELEASE_TAG: ${{ inputs.release != '' && inputs.release || (startsWith(github.ref, 'refs/tags/v') && github.ref_name || '') }}
+
 jobs:
   linux:
     name: Linux edition (build + tests)
@@ -28,7 +32,12 @@ jobs:
           dotnet-version: "8.0.x"
 
       - name: Build package
-        run: packaging/linux/package.sh artifacts
+        run: |
+          # Label: the release tag without its "v" (0.3.1-beta.1), or "<version>-dev" for an ordinary build.
+          V="$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' Directory.Build.props)"
+          export RR_VERSION="${RELEASE_TAG#v}"; [[ -n "$RR_VERSION" ]] || RR_VERSION="$V-dev"
+          packaging/linux/package.sh artifacts
+          tar -xzOf artifacts/*.tar.gz resume-relay/README.md | head -1
 
       - name: End-to-end tests against simulated Zidoo players
         run: |
@@ -62,8 +71,9 @@ jobs:
       - name: Publish ResumeRelay.exe
         shell: pwsh
         run: |
-          dotnet publish src/ResumeRelay.Windows/ResumeRelay.Windows.csproj -c Release -o publish
-          $version = ([xml](Get-Content Directory.Build.props)).Project.PropertyGroup.Version
+          $version = ([xml](Get-Content Directory.Build.props)).Project.PropertyGroup.Version | Select-Object -First 1
+          $version = if ($env:RELEASE_TAG) { $env:RELEASE_TAG.TrimStart('v') } else { "$version-dev" }
+          dotnet publish src/ResumeRelay.Windows/ResumeRelay.Windows.csproj -c Release -o publish "-p:InformationalVersion=$version"
           New-Item -ItemType Directory -Force artifacts | Out-Null
           Copy-Item publish/ResumeRelay.exe "artifacts/ResumeRelay-$version-windows.exe"
           Get-ChildItem artifacts | Format-Table Name, Length

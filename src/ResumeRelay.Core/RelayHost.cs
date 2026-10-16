@@ -29,8 +29,17 @@ public sealed record RelayOptions(string DataDirectory, int Port, IHostIntegrati
 /// <summary>Builds the web server, the API and the relay engine. Both editions call this.</summary>
 public static class RelayHost
 {
-    public static string Version =>
-        (Assembly.GetEntryAssembly() ?? typeof(RelayHost).Assembly).GetName().Version?.ToString(3) ?? "0.0.0";
+    /// <summary>The build label, e.g. "0.3.1" or "0.3.1-beta.1" (CI stamps the release tag into InformationalVersion).</summary>
+    public static string Version
+    {
+        get
+        {
+            var asm = Assembly.GetEntryAssembly() ?? typeof(RelayHost).Assembly;
+            string? info = asm.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+            if (!string.IsNullOrWhiteSpace(info)) return info.Split('+')[0];
+            return asm.GetName().Version?.ToString(3) ?? "0.0.0";
+        }
+    }
 
     /// <summary>Default data folder: %LocalAppData%\ResumeRelay on Windows, ~/.local/share/ResumeRelay on Linux,
     /// unless RESUMERELAY_DATA says otherwise.</summary>

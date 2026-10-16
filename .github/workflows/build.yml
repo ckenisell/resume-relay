@@ -81,6 +81,7 @@ jobs:
     env:
       TAG: ${{ inputs.release != '' && inputs.release || github.ref_name }}
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -91,6 +92,9 @@ jobs:
         run: |
           # Tags with a suffix (v0.2.0-beta.1) are test builds: publish them as pre-releases.
           PRE=""; [[ "$TAG" == *-* ]] && PRE="--prerelease"
+          # Hand-written notes for this version if they exist, otherwise GitHub's list of changes.
+          NOTES="docs/release-notes/${TAG%%-*}.md"
+          if [[ -f "$NOTES" ]]; then NOTES_ARGS=(--notes-file "$NOTES"); else NOTES_ARGS=(--generate-notes); fi
           # Creates the tag on the built commit if it doesn't exist yet.
           gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title "Resume Relay ${TAG#v}" --generate-notes $PRE
+            --title "Resume Relay ${TAG#v}" "${NOTES_ARGS[@]}" $PRE

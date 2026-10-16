@@ -209,10 +209,14 @@ p.hint { margin: 0 0 14px; color: var(--muted); font-size: 13.5px; max-width: 75
 }
 @media (max-width: 600px) {
   .mode { margin-left: 0; width: 100%; justify-content: space-between; }
-  .ev, .sys { grid-template-columns: 56px minmax(0, 1fr); gap: 12px; }
-  .ev .poster { width: 56px; height: 84px; }
-  .ev time, .sys time { grid-column: 2; grid-row: 1; justify-self: end; }
-  .ev > div:nth-child(2) { grid-row: 1 / span 2; }
+  /* Stop cards: poster on the left spanning two rows; the time on top, the text under it. Every piece
+     gets an explicit cell, otherwise the browser auto-places the text into the narrow poster column. */
+  .ev { grid-template-columns: 56px minmax(0, 1fr); gap: 2px 12px; }
+  .ev .poster { width: 56px; height: 84px; grid-column: 1; grid-row: 1 / span 2; }
+  .ev time { grid-column: 2; grid-row: 1; justify-self: start; }
+  .ev > div:nth-child(2) { grid-column: 2; grid-row: 2; }
+  /* System rows keep three columns: a narrow icon, the message, then the time. */
+  .sys { grid-template-columns: 20px minmax(0, 1fr) auto; gap: 10px; padding: 0 4px; }
   .stage .poster { width: 80px; height: 120px; }
 }
 </style>

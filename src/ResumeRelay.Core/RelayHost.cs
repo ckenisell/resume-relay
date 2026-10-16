@@ -118,8 +118,17 @@ public static class RelayHost
 
         app.MapPost("/api/scan", async (CancellationToken ct) =>
         {
-            var found = await engine.RescanAsync(addNew: true, ct);
-            return Results.Ok(new { Found = found.Count, New = found.Count(f => f.IsNew), Subnets = Discovery.LocalSubnets() });
+            try
+            {
+                var found = await engine.RescanAsync(addNew: true, ct);
+                return Results.Ok(new { Found = found.Count, New = found.Count(f => f.IsNew), Subnets = Discovery.LocalSubnets() });
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // Say what went wrong, on the page and in the Activity log, instead of a bare "500".
+                store.Log(ActivityLevel.Error, $"Network scan failed: {ex.GetType().Name}: {ex.Message}");
+                return Results.Json(new { Error = $"The network scan failed ({ex.Message}). You can still add players by IP address." }, statusCode: 500);
+            }
         });
 
         app.MapPost("/api/devices", async (AddDeviceRequest req, CancellationToken ct) =>

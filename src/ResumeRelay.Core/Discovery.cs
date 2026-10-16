@@ -38,19 +38,35 @@ public static class Discovery
     public static List<string> LocalSubnets()
     {
         var nets = new List<string>();
-        foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
+        // Some adapters (VPNs, virtual switches, half-configured Wi-Fi) throw when asked for their details.
+        // One odd adapter must not stop the scan, so each is read on its own.
+        NetworkInterface[] nics;
+        try { nics = NetworkInterface.GetAllNetworkInterfaces(); }
+        catch { nics = Array.Empty<NetworkInterface>(); }
+        foreach (var nic in nics)
         {
-            if (nic.OperationalStatus != OperationalStatus.Up) continue;
-            if (nic.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
-            string name = nic.Name.ToLowerInvariant();
-            if (name.StartsWith("docker") || name.StartsWith("br-") || name.StartsWith("veth") || name.StartsWith("virbr")) continue;
-            foreach (var ua in nic.GetIPProperties().UnicastAddresses)
+            try
             {
-                if (ua.Address.AddressFamily != AddressFamily.InterNetwork) continue;
-                var b = ua.Address.GetAddressBytes();
-                if (b[0] == 169 && b[1] == 254) continue; // link-local
-                nets.Add($"{b[0]}.{b[1]}.{b[2]}");
+                if (nic.OperationalStatus != OperationalStatus.Up) continue;
+                if (nic.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
+                string name = nic.Name.ToLowerInvariant();
+                if (name.StartsWith("docker") || name.StartsWith("br-") || name.StartsWith("veth") || name.StartsWith("virbr")) continue;
+                foreach (var ua in nic.GetIPProperties().UnicastAddresses)
+                    AddIfUsable(nets, ua.Address);
             }
+            catch { /* skip this adapter */ }
+        }
+
+        // Fallback: the address this computer would use to reach the internet. Opening a UDP socket sends nothing.
+        if (nets.Count == 0)
+        {
+            try
+            {
+                using var s = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+                s.Connect("8.8.8.8", 53);
+                if (s.LocalEndPoint is IPEndPoint ep) AddIfUsable(nets, ep.Address);
+            }
+            catch { }
         }
         // Extra networks for unusual setups or testing, e.g. RESUMERELAY_SCAN_EXTRA="192.168.50,127.0.0"
         foreach (var extra in (Environment.GetEnvironmentVariable("RESUMERELAY_SCAN_EXTRA") ?? "")
@@ -60,6 +76,14 @@ public static class Discovery
             if (octets.Length >= 3) nets.Add(string.Join('.', octets.Take(3)));
         }
         return nets.Distinct().ToList();
+    }
+
+    private static void AddIfUsable(List<string> nets, IPAddress address)
+    {
+        if (address.AddressFamily != AddressFamily.InterNetwork) return;
+        var b = address.GetAddressBytes();
+        if (b[0] == 127 || (b[0] == 169 && b[1] == 254)) return; // loopback, link-local
+        nets.Add($"{b[0]}.{b[1]}.{b[2]}");
     }
 
     private static IEnumerable<string> Hosts(string prefix24) =>

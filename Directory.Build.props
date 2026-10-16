@@ -4,7 +4,7 @@
     <Version>0.2.0</Version>
     <Product>Resume Relay</Product>
     <Company>Resume Relay</Company>
-    <Copyright>Resume Relay contributors</Copyright>
+    <Copyright>Copyright (c) 2026 Chet Kenisell</Copyright>
     <InvariantGlobalization>true</InvariantGlobalization>
     <!-- Small background program: keep memory use low. -->
     <ServerGarbageCollection>false</ServerGarbageCollection>

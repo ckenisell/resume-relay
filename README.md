@@ -55,3 +55,7 @@ against them (see `.github/workflows/build.yml`).
 
 The Zidoo API knowledge behind this project comes largely from the HT5 API guide at
 [z-keeper.com](https://z-keeper.com/learn/ht5-api-guide). Not affiliated with Zidoo.
+
+## License
+
+MIT. See [LICENSE](LICENSE). You are free to use, change and include this code in your own projects.

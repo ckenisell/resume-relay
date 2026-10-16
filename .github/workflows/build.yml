@@ -1,0 +1,84 @@
+name: Build
+
+# Every push: build and test the Linux edition, build the Windows app.
+# A tag like v0.2.0: also publish both as a GitHub release.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    name: Linux edition (build + tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Build package
+        run: packaging/linux/package.sh artifacts
+
+      - name: End-to-end tests against simulated Zidoo players
+        run: |
+          mkdir -p /tmp/rr && tar -xzf artifacts/resume-relay-*-linux.tar.gz -C /tmp/rr
+          python3 -I test/mock_zidoo.py > /tmp/mock.log 2>&1 &
+          sleep 1
+          RESUMERELAY_DATA=/tmp/rr-data RESUMERELAY_SCAN_EXTRA=127.0.0 RESUMERELAY_PORT=8090 \
+            dotnet /tmp/rr/resume-relay/app/ResumeRelay.dll > /tmp/relay.log 2>&1 &
+          for i in $(seq 1 30); do curl -fsS localhost:8090/api/state >/dev/null 2>&1 && break; sleep 1; done
+          curl -fsS -X POST localhost:8090/api/scan
+          python3 -I test/run_tests.py
+
+      - name: Relay log (on failure)
+        if: failure()
+        run: cat /tmp/relay.log || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: artifacts/*.tar.gz
+
+  windows:
+    name: Windows app
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Publish ResumeRelay.exe
+        shell: pwsh
+        run: |
+          dotnet publish src/ResumeRelay.Windows/ResumeRelay.Windows.csproj -c Release -o publish
+          $version = ([xml](Get-Content Directory.Build.props)).Project.PropertyGroup.Version
+          New-Item -ItemType Directory -Force artifacts | Out-Null
+          Copy-Item publish/ResumeRelay.exe "artifacts/ResumeRelay-$version-windows.exe"
+          Get-ChildItem artifacts | Format-Table Name, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: artifacts/*.exe
+
+  release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "Resume Relay ${GITHUB_REF_NAME#v}" --generate-notes

@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Resume Relay</title>
+<style>
+:root {
+  --bg: #151A2E;
+  --panel: #1D2340;
+  --panel-2: #242B4D;
+  --line: #2F3760;
+  --velvet: #7B2D3F;
+  --amber: #F0B44C;
+  --text: #ECE8F4;
+  --muted: #9C99B5;
+  --ok: #73C79B;
+  --bad: #E46B6B;
+  --warn: #E9C36B;
+  --radius-lg: 14px;
+  --radius-sm: 8px;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #F3F1F8; --panel: #FFFFFF; --panel-2: #F1EEF7; --line: #DDD8EA;
+    --velvet: #8C3348; --amber: #B97A10; --text: #1E1B2E; --muted: #67637F;
+    --ok: #2E8A5C; --bad: #C24242; --warn: #9A6B00;
+    color-scheme: light;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif;
+}
+button, input { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+.tnum { font-variant-numeric: tabular-nums; }
+
+/* ---------- header ---------- */
+header {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 16px 24px;
+  padding: 22px clamp(16px, 4vw, 40px) 18px;
+  border-bottom: 3px solid var(--velvet);
+}
+h1 { margin: 0; font-size: 26px; font-weight: 750; letter-spacing: -0.02em; }
+h1 small { display: block; font-size: 13px; font-weight: 400; color: var(--muted); letter-spacing: 0; }
+.mode {
+  margin-left: auto; display: flex; align-items: center; gap: 12px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 6px 6px 6px 16px;
+}
+.mode-text { font-size: 14px; }
+.mode-text strong { display: block; font-size: 15px; }
+.mode-text span { color: var(--muted); font-size: 12.5px; }
+.mode.copying { border-color: color-mix(in srgb, var(--ok) 60%, transparent); }
+.mode.watching { border-color: color-mix(in srgb, var(--amber) 70%, transparent); }
+.mode button {
+  border: 0; border-radius: 999px; padding: 9px 16px; cursor: pointer; font-weight: 650;
+  background: var(--amber); color: #1B1406;
+}
+.mode.copying button { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); }
+
+/* ---------- layout ---------- */
+main {
+  display: grid; gap: 28px; padding: 24px clamp(16px, 4vw, 40px) 48px;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  max-width: 1400px;
+}
+@media (max-width: 900px) { main { grid-template-columns: minmax(0, 1fr); } }
+section h2 { font-size: 18px; margin: 0 0 4px; font-weight: 700; }
+section > p.hint { margin: 0 0 14px; color: var(--muted); font-size: 13.5px; max-width: 70ch; }
+.bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
+.btn {
+  border: 1px solid var(--line); background: var(--panel); border-radius: var(--radius-sm);
+  padding: 8px 14px; cursor: pointer; font-weight: 600;
+}
+.btn:hover { background: var(--panel-2); }
+.btn[disabled] { opacity: .55; cursor: progress; }
+.btn.quiet { border-color: transparent; background: transparent; color: var(--muted); font-weight: 500; padding: 6px 8px; }
+.btn.quiet:hover { color: var(--text); background: var(--panel-2); }
+.btn.danger:hover { color: var(--bad); }
+
+/* ---------- rooms ---------- */
+.rooms { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel); }
+.room { padding: 16px 18px; display: grid; grid-template-columns: 14px minmax(0,1fr) auto; gap: 4px 14px; align-items: start; }
+.room + .room { border-top: 1px solid var(--line); }
+.room.off { opacity: .6; }
+.dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 8px; background: var(--muted); }
+.dot.on { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent); }
+.dot.playing { background: var(--amber); box-shadow: 0 0 0 3px color-mix(in srgb, var(--amber) 25%, transparent); }
+.name-row { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.name { font-size: 17px; font-weight: 700; background: none; border: 0; padding: 0; cursor: text; text-align: left; }
+.name:hover { text-decoration: underline dotted var(--muted); text-underline-offset: 4px; }
+.name-input { font-size: 16px; font-weight: 650; padding: 3px 8px; border-radius: 6px; border: 1px solid var(--amber); background: var(--bg); min-width: 0; width: 16em; max-width: 100%; }
+.state { font-size: 13px; color: var(--muted); }
+.meta { color: var(--muted); font-size: 12.5px; word-break: break-word; }
+.now { margin-top: 10px; }
+.now-title { font-weight: 600; }
+.now-title .paused { color: var(--muted); font-weight: 400; font-size: 13px; }
+.track { position: relative; height: 6px; border-radius: 3px; background: var(--panel-2); margin: 8px 0 4px; overflow: hidden; }
+.track i { position: absolute; inset: 0 auto 0 0; background: var(--amber); border-radius: 3px; }
+.times { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--muted); }
+.note { font-size: 12.5px; color: var(--warn); margin-top: 4px; }
+.actions { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.switch { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); cursor: pointer; user-select: none; }
+.switch input { appearance: none; width: 38px; height: 22px; border-radius: 11px; background: var(--panel-2); border: 1px solid var(--line); position: relative; cursor: pointer; margin: 0; }
+.switch input::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--muted); transition: transform .15s; }
+.switch input:checked { background: color-mix(in srgb, var(--ok) 35%, var(--panel-2)); border-color: var(--ok); }
+.switch input:checked::after { transform: translateX(16px); background: var(--ok); }
+.empty { padding: 28px 20px; text-align: center; color: var(--muted); }
+.empty strong { color: var(--text); display: block; font-size: 16px; margin-bottom: 4px; }
+
+.add-form { display: none; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+.add-form.open { display: flex; }
+.add-form input { padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--line); background: var(--panel); width: 11em; }
+.msg { font-size: 13.5px; margin: 0 0 12px; }
+.msg.err { color: var(--bad); }
+.msg.ok { color: var(--ok); }
+
+/* ---------- waiting ---------- */
+.waiting { margin-top: 28px; }
+.waiting ul { list-style: none; margin: 0; padding: 0; border: 1px dashed var(--line); border-radius: var(--radius-lg); }
+.waiting li { padding: 10px 14px; display: flex; gap: 12px; align-items: center; justify-content: space-between; }
+.waiting li + li { border-top: 1px dashed var(--line); }
+.waiting .why { color: var(--muted); font-size: 12.5px; }
+
+/* ---------- activity ---------- */
+.log { list-style: none; margin: 0; padding: 0; max-height: 70vh; overflow: auto; border-left: 2px solid var(--line); }
+.log li { padding: 7px 0 7px 14px; display: grid; grid-template-columns: 4.6em minmax(0,1fr); gap: 10px; font-size: 13.5px; position: relative; }
+.log li::before { content: ""; position: absolute; left: -6px; top: 13px; width: 10px; height: 10px; border-radius: 50%; background: var(--panel-2); border: 2px solid var(--bg); }
+.log li.Ok::before { background: var(--ok); }
+.log li.Error::before { background: var(--bad); }
+.log li.Warn::before { background: var(--warn); }
+.log li.Skip { color: var(--muted); }
+.log time { color: var(--muted); font-size: 12.5px; padding-top: 1px; }
+.log .day { grid-column: 1 / -1; color: var(--muted); font-size: 12px; font-weight: 600; padding-top: 10px; }
+.log li.dayrow::before { display: none; }
+
+/* ---------- settings ---------- */
+.settings { grid-column: 1 / -1; border-top: 1px solid var(--line); padding-top: 24px; }
+.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px 24px; max-width: 900px; }
+.fields label { display: block; font-weight: 600; font-size: 14px; }
+.fields label span { display: block; font-weight: 400; color: var(--muted); font-size: 12.5px; margin-bottom: 6px; }
+.fields input { width: 7em; padding: 7px 10px; border-radius: var(--radius-sm); border: 1px solid var(--line); background: var(--panel); }
+.autostart { display: flex; gap: 12px; align-items: flex-start; margin: 4px 0 20px; max-width: 70ch; cursor: pointer; }
+.autostart[hidden] { display: none; }
+.autostart input { width: 18px; height: 18px; margin: 3px 0 0; accent-color: var(--amber); flex: none; cursor: pointer; }
+.autostart span { color: var(--muted); font-size: 13px; }
+.autostart strong { display: block; color: var(--text); font-size: 14px; font-weight: 600; }
+.foot { color: var(--muted); font-size: 12.5px; margin-top: 18px; word-break: break-all; }
+
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+@media (max-width: 560px) {
+  .mode { margin-left: 0; width: 100%; justify-content: space-between; }
+  .room { grid-template-columns: 14px minmax(0,1fr); }
+  .actions { grid-column: 2; flex-direction: row; align-items: center; justify-content: flex-start; flex-wrap: wrap; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>Resume Relay<small>Stop in one room, resume in another.</small></h1>
+  <div class="mode" id="mode" aria-live="polite"></div>
+</header>
+
+<main>
+  <div>
+    <section aria-labelledby="rooms-h">
+      <h2 id="rooms-h">Players</h2>
+      <p class="hint">Click a name to rename it. Players are recognised by their network hardware address, so a name stays with the right player even if your router gives it a new IP.</p>
+      <div class="bar">
+        <button class="btn" id="scan">Scan network</button>
+        <button class="btn" id="add-toggle" aria-expanded="false" aria-controls="add-form">Add by IP address</button>
+      </div>
+      <form class="add-form" id="add-form">
+        <input id="add-ip" placeholder="10.0.0.39" inputmode="decimal" aria-label="Player IP address" required>
+        <button class="btn" type="submit">Add player</button>
+      </form>
+      <p class="msg" id="rooms-msg" role="status"></p>
+      <ul class="rooms" id="rooms"></ul>
+    </section>
+
+    <section class="waiting" id="waiting" hidden aria-labelledby="waiting-h">
+      <h2 id="waiting-h">Waiting to copy</h2>
+      <p class="hint">These players were asleep, or on without the Home Theater app open. Each copy goes through as soon as its player is ready.</p>
+      <ul id="pending"></ul>
+    </section>
+  </div>
+
+  <section aria-labelledby="act-h">
+    <h2 id="act-h">Activity</h2>
+    <p class="hint">Every stop that was copied, skipped or held back, newest first.</p>
+    <ol class="log" id="log"></ol>
+  </section>
+
+  <section class="settings" aria-labelledby="set-h">
+    <h2 id="set-h">Settings</h2>
+    <label class="autostart" id="autostart-row" hidden>
+      <input type="checkbox" id="autostart">
+      <span><strong>Start Resume Relay when Windows starts</strong>
+      It opens quietly in the tray, so bookmarks are copied without you having to open it.</span>
+    </label>
+    <form id="settings" class="fields">
+      <label>Check players every
+        <span>Seconds between asking each player what it is playing.</span>
+        <input type="number" name="pollSeconds" min="1" max="60" required> s</label>
+      <label>Keep waiting copies for
+        <span>A player that stays off longer than this misses the copy.</span>
+        <input type="number" name="pendingMaxDays" min="1" max="365" required> days</label>
+    </form>
+    <p class="msg" id="set-msg" role="status"></p>
+    <p class="foot" id="foot"></p>
+  </section>
+</main>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+let state = null, editing = null, settingsDirty = false;
+
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const clock = ms => {
+  const t = Math.max(0, Math.floor((ms || 0) / 1000)), h = Math.floor(t / 3600), m = Math.floor(t / 60) % 60, s = t % 60;
+  return h ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
+};
+const ago = iso => {
+  if (!iso) return "never";
+  const s = Math.round((Date.now() - new Date(iso)) / 1000);
+  if (s < 60) return "just now"; if (s < 3600) return `${Math.round(s / 60)} min ago`;
+  if (s < 86400) return `${Math.round(s / 3600)} h ago`; return new Date(iso).toLocaleDateString();
+};
+
+async function api(method, url, body) {
+  const r = await fetch(url, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+  const text = await r.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!r.ok) throw new Error((data && (data.error || data.Error)) || `Request failed (${r.status})`);
+  return data;
+}
+
+function say(el, text, kind) { el.textContent = text; el.className = "msg" + (kind ? " " + kind : ""); }
+
+// ---------------- mode switch ----------------
+function renderMode(s) {
+  const el = $("#mode");
+  if (s.watchOnly) {
+    el.className = "mode watching";
+    el.innerHTML = `<div class="mode-text"><strong>Watch-only</strong><span>Logging what it would copy. Nothing is written.</span></div>
+      <button id="mode-btn">Start copying</button>`;
+  } else {
+    el.className = "mode copying";
+    el.innerHTML = `<div class="mode-text"><strong>Copying bookmarks</strong><span>Stops are copied to the other players.</span></div>
+      <button id="mode-btn">Switch to watch-only</button>`;
+  }
+  $("#mode-btn").onclick = async () => {
+    const next = { ...state.settings, watchOnly: !state.settings.watchOnly };
+    await api("POST", "/api/settings", next);
+    refresh();
+  };
+}
+
+// ---------------- players ----------------
+function renderRooms(devices) {
+  const ul = $("#rooms");
+  if (editing) return; // don't re-render under the person typing a name
+  if (!devices.length) {
+    ul.innerHTML = `<li class="empty"><strong>No players yet</strong>Press “Scan network” to find the Zidoo players on this network, or add one by its IP address.</li>`;
+    return;
+  }
+  ul.innerHTML = devices.map(d => {
+    const p = d.playing;
+    let dot = "dot", stateText;
+    if (!d.enabled) stateText = "Not synced";
+    else if (!d.online) stateText = d.lastSeenUtc ? `Not answering · last seen ${ago(d.lastSeenUtc)}` : "Not answering";
+    else if (p) { dot += " playing"; stateText = p.paused ? "Paused" : "Playing"; }
+    else { dot += " on"; stateText = "Idle"; }
+
+    let now = "";
+    if (p && d.enabled) {
+      const pct = p.durationMs > 0 ? Math.min(100, 100 * p.positionMs / p.durationMs) : 0;
+      now = `<div class="now">
+        <div class="now-title">${esc(p.title || p.file)}</div>
+        <div class="track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct.toFixed(0)}" aria-label="Position"><i style="width:${pct}%"></i></div>
+        <div class="times tnum"><span>${clock(p.positionMs)}</span><span>${clock(p.durationMs)}</span></div>
+        ${p.shareable ? "" : `<div class="note">Playing from a drive the other players can't see, so this one can't be copied.</div>`}
+      </div>`;
+    }
+    const meta = [d.model, d.ip, d.mac, d.firmware ? "firmware " + d.firmware : ""].filter(Boolean).map(esc).join("  ·  ");
+    return `<li class="room${d.enabled ? "" : " off"}" data-id="${esc(d.id)}">
+      <span class="${dot}" aria-hidden="true"></span>
+      <div>
+        <div class="name-row"><button class="name" data-rename title="Rename">${esc(d.name)}</button><span class="state">${esc(stateText)}</span></div>
+        <div class="meta tnum">${meta}</div>
+        ${now}
+      </div>
+      <div class="actions">
+        <label class="switch"><input type="checkbox" data-enable ${d.enabled ? "checked" : ""}> Sync</label>
+        <button class="btn quiet danger" data-remove>Remove</button>
+      </div>
+    </li>`;
+  }).join("");
+}
+
+$("#rooms").addEventListener("click", async e => {
+  const li = e.target.closest(".room"); if (!li) return;
+  const id = li.dataset.id, dev = state.devices.find(d => d.id === id);
+  if (e.target.matches("[data-rename]")) startRename(e.target, dev);
+  if (e.target.matches("[data-remove]")) {
+    if (!confirm(`Remove ${dev.name}? It will no longer send or receive bookmarks. Scan again to add it back.`)) return;
+    await api("DELETE", `/api/devices/${encodeURIComponent(id)}`); refresh();
+  }
+});
+$("#rooms").addEventListener("change", async e => {
+  if (!e.target.matches("[data-enable]")) return;
+  const id = e.target.closest(".room").dataset.id;
+  await api("PATCH", `/api/devices/${encodeURIComponent(id)}`, { enabled: e.target.checked }); refresh();
+});
+
+function startRename(btn, dev) {
+  editing = dev.id;
+  const input = document.createElement("input");
+  input.className = "name-input"; input.value = dev.name; input.maxLength = 40; input.setAttribute("aria-label", "Player name");
+  btn.replaceWith(input); input.focus(); input.select();
+  let done = false;
+  const finish = async save => {
+    if (done) return; done = true;
+    const name = input.value.trim();
+    editing = null;
+    if (save && name && name !== dev.name) await api("PATCH", `/api/devices/${encodeURIComponent(dev.id)}`, { name });
+    refresh();
+  };
+  input.addEventListener("keydown", e => { if (e.key === "Enter") finish(true); if (e.key === "Escape") finish(false); });
+  input.addEventListener("blur", () => finish(true));
+}
+
+$("#scan").onclick = async () => {
+  const b = $("#scan"); b.disabled = true; b.textContent = "Scanning…";
+  say($("#rooms-msg"), "Checking every address on this network for Zidoo players. This takes about 10 seconds.");
+  try {
+    const r = await api("POST", "/api/scan");
+    const nets = r.subnets.map(s => s + ".x").join(", ");
+    say($("#rooms-msg"), r.found === 0
+      ? `No players answered on ${nets}. Make sure they're switched on, or add one by IP address.`
+      : `Found ${r.found} player${r.found === 1 ? "" : "s"} on ${nets}${r.new ? `, ${r.new} new` : ", all already added"}.`, r.found ? "ok" : "err");
+  } catch (err) { say($("#rooms-msg"), err.message, "err"); }
+  b.disabled = false; b.textContent = "Scan network"; refresh();
+};
+
+$("#add-toggle").onclick = () => {
+  const f = $("#add-form"), open = !f.classList.contains("open");
+  f.classList.toggle("open", open); $("#add-toggle").setAttribute("aria-expanded", open);
+  if (open) $("#add-ip").focus();
+};
+$("#add-form").onsubmit = async e => {
+  e.preventDefault();
+  try {
+    const d = await api("POST", "/api/devices", { ip: $("#add-ip").value.trim() });
+    say($("#rooms-msg"), `Added ${d.name}. Click its name to rename it.`, "ok");
+    $("#add-ip").value = ""; $("#add-form").classList.remove("open");
+  } catch (err) { say($("#rooms-msg"), err.message, "err"); }
+  refresh();
+};
+
+// ---------------- waiting ----------------
+function renderPending(list) {
+  $("#waiting").hidden = !list.length;
+  $("#pending").innerHTML = list.map(p => `<li>
+    <div><div>${esc(p.title)} <span class="tnum">${clock(p.positionMs)}</span> → ${esc(p.to)}</div>
+    <div class="why">From ${esc(p.fromName)}, ${ago(p.createdUtc)}${p.lastNote && p.lastNote !== "waiting" ? " · " + esc(p.lastNote) : ` · waiting for ${esc(p.to)} to wake up`}</div></div>
+    <button class="btn quiet danger" data-key="${esc(p.key)}">Discard</button></li>`).join("");
+}
+$("#pending").addEventListener("click", async e => {
+  const k = e.target.dataset.key; if (!k) return;
+  await api("DELETE", "/api/pending?key=" + encodeURIComponent(k)); refresh();
+});
+
+// ---------------- activity ----------------
+function renderLog(entries) {
+  if (!entries.length) { $("#log").innerHTML = `<li class="dayrow"><span class="day">Nothing yet. Play something on a player and stop it.</span></li>`; return; }
+  let lastDay = "", html = "";
+  for (const e of entries) {
+    const t = new Date(e.timeUtc), day = t.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
+    if (day !== lastDay) { html += `<li class="dayrow"><span class="day">${esc(day)}</span></li>`; lastDay = day; }
+    html += `<li class="${esc(e.level)}"><time class="tnum" datetime="${esc(e.timeUtc)}">${t.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</time><span>${esc(e.message)}</span></li>`;
+  }
+  $("#log").innerHTML = html;
+}
+
+// ---------------- settings ----------------
+function renderSettings(s) {
+  if (settingsDirty) return;
+  const f = $("#settings");
+  f.pollSeconds.value = s.pollSeconds; f.pendingMaxDays.value = s.pendingMaxDays;
+}
+$("#settings").addEventListener("input", () => { settingsDirty = true; });
+$("#settings").addEventListener("change", async () => {
+  const f = $("#settings");
+  if (!f.reportValidity()) return;
+  try {
+    await api("POST", "/api/settings", { ...state.settings,
+      pollSeconds: +f.pollSeconds.value, pendingMaxDays: +f.pendingMaxDays.value });
+    say($("#set-msg"), "Saved.", "ok"); setTimeout(() => say($("#set-msg"), ""), 2000);
+  } catch (err) { say($("#set-msg"), err.message, "err"); }
+  settingsDirty = false; refresh();
+});
+
+$("#autostart").addEventListener("change", async e => {
+  try {
+    await api("POST", "/api/autostart", { enabled: e.target.checked });
+    say($("#set-msg"), e.target.checked ? "Resume Relay will start with Windows." : "Resume Relay won't start with Windows.", "ok");
+    setTimeout(() => say($("#set-msg"), ""), 2500);
+  } catch (err) { say($("#set-msg"), err.message, "err"); }
+  refresh();
+});
+
+// ---------------- refresh loop ----------------
+async function refresh() {
+  try {
+    const [s, log] = await Promise.all([api("GET", "/api/state"), api("GET", "/api/activity?n=300")]);
+    state = s;
+    renderMode(s.settings); renderRooms(s.devices); renderPending(s.pending); renderLog(log); renderSettings(s.settings);
+    $("#autostart-row").hidden = s.autostart === null || s.autostart === undefined;
+    if (!$("#autostart-row").hidden) $("#autostart").checked = s.autostart;
+    $("#foot").textContent = `${s.edition} ${s.version} · data saved in ${s.dataFolder}`;
+  } catch (err) {
+    $("#foot").textContent = "Can't reach the Resume Relay service. Is it running? " + err.message;
+  }
+}
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>

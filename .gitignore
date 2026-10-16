@@ -1,0 +1,8 @@
+bin/
+obj/
+out/
+artifacts/
+*.user
+.vs/
+__pycache__/
+testdata/

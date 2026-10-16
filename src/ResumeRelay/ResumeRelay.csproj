@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The Linux edition: a background service with no window, run by systemd. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>ResumeRelay</RootNamespace>
+    <AssemblyName>ResumeRelay</AssemblyName>
+    <!-- Built for .NET 8, runs on any newer one (Ubuntu 26.04 ships only .NET 10 in its main archive). -->
+    <RollForward>Major</RollForward>
+    <UseAppHost>false</UseAppHost>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ResumeRelay.Core\ResumeRelay.Core.csproj" />
+  </ItemGroup>
+
+</Project>

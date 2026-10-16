@@ -1,0 +1,13 @@
+<Project>
+  <!-- One version number for every edition. -->
+  <PropertyGroup>
+    <Version>0.2.0</Version>
+    <Product>Resume Relay</Product>
+    <Company>Resume Relay</Company>
+    <Copyright>Resume Relay contributors</Copyright>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Small background program: keep memory use low. -->
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+  </PropertyGroup>
+</Project>

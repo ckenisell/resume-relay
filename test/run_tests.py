@@ -173,6 +173,84 @@ time.sleep(20)
 check("...so the player keeps its own newer position", bookmark(HT, BRAVE)["playPoint"] == 8000000, str(bookmark(HT, BRAVE)["playPoint"]))
 check("...and that position reaches the others", wait_for(lambda: bookmark(LR, BRAVE)["playPoint"] == 8000000))
 
+# ---------------------------------------------------------------- 13. exact stop time: the player's own saved bookmark wins
+mock(LR, "play", url=ARRIVAL, pos=1000000)
+time.sleep(4)
+mock(LR, "stop", final=1002600, delay=1200)    # player saves 2.6 s past the last poll, a moment after stopping
+check("copies the exact stop time the player saved, not the last polled one",
+      wait_for(lambda: bookmark(BR, ARRIVAL)["playPoint"] == 1002600), str(bookmark(BR, ARRIVAL)["playPoint"]))
+
+
+def events():
+    return http("GET", RELAY + "/api/events?n=50")
+
+
+def card_for(title, pos):
+    return next((e for e in events() if e["title"] == title and e["positionMs"] == pos), None)
+
+
+# ---------------------------------------------------------------- 14. Activity cards: targets with states, and a poster
+card = wait_for(lambda: (lambda c: c if c and all(t["state"] != "Pending" for t in c["targets"]) else None)(card_for("Arrival", 1002600)), 20)
+check("stop card exists for Arrival with the source", card and card["fromName"] == "Living Room", str(card))
+states = {t["name"]: (t["state"], t.get("note", "")) for t in (card or {}).get("targets", [])}
+check("Bedroom chip is ok", states.get("Bedroom", ("",))[0] == "Ok", str(states))
+check("Home Theater Room chip is skipped (not in library)", states.get("Home Theater Room", ("",))[0] == "Skipped", str(states))
+poster_ok = False
+if card and card.get("poster"):
+    with urllib.request.urlopen(RELAY + card["poster"], timeout=10) as r:
+        poster_ok = r.read(8) == b"\x89PNG\r\n\x1a\n"
+check("card poster is served as an image", poster_ok, str(card and card.get("poster")))
+
+# ---------------------------------------------------------------- 15. episode card: SxxEyy and the season poster
+play_then_stop(LR, E04, 1200000)
+ep = wait_for(lambda: card_for("Andor", 1200000), 20)
+check("episode card subtitle is S01E04", ep and ep["subtitle"] == "S01E04", str(ep))
+st = bookmark(LR, E04)
+season_ids = [int(k) for k, v in st["titles"].items() if v["type"] == 4]
+check("season poster was requested", any(i in st["posterRequests"] for i in season_ids), f"{st['posterRequests']} vs {season_ids}")
+check("finished-looking films say so: Arrival card is not finished", card and not card["finished"])
+
+
+def dev(ip):
+    return next(d for d in http("GET", RELAY + "/api/state")["devices"] if d["ip"] == ip)
+
+
+# ---------------------------------------------------------------- 16. power off, waiting copies on the card, power on by Wake-on-LAN
+check("Home Theater Room reports power on and Home Theater running",
+      wait_for(lambda: dev(HT)["power"] == "on" and dev(HT)["homeTheater"] is True, 30), str(dev(HT)))
+check("player can be woken (MAC known)", dev(HT)["canWake"])
+http("POST", RELAY + "/api/devices/" + urllib.parse.quote(ids[HT]) + "/power", {"on": False})
+check("power off shows turning off", dev(HT)["power"] in ("turningOff", "off"), dev(HT)["power"])
+check("power off reaches off", wait_for(lambda: dev(HT)["power"] == "off", 40), dev(HT)["power"])
+check("power off sent the power key", "poweroff" in bookmark(HT, BRAVE)["powerLog"])
+play_then_stop(LR, E03, 1700000)
+check("waiting copy is listed on the off player's card",
+      wait_for(lambda: any(w["positionMs"] == 1700000 for w in dev(HT)["waiting"]), 20), str(dev(HT)["waiting"]))
+ev = wait_for(lambda: (lambda c: c if c and any(t["name"] == "Home Theater Room" and t["state"] == "Waiting" for t in c["targets"]) else None)(card_for("Andor", 1700000)), 20)
+check("its chip is waiting", ev, str(card_for("Andor", 1700000)))
+http("POST", RELAY + "/api/devices/" + urllib.parse.quote(ids[HT]) + "/power", {"on": True})
+check("power on shows turning on", dev(HT)["power"] in ("turningOn", "on"), dev(HT)["power"])
+check("Wake-on-LAN brings it up, Home Theater opened",
+      wait_for(lambda: dev(HT)["power"] == "on" and dev(HT)["homeTheater"] is True, 60), str(dev(HT)))
+log = bookmark(HT, BRAVE)["powerLog"]
+check("woken by the magic packet, then openApp", "wol" in log and "openApp" in log[log.index("wol"):], str(log))
+check("waiting copy delivered after waking", wait_for(lambda: bookmark(HT, E03)["playPoint"] == 1700000, 40))
+ev = wait_for(lambda: (lambda c: c if c and any(t["name"] == "Home Theater Room" and t["state"] == "Ok" for t in c["targets"]) else None)(card_for("Andor", 1700000)), 20)
+check("waiting chip turned ok", ev, str(card_for("Andor", 1700000)))
+check("waiting list on the card emptied", wait_for(lambda: not dev(HT)["waiting"], 10), str(dev(HT)["waiting"]))
+
+# ---------------------------------------------------------------- 17. Launch HT
+mock(BR, "htclosed", on=1)
+check("Home Theater closed is reported", wait_for(lambda: dev(BR)["homeTheater"] is False, 40), str(dev(BR)["homeTheater"]))
+http("POST", RELAY + "/api/devices/" + urllib.parse.quote(ids[BR]) + "/launch")
+check("Launch HT opens it", wait_for(lambda: dev(BR)["homeTheater"] is True, 20), str(dev(BR)["homeTheater"]))
+
+# ---------------------------------------------------------------- 18. now playing carries poster and subtitle
+mock(LR, "play", url=E03, pos=300000)
+np_ = wait_for(lambda: (dev(LR)["playing"] or {}).get("poster") and dev(LR)["playing"], 15)
+check("now playing shows S01E03 with a poster", np_ and np_["subtitle"] == "S01E03" and np_["poster"], str(np_))
+mock(LR, "stop")
+
 passed = sum(1 for _, ok in results if ok)
 print(f"\n{passed}/{len(results)} passed")
 sys.exit(0 if passed == len(results) else 1)

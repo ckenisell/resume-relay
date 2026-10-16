@@ -24,8 +24,8 @@ and settings are kept.
 1. Open the address in a browser and press **Scan network**. Every powered-on Zidoo is listed.
 2. Click each player's name and type a room name (e.g. *Living Room*). Press Enter to save.
 3. The app starts in **Watch-only** mode. It logs what it would copy, but writes nothing.
-   Play something on one player for a minute or more and stop it. **Activity** should show
-   "Would copy … from Living Room to Bedroom".
+   Play something on one player and stop it. The **Activity** tab should show a card for it
+   with a grey "watch-only: would copy" chip for each other player.
 4. When that looks right, press **Start copying** at the top.
 
 ## How it decides
@@ -41,6 +41,15 @@ and settings are kept.
   ready. Waiting copies are listed on the page and kept for 14 days by default. If that
   player plays the same film itself in the meantime, the older waiting copy is discarded.
 - Requires Zidoo Home Theater v5.1.11 (code 5111) or newer on every player.
+
+## Power buttons
+
+Each player card has a power button, like Z-Keeper's: red means off (click to turn it on),
+green means on (click to turn it off), and an orange ring spins while it is switching. Turning on
+uses Wake-on-LAN, then opens the Home Theater app; right-click the red button to turn on without
+opening it. **Launch HT** (next to the power button) opens the Home Theater app on a player that
+is on. Wake-on-LAN only works on a player that is in standby (not unplugged), on a **wired**
+connection, with network wake-up allowed in its settings.
 
 ## Useful commands
 

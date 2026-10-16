@@ -11,6 +11,7 @@ namespace ResumeRelay;
 public sealed class Store
 {
     private const int MaxActivity = 1000;
+    private const int MaxEvents = 300;
 
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -24,8 +25,10 @@ public sealed class Store
     private Settings _settings;
     private List<PendingCopy> _pending;
     private readonly LinkedList<ActivityEntry> _activity;
+    private readonly LinkedList<StopEvent> _events;
 
     public string DataDirectory => _dir;
+    public string PosterDirectory => Path.Combine(_dir, "posters");
 
     /// <summary>Raised whenever the activity log gains an entry (used to nudge the web page).</summary>
     public event Action? Changed;
@@ -38,6 +41,8 @@ public sealed class Store
         _settings = Load<Settings>("settings.json") ?? new();
         _pending = Load<List<PendingCopy>>("pending.json") ?? new();
         _activity = new LinkedList<ActivityEntry>(Load<List<ActivityEntry>>("activity.json") ?? new());
+        _events = new LinkedList<StopEvent>(Load<List<StopEvent>>("events.json") ?? new());
+        Directory.CreateDirectory(PosterDirectory);
     }
 
     // ---------- devices ----------
@@ -73,6 +78,8 @@ public sealed class Store
             if (found.Model.Length > 0) existing.Model = found.Model;
             if (found.Firmware.Length > 0) existing.Firmware = found.Firmware;
             if (found.Mac.Length > 0) existing.Mac = found.Mac;
+            if (found.NetMac.Length > 0) existing.NetMac = found.NetMac;
+            if (found.WifiMac.Length > 0) existing.WifiMac = found.WifiMac;
             Save("devices.json", _devices);
             return false;
         }
@@ -128,20 +135,27 @@ public sealed class Store
         lock (_lock) return _pending.Select(Clone).ToList();
     }
 
-    /// <summary>Queues a copy. If one is already waiting for the same player and file, the newer bookmark replaces it.</summary>
-    public void Enqueue(PendingCopy p)
+    /// <summary>Queues a copy. If one is already waiting for the same player and file, the newer bookmark replaces it;
+    /// the replaced copy is returned so its Activity chip can say so.</summary>
+    public PendingCopy? Enqueue(PendingCopy p)
     {
         lock (_lock)
         {
             var existing = _pending.FirstOrDefault(x => x.Key == p.Key);
             if (existing != null)
             {
-                if (existing.LastWatchTimeMs > p.LastWatchTimeMs) return;
+                if (existing.LastWatchTimeMs > p.LastWatchTimeMs) return null;
                 _pending.Remove(existing);
             }
             _pending.Add(Clone(p));
             Save("pending.json", _pending);
+            return existing == null ? null : Clone(existing);
         }
+    }
+
+    public PendingCopy? PendingFor(string key)
+    {
+        lock (_lock) return _pending.FirstOrDefault(x => x.Key == key) is { } p ? Clone(p) : null;
     }
 
     public void UpdatePending(PendingCopy p)
@@ -152,6 +166,7 @@ public sealed class Store
             if (existing == null) return;
             existing.LastAttemptUtc = p.LastAttemptUtc;
             existing.LastNote = p.LastNote;
+            existing.WaitedFor = p.WaitedFor;
             Save("pending.json", _pending);
         }
     }
@@ -166,32 +181,91 @@ public sealed class Store
         }
     }
 
-    public bool RemovePending(string key)
+    /// <summary>Removes a queued copy and returns it (null if there was none).</summary>
+    public PendingCopy? RemovePending(string key)
     {
         lock (_lock)
         {
-            int n = _pending.RemoveAll(x => x.Key == key);
-            if (n > 0) Save("pending.json", _pending);
-            return n > 0;
+            var p = _pending.FirstOrDefault(x => x.Key == key);
+            if (p == null) return null;
+            _pending.Remove(p);
+            Save("pending.json", _pending);
+            return p;
         }
     }
 
-    public int ExpirePending(TimeSpan maxAge)
+    public List<PendingCopy> ExpirePending(TimeSpan maxAge)
     {
         lock (_lock)
         {
             var cutoff = DateTime.UtcNow - maxAge;
-            int n = _pending.RemoveAll(x => x.CreatedUtc < cutoff);
-            if (n > 0) Save("pending.json", _pending);
-            return n;
+            var gone = _pending.Where(x => x.CreatedUtc < cutoff).ToList();
+            if (gone.Count > 0) { _pending.RemoveAll(x => x.CreatedUtc < cutoff); Save("pending.json", _pending); }
+            return gone;
         }
+    }
+
+    // ---------- stop events (the Activity cards) ----------
+
+    public void AddEvent(StopEvent e)
+    {
+        lock (_lock)
+        {
+            _events.AddFirst(Clone(e));
+            while (_events.Count > MaxEvents) _events.RemoveLast();
+            Save("events.json", _events.ToList());
+            PrunePosters();
+        }
+        Changed?.Invoke();
+    }
+
+    /// <summary>Updates one player's chip on a stop card.</summary>
+    public void UpdateEventTarget(string eventId, string deviceId, TargetState state, string note)
+    {
+        if (string.IsNullOrEmpty(eventId)) return;
+        lock (_lock)
+        {
+            var t = _events.FirstOrDefault(x => x.Id == eventId)?.Targets.FirstOrDefault(x => x.DeviceId == deviceId);
+            if (t == null) return;
+            t.State = state;
+            t.Note = note;
+            Save("events.json", _events.ToList());
+        }
+        Changed?.Invoke();
+    }
+
+    public List<StopEvent> Events(int max)
+    {
+        lock (_lock) return _events.Take(max).Select(Clone).ToList();
+    }
+
+    /// <summary>Deletes cached posters no card refers to any more (the now-playing poster is re-fetched if needed).</summary>
+    private void PrunePosters()
+    {
+        try
+        {
+            var used = new HashSet<string>(_events.Select(e => e.Poster).Where(p => p.Length > 0), StringComparer.OrdinalIgnoreCase);
+            foreach (var f in Directory.EnumerateFiles(PosterDirectory))
+            {
+                var name = Path.GetFileName(f);
+                if (!used.Contains(name) && File.GetLastWriteTimeUtc(f) < DateTime.UtcNow.AddDays(-2))
+                    File.Delete(f);
+            }
+        }
+        catch { }
     }
 
     // ---------- activity log ----------
 
-    public void Log(ActivityLevel level, string message)
+    /// <summary>A system message: shown as a row on the Activity tab.</summary>
+    public void Log(ActivityLevel level, string message) => Write(level, message, system: true);
+
+    /// <summary>A copy detail: kept in the journal (and the service log), shown on the tab as part of a stop card.</summary>
+    public void LogCopy(ActivityLevel level, string message) => Write(level, message, system: false);
+
+    private void Write(ActivityLevel level, string message, bool system)
     {
-        var e = new ActivityEntry { Level = level, Message = message, TimeUtc = DateTime.UtcNow };
+        var e = new ActivityEntry { Level = level, Message = message, TimeUtc = DateTime.UtcNow, System = system };
         lock (_lock)
         {
             _activity.AddFirst(e);

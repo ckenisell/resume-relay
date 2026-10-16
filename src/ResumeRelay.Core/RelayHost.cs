@@ -75,28 +75,46 @@ public static class RelayHost
 
         app.MapGet("/api/state", () =>
         {
+            var pendingAll = store.Pending().OrderBy(x => x.CreatedUtc).ToList();
             var devices = store.Devices().Select(dev =>
             {
                 var l = engine.LiveOf(dev.Id);
+                bool online = dev.Enabled && l.Online;
+                string power = l.Power switch
+                {
+                    PowerAction.TurningOn => "turningOn",
+                    PowerAction.TurningOff => "turningOff",
+                    _ => l.Online ? "on" : "off",
+                };
                 return new
                 {
                     dev.Id, dev.Name, dev.Ip, dev.Port, dev.Enabled, dev.Model, dev.Firmware, dev.Mac,
-                    Online = dev.Enabled && l.Online,
+                    Online = online,
                     l.LastSeenUtc,
-                    Playing = l.Playing == null ? null : new
+                    Power = power,
+                    CanWake = new[] { dev.NetMac, dev.WifiMac, dev.Mac }.Any(m => WakeOnLan.ParseMac(m) != null),
+                    HomeTheater = l.Online ? l.HomeTheaterRunning : null,
+                    Playing = l.Playing == null || !dev.Enabled ? null : new
                     {
                         l.Playing.Title,
+                        l.Playing.Subtitle,
                         File = PathMapper.FileName(l.Playing.Path),
                         l.Playing.PositionMs,
                         l.Playing.DurationMs,
                         l.Playing.Paused,
                         Shareable = l.Playing.SourceUrl.Length > 0,
+                        Poster = l.Playing.Poster.Length > 0 ? "/api/poster/" + l.Playing.Poster : null,
                     },
+                    Waiting = pendingAll.Where(p => p.TargetId == dev.Id).Select(p => new
+                    {
+                        p.Key, p.Title, p.FromName, p.PositionMs, p.CreatedUtc,
+                        Why = p.WaitedFor == "ht" ? "Home Theater isn't open" : p.LastNote.StartsWith("retry") ? p.LastNote : "",
+                    }),
                 };
             }).ToList();
 
             var names = store.Devices().ToDictionary(x => x.Id, x => x.Name);
-            var pending = store.Pending().OrderBy(x => x.CreatedUtc).Select(x => new
+            var pending = pendingAll.Select(x => new
             {
                 x.Key, x.Title, x.FromName, To = names.GetValueOrDefault(x.TargetId, "?"),
                 x.PositionMs, x.CreatedUtc, x.LastNote,
@@ -114,7 +132,41 @@ public static class RelayHost
             });
         });
 
-        app.MapGet("/api/activity", (int? n) => Results.Ok(store.Activity(Math.Clamp(n ?? 200, 1, 1000))));
+        // The full journal (system=false) or only the system rows the Activity tab shows between stop cards.
+        app.MapGet("/api/activity", (int? n, bool? system) =>
+        {
+            var all = store.Activity(1000).Where(e => system != true || e.System);
+            return Results.Ok(all.Take(Math.Clamp(n ?? 200, 1, 1000)));
+        });
+
+        app.MapGet("/api/events", (int? n) => Results.Ok(store.Events(Math.Clamp(n ?? 100, 1, 300)).Select(e => new
+        {
+            e.Id, e.TimeUtc, e.Title, e.Subtitle, e.FromName, e.PositionMs, e.DurationMs, e.Finished,
+            Poster = e.Poster.Length > 0 ? "/api/poster/" + e.Poster : null,
+            e.Targets,
+        })));
+
+        app.MapGet("/api/poster/{name}", (string name) =>
+        {
+            // Only names this app created: 16 hex characters and an image extension.
+            if (!System.Text.RegularExpressions.Regex.IsMatch(name, @"^[a-f0-9]{16}\.(jpg|png|webp)$")) return Results.NotFound();
+            string path = Path.Combine(store.PosterDirectory, name);
+            if (!File.Exists(path)) return Results.NotFound();
+            string type = name.EndsWith(".png") ? "image/png" : name.EndsWith(".webp") ? "image/webp" : "image/jpeg";
+            return Results.File(path, type, enableRangeProcessing: false);
+        });
+
+        app.MapPost("/api/devices/{id}/power", (string id, PowerRequest req) =>
+        {
+            string? err = req.On ? engine.StartPowerOn(id, req.LaunchHomeTheater ?? true) : engine.StartPowerOff(id);
+            return err == null ? Results.Ok() : Results.BadRequest(new { Error = err });
+        });
+
+        app.MapPost("/api/devices/{id}/launch", async (string id, CancellationToken ct) =>
+        {
+            string? err = await engine.LaunchHomeTheaterAsync(id, ct);
+            return err == null ? Results.Ok() : Results.BadRequest(new { Error = err });
+        });
 
         app.MapPost("/api/scan", async (CancellationToken ct) =>
         {
@@ -162,7 +214,7 @@ public static class RelayHost
         });
 
         app.MapDelete("/api/pending", (string key) =>
-            store.RemovePending(key) ? Results.Ok() : Results.NotFound());
+            engine.Discard(key) ? Results.Ok() : Results.NotFound());
 
         app.MapPost("/api/pending/retry", () => { engine.NudgeQueue(); return Results.Ok(); });
     }
@@ -170,4 +222,5 @@ public static class RelayHost
     private sealed record AddDeviceRequest(string? Ip, int? Port);
     private sealed record UpdateDeviceRequest(string? Name, bool? Enabled);
     private sealed record AutostartRequest(bool Enabled);
+    private sealed record PowerRequest(bool On, bool? LaunchHomeTheater);
 }

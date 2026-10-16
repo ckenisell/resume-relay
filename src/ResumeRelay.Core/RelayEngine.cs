@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace ResumeRelay;
@@ -8,11 +10,14 @@ namespace ResumeRelay;
 ///
 ///  1. Every few seconds, ask each enabled player what it is playing (getPlayStatus).
 ///  2. When a player that was playing a file stops (806), switches to another file, or drops off the
-///     network, that file's last position becomes a bookmark to copy to every other enabled player.
-///  3. Each copy is queued per player (and saved to disk), so a sleeping player gets it when it wakes.
-///  4. Before writing, the target's own entry for that file is looked up by path and checked:
-///     the id must point at the same path, the target must not hold a newer bookmark, and it must not
-///     already be at that position. After writing, the position is read back; the reply is not trusted.
+///     network, that file's bookmark is copied to every other enabled player. The position copied is the
+///     one the player itself saved when it stopped (read back from it), not the last polled guess.
+///  3. Each stop becomes a card on the Activity tab, with the title's poster and a chip per player.
+///  4. Each copy is queued per player (and saved to disk), so a sleeping player gets it when it wakes.
+///  5. Before writing, the target's own entry for that file is looked up by path and checked: the id
+///     must point at the same path, and it must not already be at that position. After writing, the
+///     position is read back; the reply is not trusted.
+/// It also turns players on (Wake-on-LAN) and off, and opens their Home Theater app, as Z-Keeper does.
 /// </summary>
 public sealed class RelayEngine : BackgroundService
 {
@@ -21,14 +26,24 @@ public sealed class RelayEngine : BackgroundService
     private static readonly TimeSpan IdentityCheckEvery = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan RescanEvery = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan OfflineBeforeRescan = TimeSpan.FromSeconds(90);
-    private static readonly Regex EpisodeTag = new(@"S\d{1,2}E\d{1,3}", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly TimeSpan HomeTheaterCheckEvery = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan PowerOnTimeout = TimeSpan.FromSeconds(120);
+    private static readonly TimeSpan WakePacketEvery = TimeSpan.FromSeconds(10);
+    private static readonly Regex EpisodeTag = new(@"S(\d{1,2})E(\d{1,3})", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private const string WaitOff = "off";
+    private const string WaitHomeTheater = "ht";
 
     private readonly Store _store;
     private readonly ConcurrentDictionary<string, DeviceLive> _live = new();
     private readonly ConcurrentDictionary<string, DateTime> _identityCheckedUtc = new();
+    private readonly ConcurrentDictionary<string, Task<TitleInfo>> _titles = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _queueSignal = new(0, int.MaxValue);
     private DateTime _lastRescanUtc = DateTime.MinValue;
     private int _rescanning;
+    private CancellationToken _stopping;
+
+    private sealed record TitleInfo(string Poster, string Subtitle);
 
     public RelayEngine(Store store) => _store = store;
 
@@ -38,6 +53,7 @@ public sealed class RelayEngine : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
+        _stopping = ct;
         _store.Log(ActivityLevel.Info, $"Resume Relay started on .NET {Environment.Version}. Data folder: {_store.DataDirectory}");
         if (_store.Settings().WatchOnly)
             _store.Log(ActivityLevel.Warn, "Watch-only mode is ON: bookmarks are logged, not copied. Turn it off in Settings when ready.");
@@ -69,7 +85,8 @@ public sealed class RelayEngine : BackgroundService
     private async Task PollOneAsync(Device d, CancellationToken ct)
     {
         var live = LiveOf(d.Id);
-        var status = await new ZidooClient(d.Ip, d.Port).GetPlayStatusAsync(TimeSpan.FromSeconds(3), ct);
+        var api = new ZidooClient(d.Ip, d.Port);
+        var status = await api.GetPlayStatusAsync(TimeSpan.FromSeconds(3), ct);
         var now = DateTime.UtcNow;
 
         if (status.State == PlayState.Unreachable)
@@ -79,13 +96,17 @@ public sealed class RelayEngine : BackgroundService
             {
                 live.Online = false;
                 live.OfflineSinceUtc = now;
-                _store.Log(ActivityLevel.Info, $"{d.Name} is not answering (asleep, off or unplugged).");
+                live.HomeTheaterRunning = null;
+                // Not worth a line when Resume Relay switched it off itself ("Turned X off." says it).
+                if (live.Power != PowerAction.TurningOff && now - live.PowerSinceUtc > TimeSpan.FromSeconds(90))
+                    _store.Log(ActivityLevel.Info, $"{d.Name} is not answering (asleep, off or unplugged).");
                 if (live.Playing != null)
                 {
-                    // It went away mid-movie (powered off from the remote, power cut...). Its last known position is the bookmark.
+                    // It went away mid-film (powered off, power cut...). It can't be asked any more, so its last
+                    // polled position is the best bookmark there is.
                     var last = live.Playing;
                     live.Playing = null;
-                    OnStopped(d, last, now, "player went offline");
+                    OnStopped(d, last, now, "player went offline", canAskPlayer: false);
                 }
             }
             else if (!live.Online && live.OfflineSinceUtc == null)
@@ -102,10 +123,11 @@ public sealed class RelayEngine : BackgroundService
         {
             // Make sure the player at this address is still the one we think it is before trusting it.
             if (!await VerifyIdentityAsync(d, ct)) { live.OfflineSinceUtc ??= now; return; }
-            bool wasKnownOffline = live.OfflineSinceUtc != null && live.LastSeenUtc != null;
+            bool wasKnownOffline = live.OfflineSinceUtc != null;
             live.Online = true;
             live.OfflineSinceUtc = null;
-            if (wasKnownOffline) _store.Log(ActivityLevel.Info, $"{d.Name} is back online.");
+            live.HomeTheaterCheckedUtc = DateTime.MinValue; // check the app straight away
+            if (wasKnownOffline && live.Power != PowerAction.TurningOn) _store.Log(ActivityLevel.Info, $"{d.Name} is back online.");
             NudgeQueue(); // deliver anything that waited for it
         }
         else if (now - _identityCheckedUtc.GetValueOrDefault(d.Id) > IdentityCheckEvery)
@@ -116,10 +138,11 @@ public sealed class RelayEngine : BackgroundService
         var prev = live.Playing;
         if (status.State == PlayState.Playing)
         {
-            if (prev != null && !string.Equals(prev.Path, status.Path, StringComparison.Ordinal))
-                OnStopped(d, prev, now, "switched to another file"); // e.g. auto-play of the next episode
+            bool sameFile = prev != null && string.Equals(prev.Path, status.Path, StringComparison.Ordinal);
+            if (prev != null && !sameFile)
+                OnStopped(d, prev, now, "switched to another file", canAskPlayer: true); // e.g. auto-play of the next episode
 
-            live.Playing = new NowPlaying
+            var np = new NowPlaying
             {
                 Path = status.Path,
                 SourceUrl = PathMapper.ToSourceUrl(status.Path) ?? "",
@@ -128,13 +151,46 @@ public sealed class RelayEngine : BackgroundService
                 DurationMs = status.DurationMs,
                 Paused = status.Paused,
                 UpdatedUtc = now,
+                Poster = sameFile ? prev!.Poster : "",
+                Subtitle = sameFile ? prev!.Subtitle : "",
             };
+            live.Playing = np;
+            live.HomeTheaterRunning = true; // it's playing through it
+            live.HomeTheaterCheckedUtc = now;
+
+            // Look the title up once (in the background) for the card's poster and episode number.
+            if (!sameFile && np.SourceUrl.Length > 0)
+                _ = FillNowPlayingAsync(d, np);
         }
         else // Idle
         {
             live.Playing = null;
-            if (prev != null) OnStopped(d, prev, now, "stopped");
+            if (prev != null) OnStopped(d, prev, now, "stopped", canAskPlayer: true);
+            await CheckHomeTheaterAsync(d, live, api, force: false, ct);
         }
+    }
+
+    private async Task FillNowPlayingAsync(Device d, NowPlaying np)
+    {
+        try
+        {
+            var info = await GetTitleInfoAsync(d, np.SourceUrl, np.Path);
+            np.Poster = info.Poster;
+            np.Subtitle = info.Subtitle;
+        }
+        catch { }
+    }
+
+    /// <summary>Is the player's Home Theater app running? Checked every 20 s while the player is idle; a change to
+    /// "running" releases any copies that were waiting for it.</summary>
+    private async Task CheckHomeTheaterAsync(Device d, DeviceLive live, ZidooClient api, bool force, CancellationToken ct)
+    {
+        if (!force && DateTime.UtcNow - live.HomeTheaterCheckedUtc < HomeTheaterCheckEvery) return;
+        bool running = await api.IsHomeTheaterRunningAsync(ct);
+        bool? before = live.HomeTheaterRunning;
+        live.HomeTheaterRunning = running;
+        live.HomeTheaterCheckedUtc = DateTime.UtcNow;
+        if (running && before == false) NudgeQueue();
     }
 
     private async Task<bool> VerifyIdentityAsync(Device d, CancellationToken ct)
@@ -148,8 +204,13 @@ public sealed class RelayEngine : BackgroundService
             return false;
         }
         _identityCheckedUtc[d.Id] = DateTime.UtcNow;
-        if (info.Firmware.Length > 0 && info.Firmware != d.Firmware)
-            _store.UpsertDiscovered(new Device { Id = d.Id, Ip = d.Ip, Port = d.Port, Model = info.Model, Firmware = info.Firmware, Mac = info.BestMac });
+        // Keep firmware and both MACs current (both are needed for Wake-on-LAN; older installs only stored one).
+        if ((info.Firmware.Length > 0 && info.Firmware != d.Firmware) || d.NetMac != info.WiredMac || d.WifiMac != info.WirelessMac)
+            _store.UpsertDiscovered(new Device
+            {
+                Id = d.Id, Ip = d.Ip, Port = d.Port, Model = info.Model, Firmware = info.Firmware,
+                Mac = info.BestMac, NetMac = info.WiredMac, WifiMac = info.WirelessMac,
+            });
         return true;
     }
 
@@ -185,16 +246,7 @@ public sealed class RelayEngine : BackgroundService
         {
             bool isKnown = known.TryGetValue(f.Info.Identity, out var k);
             if (!isKnown && !addNew) continue;
-            var dev = new Device
-            {
-                Id = f.Info.Identity,
-                Name = isKnown ? k!.Name : DefaultName(f),
-                Ip = f.Ip,
-                Port = Discovery.ZidooPort,
-                Model = f.Info.Model,
-                Firmware = f.Info.Firmware,
-                Mac = f.Info.BestMac,
-            };
+            var dev = FromModel(f.Info, f.Ip, Discovery.ZidooPort, isKnown ? k!.Name : DefaultName(f));
             if (isKnown && k!.Ip != f.Ip)
                 _store.Log(ActivityLevel.Info, $"{k.Name} moved from {k.Ip} to {f.Ip}; updated.");
             bool isNew = _store.UpsertDiscovered(dev);
@@ -209,17 +261,138 @@ public sealed class RelayEngine : BackgroundService
         var info = await new ZidooClient(ip, port).GetModelAsync(TimeSpan.FromSeconds(5), ct);
         if (info == null) return (null, $"Nothing answered as a Zidoo at {ip}:{port}. Is it powered on?");
         if (info.Identity.Length == 0) return (null, "The player did not report a MAC address or ID.");
-        var dev = new Device { Id = info.Identity, Name = DefaultName(new Discovery.Found(ip, info)), Ip = ip, Port = port, Model = info.Model, Firmware = info.Firmware, Mac = info.BestMac };
+        var dev = FromModel(info, ip, port, DefaultName(new Discovery.Found(ip, info)));
         bool isNew = _store.UpsertDiscovered(dev);
         _store.Log(ActivityLevel.Info, isNew ? $"Added {dev.Name} ({dev.Model}, {ip})." : $"{_store.Device(dev.Id)!.Name} is already registered; address updated to {ip}.");
         return (_store.Device(dev.Id), "");
     }
 
+    private static Device FromModel(ModelInfo info, string ip, int port, string name) => new()
+    {
+        Id = info.Identity, Name = name, Ip = ip, Port = port, Model = info.Model, Firmware = info.Firmware,
+        Mac = info.BestMac, NetMac = info.WiredMac, WifiMac = info.WirelessMac,
+    };
+
     private static string DefaultName(Discovery.Found f) => $"{(f.Info.Model.Length > 0 ? f.Info.Model : "Zidoo")} ({f.Ip})";
 
-    // ===================================================================== stop → queue
+    // ===================================================================== power and Home Theater
 
-    private void OnStopped(Device source, NowPlaying last, DateTime stoppedUtc, string how)
+    /// <summary>Turns a player on (Wake-on-LAN) and, unless asked not to, opens its Home Theater app once it answers.
+    /// Mirrors Z-Keeper: packets to the wired and Wi-Fi MAC every 10 s for up to 2 minutes.</summary>
+    public string? StartPowerOn(string deviceId, bool launchHomeTheater)
+    {
+        var d = _store.Device(deviceId);
+        if (d == null) return "Unknown player.";
+        var live = LiveOf(d.Id);
+        if (live.Power != PowerAction.None) return $"{d.Name} is already being switched.";
+        var macs = new[] { d.NetMac, d.WifiMac, d.Mac }.Where(m => WakeOnLan.ParseMac(m) != null).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (macs.Count == 0) return $"{d.Name} has no MAC address on record, so it can't be woken. Scan the network while it's on.";
+
+        live.Power = PowerAction.TurningOn;
+        live.PowerSinceUtc = DateTime.UtcNow;
+        _ = Task.Run(async () =>
+        {
+            var api = new ZidooClient(d.Ip, d.Port);
+            var until = DateTime.UtcNow + PowerOnTimeout;
+            var nextPacket = DateTime.MinValue;
+            bool up = false;
+            try
+            {
+                while (DateTime.UtcNow < until && !_stopping.IsCancellationRequested)
+                {
+                    if (DateTime.UtcNow >= nextPacket)
+                    {
+                        foreach (var mac in macs) WakeOnLan.Send(mac, d.Ip);
+                        nextPacket = DateTime.UtcNow + WakePacketEvery;
+                    }
+                    if (await api.GetModelAsync(TimeSpan.FromSeconds(3), _stopping) != null) { up = true; break; }
+                    await Task.Delay(3000, _stopping);
+                }
+                if (!up)
+                {
+                    _store.Log(ActivityLevel.Warn, $"{d.Name} didn't answer within 2 minutes. Wake-on-LAN only works when the player is in standby " +
+                                                   "(not unplugged), on a wired connection, with its network wake option on.");
+                    return;
+                }
+                if (launchHomeTheater)
+                {
+                    await api.LaunchHomeTheaterAsync(_stopping);
+                    await WaitForHomeTheaterAsync(d, api, TimeSpan.FromSeconds(45));
+                }
+                _store.Log(ActivityLevel.Info, $"Turned {d.Name} on" + (launchHomeTheater ? " and opened Home Theater." : "."));
+                NudgeQueue();
+            }
+            catch (OperationCanceledException) { }
+            finally { live.Power = PowerAction.None; }
+        });
+        return null;
+    }
+
+    /// <summary>Puts a player in standby (the remote's power key), then waits for it to go quiet.</summary>
+    public string? StartPowerOff(string deviceId)
+    {
+        var d = _store.Device(deviceId);
+        if (d == null) return "Unknown player.";
+        var live = LiveOf(d.Id);
+        if (live.Power != PowerAction.None) return $"{d.Name} is already being switched.";
+        live.Power = PowerAction.TurningOff;
+        live.PowerSinceUtc = DateTime.UtcNow;
+        _ = Task.Run(async () =>
+        {
+            var api = new ZidooClient(d.Ip, d.Port);
+            try
+            {
+                await api.PowerOffAsync(_stopping);
+                var until = DateTime.UtcNow.AddSeconds(60);
+                while (DateTime.UtcNow < until && !_stopping.IsCancellationRequested)
+                {
+                    await Task.Delay(2000, _stopping);
+                    if (await api.GetModelAsync(TimeSpan.FromSeconds(2), _stopping) == null)
+                    {
+                        _store.Log(ActivityLevel.Info, $"Turned {d.Name} off.");
+                        return;
+                    }
+                }
+                _store.Log(ActivityLevel.Warn, $"{d.Name} is still answering a minute after being told to turn off.");
+            }
+            catch (OperationCanceledException) { }
+            finally { live.Power = PowerAction.None; }
+        });
+        return null;
+    }
+
+    public async Task<string?> LaunchHomeTheaterAsync(string deviceId, CancellationToken ct)
+    {
+        var d = _store.Device(deviceId);
+        if (d == null) return "Unknown player.";
+        var api = new ZidooClient(d.Ip, d.Port);
+        if (!await api.LaunchHomeTheaterAsync(ct)) return $"{d.Name} didn't accept the request. Is it on?";
+        _ = WaitForHomeTheaterAsync(d, api, TimeSpan.FromSeconds(45));
+        return null;
+    }
+
+    private async Task WaitForHomeTheaterAsync(Device d, ZidooClient api, TimeSpan max)
+    {
+        var live = LiveOf(d.Id);
+        var until = DateTime.UtcNow + max;
+        while (DateTime.UtcNow < until && !_stopping.IsCancellationRequested)
+        {
+            await CheckHomeTheaterAsync(d, live, api, force: true, _stopping);
+            if (live.HomeTheaterRunning == true) { NudgeQueue(); return; }
+            try { await Task.Delay(2500, _stopping); } catch (OperationCanceledException) { return; }
+        }
+    }
+
+    // ===================================================================== stop → card → queue
+
+    private void OnStopped(Device source, NowPlaying last, DateTime stoppedUtc, string how, bool canAskPlayer) =>
+        _ = Task.Run(async () =>
+        {
+            try { await HandleStopAsync(source, last, stoppedUtc, how, canAskPlayer); }
+            catch (Exception ex) { _store.Log(ActivityLevel.Error, $"Could not process the stop on {source.Name}: {ex.Message}"); }
+        });
+
+    private async Task HandleStopAsync(Device source, NowPlaying last, DateTime stoppedUtc, string how, bool canAskPlayer)
     {
         string label = Label(last.Title, last.Path);
 
@@ -230,37 +403,149 @@ public sealed class RelayEngine : BackgroundService
         }
 
         // This player has just watched the file itself, so any older copy still waiting to reach it is out of date.
-        if (_store.RemovePending(source.Id + "|" + last.SourceUrl.ToLowerInvariant()))
+        var superseded = _store.RemovePending(source.Id + "|" + last.SourceUrl.ToLowerInvariant());
+        if (superseded != null)
+        {
+            _store.UpdateEventTarget(superseded.EventId, source.Id, TargetState.Skipped, "watched there instead");
             _store.Log(ActivityLevel.Info, $"Discarded an older waiting copy of {label} for {source.Name}: it was just watched there.");
+        }
+
+        // The polled position can be up to one poll interval old. The player saved its own bookmark when it
+        // stopped; ask for it, so every room gets the exact second.
+        int position = canAskPlayer ? await ExactStopPositionAsync(source, last) : last.PositionMs;
 
         // Any position is copied, however short. 0:00 is the one exception: writing 0 tells the player to erase the
         // bookmark and the watched flag, which is not what stopping at the very start means.
-        if (last.PositionMs <= 0)
+        if (position <= 0)
         {
             _store.Log(ActivityLevel.Skip, $"{label} {how} on {source.Name} at 0:00; nothing to copy.");
             return;
         }
 
+        var info = await GetTitleInfoAsync(source, last.SourceUrl, last.Path);
         var targets = _store.Devices().Where(d => d.Enabled && d.Id != source.Id).ToList();
-        _store.Log(ActivityLevel.Info, $"{label} {how} on {source.Name} at {Clock(last.PositionMs)}" +
-                                       (targets.Count == 0 ? ". No other players to copy to." : $". Copying to {string.Join(", ", targets.Select(t => t.Name))}…"));
+        bool finished = NearEnd(position, last.DurationMs);
+
+        var ev = new StopEvent
+        {
+            TimeUtc = stoppedUtc,
+            Title = TitleOnly(last.Title, last.Path),
+            Subtitle = info.Subtitle,
+            FromName = source.Name,
+            PositionMs = position,
+            DurationMs = last.DurationMs,
+            Finished = finished,
+            Poster = info.Poster,
+            Targets = targets.Select(t => new StopTarget { DeviceId = t.Id, Name = t.Name }).ToList(),
+        };
+        _store.AddEvent(ev);
+        _store.LogCopy(ActivityLevel.Info, $"{label} {how} on {source.Name} at {Clock(position)}" +
+                                           (targets.Count == 0 ? ". No other players to copy to." : $". Copying to {string.Join(", ", targets.Select(t => t.Name))}…"));
 
         long lastWatch = new DateTimeOffset(stoppedUtc).ToUnixTimeMilliseconds();
         foreach (var t in targets)
         {
-            _store.Enqueue(new PendingCopy
+            var replaced = _store.Enqueue(new PendingCopy
             {
                 TargetId = t.Id,
                 SourceUrl = last.SourceUrl,
                 Title = label,
                 FromName = source.Name,
-                PositionMs = last.PositionMs,
+                PositionMs = position,
                 DurationMs = last.DurationMs,
                 LastWatchTimeMs = lastWatch,
                 CreatedUtc = stoppedUtc,
+                EventId = ev.Id,
             });
+            if (replaced != null)
+                _store.UpdateEventTarget(replaced.EventId, t.Id, TargetState.Skipped, "replaced by a later stop");
         }
         NudgeQueue();
+    }
+
+    /// <summary>
+    /// Reads the bookmark the source player saved when it stopped. It is accepted only if it is plausible: no earlier
+    /// than the last polled position, and no later than one poll interval (plus slack) after it. The player may take
+    /// a moment to save, so it is asked a few times. If nothing plausible comes back, the polled position is used.
+    /// </summary>
+    private async Task<int> ExactStopPositionAsync(Device source, NowPlaying last)
+    {
+        try
+        {
+            var api = new ZidooClient(source.Ip, source.Port);
+            var (lookup, hit) = await api.GetIdByPathnameAsync(last.SourceUrl, _stopping);
+            if (lookup != Lookup.Found) return last.PositionMs;
+
+            int lo = last.PositionMs - 1500;
+            int hi = last.PositionMs + _store.Settings().PollSeconds * 1000 + 4000;
+            bool nearEnd = NearEnd(last.PositionMs, last.DurationMs);
+            for (int attempt = 0; attempt < 6; attempt++)
+            {
+                await Task.Delay(attempt == 0 ? 600 : 800, _stopping);
+                var entry = await api.GetEntryAsync(hit!.Id, _stopping);
+                if (entry == null || !PathMapper.Same(entry.Path, last.SourceUrl)) continue;
+                int saved = entry.PlayPointMs;
+                if (saved >= lo && saved <= hi) return saved;
+                // A finished file may be saved at its full length.
+                if (nearEnd && last.DurationMs > 0 && saved >= lo && saved <= last.DurationMs + 1000) return saved;
+            }
+        }
+        catch (OperationCanceledException) { throw; }
+        catch { }
+        return last.PositionMs;
+    }
+
+    /// <summary>Poster (season poster for episodes) and subtitle for a file, looked up once per player and file.</summary>
+    private Task<TitleInfo> GetTitleInfoAsync(Device d, string sourceUrl, string playPath)
+    {
+        string key = d.Id + "|" + sourceUrl;
+        var task = _titles.GetOrAdd(key, _ => LookUpTitleAsync(d, sourceUrl, playPath));
+        // Don't keep an empty answer forever (the Home Theater app may simply not have been running).
+        _ = task.ContinueWith(t => { if (t.IsFaulted || (t.Result.Poster.Length == 0)) _titles.TryRemove(key, out _); }, TaskScheduler.Default);
+        if (_titles.Count > 500) _titles.Clear();
+        return task;
+    }
+
+    private async Task<TitleInfo> LookUpTitleAsync(Device d, string sourceUrl, string playPath)
+    {
+        string subtitle = "";
+        var m = EpisodeTag.Match(PathMapper.FileName(playPath));
+        if (m.Success) subtitle = $"S{int.Parse(m.Groups[1].Value):00}E{int.Parse(m.Groups[2].Value):00}";
+        else if (Regex.Match(PathMapper.FileName(playPath), @"\((19\d\d|20\d\d)\)") is { Success: true } y) subtitle = y.Groups[1].Value;
+        try
+        {
+            var api = new ZidooClient(d.Ip, d.Port);
+            var (lookup, hit) = await api.GetIdByPathnameAsync(sourceUrl, _stopping);
+            if (lookup != Lookup.Found) return new TitleInfo("", subtitle);
+
+            var file = await api.GetEntryAsync(hit!.Id, _stopping);
+            if (file != null && file.Season > 0 && file.Episode > 0) subtitle = $"S{file.Season:00}E{file.Episode:00}";
+
+            // Walk up from the file: the season (4) is preferred for episodes, then the film (1), then the series (3).
+            int posterId = 0, seriesId = 0, parent = file?.ParentId ?? 0;
+            for (int level = 0; level < 4 && parent > 1 && posterId == 0; level++)
+            {
+                var e = await api.GetEntryAsync(parent, _stopping);
+                if (e == null) break;
+                if (e.Type is 4 or 1) posterId = e.Id;
+                else if (e.Type == 3 && seriesId == 0) seriesId = e.Id;
+                parent = e.ParentId;
+            }
+            if (posterId == 0) posterId = seriesId;
+            if (posterId == 0 && hit.Matched && hit.TitleId > 0 && hit.TitleId != hit.Id) posterId = hit.TitleId;
+            if (posterId == 0) return new TitleInfo("", subtitle);
+
+            var bytes = await api.GetPosterAsync(posterId, ct: _stopping);
+            if (bytes == null) return new TitleInfo("", subtitle);
+            string name = Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes(d.Id + "|" + posterId)))[..16].ToLowerInvariant()
+                          + ZidooClient.ImageExtension(bytes);
+            string path = Path.Combine(_store.PosterDirectory, name);
+            if (!File.Exists(path)) await File.WriteAllBytesAsync(path, bytes, _stopping);
+            else File.SetLastWriteTimeUtc(path, DateTime.UtcNow);
+            return new TitleInfo(name, subtitle);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch { return new TitleInfo("", subtitle); }
     }
 
     // ===================================================================== queue → players
@@ -275,8 +560,11 @@ public sealed class RelayEngine : BackgroundService
 
             try
             {
-                int expired = _store.ExpirePending(TimeSpan.FromDays(_store.Settings().PendingMaxDays));
-                if (expired > 0) _store.Log(ActivityLevel.Warn, $"{expired} waiting bookmark copies expired (their player stayed offline too long).");
+                int days = _store.Settings().PendingMaxDays;
+                var expired = _store.ExpirePending(TimeSpan.FromDays(days));
+                foreach (var x in expired)
+                    _store.UpdateEventTarget(x.EventId, x.TargetId, TargetState.Failed, $"expired: the player stayed off for {days} days");
+                if (expired.Count > 0) _store.Log(ActivityLevel.Warn, $"{expired.Count} waiting bookmark copies expired (their player stayed offline too long).");
 
                 // Players whose Home Theater app did not answer in this pass: their other copies wait for the next pass
                 // instead of each spending its own timeout.
@@ -284,7 +572,7 @@ public sealed class RelayEngine : BackgroundService
                 foreach (var job in _store.Pending())
                 {
                     if (ct.IsCancellationRequested) break;
-                    if (htNotReady.Contains(job.TargetId)) continue;
+                    if (htNotReady.Contains(job.TargetId)) { MarkWaiting(job, WaitHomeTheater); continue; }
                     if (job.LastAttemptUtc.HasValue && DateTime.UtcNow - job.LastAttemptUtc < RetryBackoff && job.LastNote.StartsWith("retry")) continue;
                     await ProcessAsync(job, htNotReady, ct);
                 }
@@ -297,12 +585,16 @@ public sealed class RelayEngine : BackgroundService
     private async Task ProcessAsync(PendingCopy job, HashSet<string> htNotReady, CancellationToken ct)
     {
         var target = _store.Device(job.TargetId);
-        if (target == null || !target.Enabled) { _store.Dequeue(job); return; }
+        if (target == null || !target.Enabled)
+        {
+            Finish(job, TargetState.Skipped, target == null ? "player removed" : "sync is off for it");
+            return;
+        }
 
         var live = LiveOf(target.Id);
-        if (!live.Online)
+        if (!live.Online || live.Power == PowerAction.TurningOff)
         {
-            if (job.LastNote != "waiting") { job.LastNote = "waiting"; _store.UpdatePending(job); }
+            MarkWaiting(job, WaitOff);
             return; // stays queued until the player answers again
         }
 
@@ -310,8 +602,8 @@ public sealed class RelayEngine : BackgroundService
 
         if (live.Playing != null && PathMapper.Same(live.Playing.SourceUrl, job.SourceUrl))
         {
-            _store.Log(ActivityLevel.Skip, $"Not copying {what}: it is playing there right now.");
-            _store.Dequeue(job);
+            _store.LogCopy(ActivityLevel.Skip, $"Not copying {what}: it is playing there right now.");
+            Finish(job, TargetState.Skipped, "playing there right now");
             return;
         }
 
@@ -321,8 +613,8 @@ public sealed class RelayEngine : BackgroundService
         var (lookup, hit) = await api.GetIdByPathnameAsync(job.SourceUrl, ct);
         if (lookup == Lookup.NotFound)
         {
-            _store.Log(ActivityLevel.Skip, $"Not copying {what}: {target.Name}'s library does not have that file.");
-            _store.Dequeue(job);
+            _store.LogCopy(ActivityLevel.Skip, $"Not copying {what}: {target.Name}'s library does not have that file.");
+            Finish(job, TargetState.Skipped, "not in its library");
             return;
         }
         // The player answers but its library does not: the Home Theater app is closed (the library API only runs
@@ -334,16 +626,17 @@ public sealed class RelayEngine : BackgroundService
         if (entry == null) { WaitForHomeTheater(job, target, htNotReady); return; }
         if (!PathMapper.Same(entry.Path, job.SourceUrl))
         {
-            _store.Log(ActivityLevel.Error, $"Safety check stopped {what}: id {hit.Id} on {target.Name} points at \"{entry.Path}\", not this file. Nothing written.");
-            _store.Dequeue(job);
+            _store.LogCopy(ActivityLevel.Error, $"Safety check stopped {what}: id {hit.Id} on {target.Name} points at \"{entry.Path}\", not this file. Nothing written.");
+            Finish(job, TargetState.Failed, "safety check stopped it, nothing written");
             return;
         }
+        live.HomeTheaterRunning = true;
 
         // 3. Already there?
-        if (Math.Abs(entry.PlayPointMs - job.PositionMs) <= 10_000)
+        if (Math.Abs(entry.PlayPointMs - job.PositionMs) <= 2_000)
         {
-            _store.Log(ActivityLevel.Skip, $"{target.Name} already has {job.Title} at {Clock(entry.PlayPointMs)}.");
-            _store.Dequeue(job);
+            _store.LogCopy(ActivityLevel.Skip, $"{target.Name} already has {job.Title} at {Clock(entry.PlayPointMs)}.");
+            Finish(job, TargetState.Ok, "already there");
             return;
         }
 
@@ -351,12 +644,12 @@ public sealed class RelayEngine : BackgroundService
 
         if (_store.Settings().WatchOnly)
         {
-            _store.Log(ActivityLevel.Info, $"[watch-only] Would copy {what} (entry {entry.Id}, currently {Clock(entry.PlayPointMs)}).");
-            _store.Dequeue(job);
+            _store.LogCopy(ActivityLevel.Info, $"[watch-only] Would copy {what} (entry {entry.Id}, currently {Clock(entry.PlayPointMs)}).");
+            Finish(job, TargetState.WatchOnly, "watch-only: would copy");
             return;
         }
 
-        // 5. Write, then believe only what we read back.
+        // 4. Write, then believe only what we read back.
         await api.SetPlayPointAsync(entry.Id, job.PositionMs, job.DurationMs, job.LastWatchTimeMs, ct);
         int? readBack = null;
         for (int i = 0; i < 3 && !ct.IsCancellationRequested; i++)
@@ -368,8 +661,14 @@ public sealed class RelayEngine : BackgroundService
 
         if (readBack.HasValue && Landed(readBack.Value, job))
         {
-            _store.Log(ActivityLevel.Ok, $"Copied {what}" + (NearEnd(job) ? " (marked watched)." : "."));
-            _store.Dequeue(job);
+            bool watched = NearEnd(job.PositionMs, job.DurationMs);
+            _store.LogCopy(ActivityLevel.Ok, $"Copied {what}" + (watched ? " (marked watched)." : "."));
+            string note = string.Join(", ", new[]
+            {
+                watched ? "watched" : "",
+                job.WaitedFor == WaitOff ? "after it woke up" : job.WaitedFor == WaitHomeTheater ? "after Home Theater opened" : "",
+            }.Where(s => s.Length > 0));
+            Finish(job, TargetState.Ok, note);
         }
         else
         {
@@ -377,42 +676,68 @@ public sealed class RelayEngine : BackgroundService
         }
     }
 
+    /// <summary>Removes the copy from the queue and sets its chip on the Activity card.</summary>
+    private void Finish(PendingCopy job, TargetState state, string note)
+    {
+        _store.Dequeue(job);
+        _store.UpdateEventTarget(job.EventId, job.TargetId, state, note);
+    }
+
+    private void MarkWaiting(PendingCopy job, string reason)
+    {
+        if (job.WaitedFor == reason && job.LastNote.Length > 0) return;
+        job.WaitedFor = reason;
+        job.LastNote = reason == WaitOff ? "waiting" : "waiting for the Home Theater app to be opened";
+        _store.UpdatePending(job);
+        _store.UpdateEventTarget(job.EventId, job.TargetId, TargetState.Waiting,
+            reason == WaitOff ? "waiting, player is off" : "waiting, Home Theater isn't open");
+    }
+
     private void WaitForHomeTheater(PendingCopy job, Device target, HashSet<string> htNotReady)
     {
         htNotReady.Add(target.Id);
-        const string note = "waiting for the Home Theater app to be opened";
-        if (job.LastNote == note) return;
-        bool firstForPlayer = !_store.Pending().Any(p => p.TargetId == target.Id && p.LastNote == note);
-        job.LastNote = note;
-        _store.UpdatePending(job);
+        LiveOf(target.Id).HomeTheaterRunning = false;
+        if (job.WaitedFor == WaitHomeTheater) return;
+        bool firstForPlayer = !_store.Pending().Any(p => p.TargetId == target.Id && p.WaitedFor == WaitHomeTheater);
+        MarkWaiting(job, WaitHomeTheater);
         if (firstForPlayer)
             _store.Log(ActivityLevel.Info, $"{target.Name} is on, but its Home Theater app isn't open. Copies for it will go through once it is.");
     }
 
     private void Retry(PendingCopy job, string what, string why)
     {
-        int attempt = 1 + (job.LastNote.StartsWith("retry ") && int.TryParse(job.LastNote.Split(' ')[1], out int n) ? n : 0);
+        int attempt = 1 + (job.LastNote.StartsWith("retry ") && int.TryParse(job.LastNote.Split(' ')[1].TrimEnd(':'), out int n) ? n : 0);
         if (attempt >= MaxAttempts)
         {
-            _store.Log(ActivityLevel.Error, $"Gave up copying {what}: {why}.");
-            _store.Dequeue(job);
+            _store.LogCopy(ActivityLevel.Error, $"Gave up copying {what}: {why}.");
+            Finish(job, TargetState.Failed, why);
             return;
         }
         job.LastAttemptUtc = DateTime.UtcNow;
         job.LastNote = $"retry {attempt}: {why}";
         _store.UpdatePending(job);
-        _store.Log(ActivityLevel.Warn, $"Will retry {what}: {why}.");
+        _store.UpdateEventTarget(job.EventId, job.TargetId, TargetState.Waiting, "retrying: " + why);
+        _store.LogCopy(ActivityLevel.Warn, $"Will retry {what}: {why}.");
+    }
+
+    /// <summary>Discarding a waiting copy from the page.</summary>
+    public bool Discard(string key)
+    {
+        var p = _store.RemovePending(key);
+        if (p == null) return false;
+        _store.UpdateEventTarget(p.EventId, p.TargetId, TargetState.Skipped, "discarded");
+        return true;
     }
 
     /// <summary>A write counts as landed when the player now shows the position we sent (±2 s). Near the end the
     /// player may round up to the full duration as it marks the file watched; that counts too.</summary>
     private static bool Landed(int readBack, PendingCopy job) =>
         Math.Abs(readBack - job.PositionMs) <= 2_000 ||
-        (NearEnd(job) && readBack >= job.PositionMs - 2_000 && (job.DurationMs <= 0 || readBack <= job.DurationMs + 2_000));
+        (NearEnd(job.PositionMs, job.DurationMs) && readBack >= job.PositionMs - 2_000 && (job.DurationMs <= 0 || readBack <= job.DurationMs + 2_000));
 
     /// <summary>The player marks a file watched when the point is within 5 minutes of the end or at 93% or more.</summary>
-    private static bool NearEnd(PendingCopy j) =>
-        j.DurationMs > 0 && (j.PositionMs >= j.DurationMs * 0.93 || j.DurationMs - j.PositionMs <= 5 * 60_000);
+    private static bool NearEnd(int positionMs, int durationMs) =>
+        durationMs > 0 && (positionMs >= durationMs * 0.93 || durationMs - positionMs <= 5 * 60_000);
 
     // ===================================================================== helpers
 
@@ -426,7 +751,10 @@ public sealed class RelayEngine : BackgroundService
     {
         string file = PathMapper.FileName(path);
         var ep = EpisodeTag.Match(file);
-        string t = title.Trim().Length > 0 ? title.Trim() : file;
+        string t = TitleOnly(title, path);
         return ep.Success && !t.Contains(ep.Value, StringComparison.OrdinalIgnoreCase) ? $"{t} {ep.Value.ToUpperInvariant()}" : t;
     }
+
+    private static string TitleOnly(string title, string path) =>
+        title.Trim().Length > 0 ? title.Trim() : PathMapper.FileName(path);
 }

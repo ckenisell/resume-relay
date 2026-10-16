@@ -9,6 +9,8 @@ public sealed record ModelInfo(string Model, string Firmware, string NetMac, str
         Mac(NetMac) ?? Mac(WifiMac) ?? (Uuid.Length > 0 ? "uuid:" + Uuid.ToLowerInvariant() : "");
 
     public string BestMac => Mac(NetMac) ?? Mac(WifiMac) ?? "";
+    public string WiredMac => Mac(NetMac) ?? "";
+    public string WirelessMac => Mac(WifiMac) ?? "";
 
     private static string? Mac(string m)
     {
@@ -22,11 +24,12 @@ public enum PlayState { Unreachable, Idle, Playing }
 
 public sealed record PlayStatus(PlayState State, string Path, string Title, int PositionMs, int DurationMs, bool Paused);
 
-/// <summary>Result of getIdByPathname. Id is the FILE's entry id (the response's fileId), which getEntry and setPlayPoint take.</summary>
-public sealed record PathHit(int Id, int VideoInfoId, bool Matched);
+/// <summary>Result of getIdByPathname. Id is the FILE's entry id (the response's fileId), which getEntry and setPlayPoint
+/// take. TitleId is the response's "id": the film (or the file itself when unmatched).</summary>
+public sealed record PathHit(int Id, int VideoInfoId, bool Matched, int TitleId);
 
-/// <summary>Result of getEntry for a single file.</summary>
-public sealed record EntryInfo(int Id, int ParentId, int VideoInfoId, string Name, string Path, int PlayPointMs);
+/// <summary>Result of getEntry. Type: 0 file, 1 film, 3 series, 4 season (see the HT5 API guide).</summary>
+public sealed record EntryInfo(int Id, int ParentId, int VideoInfoId, string Name, string Path, int PlayPointMs, int Type = 0, int Season = 0, int Episode = 0);
 
 public enum Lookup { Found, NotFound, Failed }
 
@@ -102,7 +105,7 @@ public sealed class ZidooClient
             int fileEntry = Int(r, "fileId");
             if (fileEntry <= 0 && !matched) fileEntry = Int(r, "id");
             if (fileEntry <= 0) return (Lookup.Failed, null);
-            return (Lookup.Found, new PathHit(fileEntry, Int(r, "videoInfoId"), matched));
+            return (Lookup.Found, new PathHit(fileEntry, Int(r, "videoInfoId"), matched, Int(r, "id")));
         }
     }
 
@@ -114,8 +117,50 @@ public sealed class ZidooClient
         {
             var r = doc.RootElement;
             if (Int(r, "status") != 200 || Int(r, "id") != id) return null;
-            return new EntryInfo(id, Int(r, "parentId"), Int(r, "videoInfoId"), Str(r, "name"), Str(r, "path"), Int(r, "playPoint"));
+            return new EntryInfo(id, Int(r, "parentId"), Int(r, "videoInfoId"), Str(r, "name"), Str(r, "path"), Int(r, "playPoint"),
+                Int(r, "type"), Int(r, "seasonNumber"), Int(r, "episodeNumber"));
         }
+    }
+
+    /// <summary>A poster image, or null. Tries the same endpoints Z-Keeper uses, newest API first.</summary>
+    public async Task<byte[]?> GetPosterAsync(int id, int width = 240, int height = 360, CancellationToken ct = default)
+    {
+        foreach (var path in new[]
+                 {
+                     $"/ZidooPoster/v2/getPoster?id={id}&w={width}&h={height}",
+                     $"/ZidooPoster/getFile/getPoster?id={id}&w={width}&h={height}",
+                 })
+        {
+            var bytes = await GetBytesAsync(path, TimeSpan.FromSeconds(10), ct);
+            if (bytes != null && IsImage(bytes)) return bytes;
+        }
+        return null;
+    }
+
+    /// <summary>True when the Home Theater app's library answers (the check Z-Keeper uses). The player itself can be
+    /// on and answering other calls while this is false: the app isn't running yet.</summary>
+    public async Task<bool> IsHomeTheaterRunningAsync(CancellationToken ct = default)
+    {
+        var doc = await GetJsonAsync("/ZidooPoster/getVideoList?page=1&pagesize=1&type=0", TimeSpan.FromSeconds(5), ct);
+        if (doc == null) return false;
+        using (doc) return Int(doc.RootElement, "status") == 200;
+    }
+
+    /// <summary>Opens the Home Theater app on the player (com.zidoo.poster).</summary>
+    public async Task<bool> LaunchHomeTheaterAsync(CancellationToken ct = default)
+    {
+        var doc = await GetJsonAsync("/ZidooControlCenter/Apps/openApp?packageName=com.zidoo.poster", TimeSpan.FromSeconds(8), ct);
+        if (doc == null) return false;
+        using (doc) return Int(doc.RootElement, "status") == 200;
+    }
+
+    /// <summary>Presses the remote's power button for you: the player goes to standby (Z-Keeper's power-off call).</summary>
+    /// The reply is not relied on: a player going to standby may drop the connection before answering.
+    /// Success is judged by the player going quiet afterwards.
+    public async Task PowerOffAsync(CancellationToken ct = default)
+    {
+        var doc = await GetJsonAsync("/ZidooControlCenter/RemoteControl/sendkey?key=Key.PowerOn.Poweroff", TimeSpan.FromSeconds(8), ct);
+        doc?.Dispose();
     }
 
     /// <summary>
@@ -212,6 +257,29 @@ public sealed class ZidooClient
         catch (HttpRequestException) { return null; }
         catch (JsonException) { return null; }
     }
+
+    private async Task<byte[]?> GetBytesAsync(string pathAndQuery, TimeSpan timeout, CancellationToken ct)
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(timeout);
+        try
+        {
+            using var resp = await Http.GetAsync(_base + pathAndQuery, cts.Token);
+            if (!resp.IsSuccessStatusCode) return null;
+            var bytes = await resp.Content.ReadAsByteArrayAsync(cts.Token);
+            return bytes.Length is > 0 and < 5_000_000 ? bytes : null;
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested) { return null; }
+        catch (HttpRequestException) { return null; }
+    }
+
+    /// <summary>JPEG, PNG or WebP by their first bytes (an error comes back as JSON text instead).</summary>
+    public static string? ImageExtension(byte[] b) =>
+        b.Length > 12 && b[0] == 0xFF && b[1] == 0xD8 ? ".jpg" :
+        b.Length > 12 && b[0] == 0x89 && b[1] == 0x50 && b[2] == 0x4E && b[3] == 0x47 ? ".png" :
+        b.Length > 12 && b[0] == (byte)'R' && b[1] == (byte)'I' && b[8] == (byte)'W' && b[9] == (byte)'E' ? ".webp" : null;
+
+    private static bool IsImage(byte[] b) => ImageExtension(b) != null;
 
     private static string Str(JsonElement e, string name) =>
         e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v)

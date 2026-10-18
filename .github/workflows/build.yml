@@ -16,6 +16,7 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 # The release tag being built (v0.3.1-beta.1), or empty for an ordinary build.
 env:
@@ -115,3 +116,11 @@ jobs:
           # Creates the tag on the built commit if it doesn't exist yet.
           gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
             --title "Resume Relay ${TAG#v}" "${NOTES_ARGS[@]}" $PRE
+
+  docker:
+    name: Docker image
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.release != ''
+    needs: release
+    uses: ./.github/workflows/docker.yml
+    with:
+      release: ${{ inputs.release != '' && inputs.release || github.ref_name }}

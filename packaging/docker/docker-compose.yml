@@ -1,0 +1,15 @@
+# Resume Relay: paste this into Synology Container Manager (Project), uGreen Docker (Project),
+# Portainer (Stack), or save it as docker-compose.yml and run "docker compose up -d".
+services:
+  resume-relay:
+    image: ghcr.io/ckenisell/resume-relay:latest
+    container_name: resume-relay
+    # Required: lets "Scan network" find your players and the power button wake them.
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      # The page opens at http://<nas-address>:8090. Change it if 8090 is already used on the NAS.
+      - RESUMERELAY_PORT=8090
+    volumes:
+      # Players, names, settings and Activity are kept here, next to this file.
+      - ./data:/data

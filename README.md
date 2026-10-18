@@ -14,6 +14,7 @@ On that page, scroll down to **Assets** and pick your file:
 |---|---|---|
 | **Windows 10 / 11** | `ResumeRelay-<version>-windows.exe` | A single file with nothing else to install. Put it somewhere permanent (for example your Documents) and run it. |
 | **Ubuntu 22.04 / 24.04 / 26.04** | `resume-relay-<version>-linux.tar.gz` | A background service, ideal for an always-on PC or server. Unpack it and run `./install.sh`. |
+| **Docker / NAS** (Synology, uGreen and others) | `ghcr.io/ckenisell/resume-relay` | No download needed: your NAS fetches it. See [Docker and NAS](#docker-and-nas-synology-ugreen-and-others) below. |
 
 Ignore the two "Source code" files; they're the raw code, not the app. Run only **one** copy of
 Resume Relay per home, on a computer that stays on while you watch.
@@ -46,6 +47,12 @@ Resume Relay per home, on a computer that stays on while you watch.
 
 ## Requirements
 
+- One of:
+  - **Windows 10 or 11**
+  - **Ubuntu 22.04, 24.04 or 26.04**
+  - **Docker**, for example on a **Synology** NAS (DSM 7.2 or later, with Container Manager), a
+    **uGreen** NAS (UGOS Pro, with the Docker app), QNAP, Unraid or TrueNAS. Intel/AMD and ARM
+    (64-bit) are both supported. The container must use **host networking**.
 - Zidoo players with **Home Theater v5.1.11 (code 5111) or newer**
 - Your video files on a network share (SMB or NFS) that all players use, so each file has the same
   path everywhere
@@ -75,6 +82,86 @@ Resume Relay per home, on a computer that stays on while you watch.
 Unpack the download and run `./install.sh`. It installs the .NET runtime from Ubuntu's own archive
 if needed and sets Resume Relay up to start with the computer. Upgrading keeps your players and
 settings. Full instructions are in the `README.md` inside the download.
+
+## Docker and NAS (Synology, uGreen and others)
+
+The Docker image is the same program as the Windows and Ubuntu downloads, so it works exactly the
+same way. It runs on Intel/AMD and ARM (64-bit) NAS models. Run only one copy of Resume Relay per
+home: if you move it to your NAS, quit or uninstall it on your PC.
+
+Everything is set up from this short "docker-compose" text. You'll paste it in during setup:
+
+```yaml
+services:
+  resume-relay:
+    image: ghcr.io/ckenisell/resume-relay:latest
+    container_name: resume-relay
+    # Required: lets "Scan network" find your players and the power button wake them.
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      # The page opens at http://<nas-address>:8090. Change it if 8090 is already used on the NAS.
+      - RESUMERELAY_PORT=8090
+    volumes:
+      # Players, names, settings and Activity are kept here, next to this file.
+      - ./data:/data
+```
+
+**Keep `network_mode: host`.** Without it the container sits on Docker's own private network inside
+the NAS: talking to players by IP address still works, but **Scan network** finds nothing and the
+**power button** can't turn players on.
+
+### Synology (DSM 7.2 or later)
+
+1. Open **Package Center**, search for **Container Manager** and install it. If it isn't listed,
+   your model doesn't support Docker.
+2. Open **File Station**. In the **docker** shared folder (Container Manager creates it), create a
+   folder named **resume-relay**.
+3. Open **Container Manager → Project → Create**.
+   - **Project name:** `resume-relay`
+   - **Path:** choose the **docker/resume-relay** folder you just made
+   - **Source:** **Create docker-compose.yml**, then paste the text above
+4. Click **Next**, skip the Web Station page, and click **Done**. Container Manager downloads the
+   image and starts it.
+5. Open `http://<your-nas-address>:8090` in a browser and follow [First run](#first-run).
+
+If the DSM firewall is on (**Control Panel → Security → Firewall**), add a rule allowing TCP port
+8090, or the page won't open from other devices.
+
+**Updating:** in **Container Manager → Image**, `ghcr.io/ckenisell/resume-relay` shows **Update
+available** when a new version is out. Click it and choose **Update**. Your players and settings are
+kept in the **data** folder.
+
+### uGreen (UGOS Pro)
+
+1. Open **App Center**, install **Docker**, and open it.
+2. Go to **Project → Create**.
+   - **Project name:** `resume-relay`
+   - **Storage path:** choose or create a folder for it, for example **docker/resume-relay**
+   - **Compose configuration:** paste the text above
+3. Click **Deploy**. Docker downloads the image and starts it.
+4. Open `http://<your-nas-address>:8090` in a browser and follow [First run](#first-run).
+
+**Updating:** pull the newest `ghcr.io/ckenisell/resume-relay:latest` image (Docker → **Image**),
+then redeploy the **resume-relay** project. Your players and settings are kept in its **data**
+folder. Menu names can differ slightly between UGOS versions.
+
+### Other NAS and Docker hosts (QNAP, Unraid, TrueNAS, Portainer, command line)
+
+Use the same docker-compose text, for example as a Portainer **Stack**, a QNAP Container Station
+**Application**, or from a terminal in an empty folder:
+
+```
+docker compose up -d                          # start
+docker compose pull && docker compose up -d   # update
+```
+
+Without compose, the equivalent is:
+
+```
+docker run -d --name resume-relay --network host --restart unless-stopped \
+  -v /path/on/nas/resume-relay:/data ghcr.io/ckenisell/resume-relay:latest
+```
 
 ## Known limitations
 

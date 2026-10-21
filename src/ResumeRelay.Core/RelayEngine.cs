@@ -27,6 +27,7 @@ public sealed class RelayEngine : BackgroundService
     private static readonly TimeSpan RescanEvery = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan OfflineBeforeRescan = TimeSpan.FromSeconds(90);
     private static readonly TimeSpan HomeTheaterCheckEvery = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan HtVersionCheckEvery = TimeSpan.FromMinutes(30);
     private static readonly TimeSpan PowerOnTimeout = TimeSpan.FromSeconds(120);
     private static readonly TimeSpan WakePacketEvery = TimeSpan.FromSeconds(10);
     private static readonly Regex EpisodeTag = new(@"S(\d{1,2})E(\d{1,3})", RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -127,6 +128,7 @@ public sealed class RelayEngine : BackgroundService
             live.Online = true;
             live.OfflineSinceUtc = null;
             live.HomeTheaterCheckedUtc = DateTime.MinValue; // check the app straight away
+            live.HtVersionCheckedUtc = DateTime.MinValue;   // ...and its version (it may have been updated)
             if (wasKnownOffline && live.Power != PowerAction.TurningOn) _store.Log(ActivityLevel.Info, $"{d.Name} is back online.");
             NudgeQueue(); // deliver anything that waited for it
         }
@@ -161,6 +163,7 @@ public sealed class RelayEngine : BackgroundService
             // Look the title up once (in the background) for the card's poster and episode number.
             if (!sameFile && np.SourceUrl.Length > 0)
                 _ = FillNowPlayingAsync(d, np);
+            await CheckHtVersionAsync(d, live, api, ct);
         }
         else // Idle
         {
@@ -183,8 +186,17 @@ public sealed class RelayEngine : BackgroundService
 
     /// <summary>Is the player's Home Theater app running? Checked every 20 s while the player is idle; a change to
     /// "running" releases any copies that were waiting for it.</summary>
+    /// <summary>The Home Theater app version shown on the card: read when a player comes online, then every 30 minutes.</summary>
+    private async Task CheckHtVersionAsync(Device d, DeviceLive live, ZidooClient api, CancellationToken ct)
+    {
+        if (DateTime.UtcNow - live.HtVersionCheckedUtc < HtVersionCheckEvery) return;
+        live.HtVersionCheckedUtc = DateTime.UtcNow;
+        if (await api.GetHomeTheaterVersionAsync(ct) is { } v) _store.SetHomeTheaterVersion(d.Id, v.Name, v.Code);
+    }
+
     private async Task CheckHomeTheaterAsync(Device d, DeviceLive live, ZidooClient api, bool force, CancellationToken ct)
     {
+        await CheckHtVersionAsync(d, live, api, ct);
         if (!force && DateTime.UtcNow - live.HomeTheaterCheckedUtc < HomeTheaterCheckEvery) return;
         bool running = await api.IsHomeTheaterRunningAsync(ct);
         bool? before = live.HomeTheaterRunning;
@@ -428,6 +440,7 @@ public sealed class RelayEngine : BackgroundService
             TimeUtc = stoppedUtc,
             Title = TitleOnly(last.Title, last.Path),
             Subtitle = info.Subtitle,
+            FileName = PathMapper.FileName(last.Path),
             FromName = source.Name,
             PositionMs = position,
             DurationMs = last.DurationMs,

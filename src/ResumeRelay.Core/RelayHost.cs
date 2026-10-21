@@ -97,7 +97,7 @@ public static class RelayHost
                 };
                 return new
                 {
-                    dev.Id, dev.Name, dev.Ip, dev.Port, dev.Enabled, dev.Model, dev.Firmware, dev.Mac,
+                    dev.Id, dev.Name, dev.Ip, dev.Port, dev.Enabled, dev.Model, dev.Firmware, dev.Mac, dev.HtVersion, dev.HtVersionCode,
                     Online = online,
                     l.LastSeenUtc,
                     Power = power,
@@ -150,7 +150,7 @@ public static class RelayHost
 
         app.MapGet("/api/events", (int? n) => Results.Ok(store.Events(Math.Clamp(n ?? 100, 1, 300)).Select(e => new
         {
-            e.Id, e.TimeUtc, e.Title, e.Subtitle, e.FromName, e.PositionMs, e.DurationMs, e.Finished, e.Reset,
+            e.Id, e.TimeUtc, e.Title, e.Subtitle, e.FileName, e.FromName, e.PositionMs, e.DurationMs, e.Finished, e.Reset,
             Poster = e.Poster.Length > 0 ? "/api/poster/" + e.Poster : null,
             e.Targets,
         })));

@@ -176,6 +176,7 @@ p.hint { margin: 0 0 14px; color: var(--muted); font-size: 13.5px; max-width: 75
 .ev .poster .ph { font-size: 20px; }
 .ev h3 { margin: 0; font-size: 16px; font-weight: 700; overflow-wrap: anywhere; }
 .ev .sub { color: var(--muted); font-size: 13px; margin-top: 1px; }
+.ev .file { font-size: 13px; font-weight: 400; margin-top: 2px; overflow-wrap: anywhere; }
 .ev .what { margin-top: 8px; font-size: 14px; }
 .ev .what b { color: var(--amber); font-weight: 650; }
 .ev time, .sys time { color: var(--muted); font-size: 12.5px; white-space: nowrap; }
@@ -376,6 +377,14 @@ function htButton(d) {
   return `<button class="ht${busy ? " busy" : ""}" data-launch ${busy ? "disabled" : ""} title="${busy ? "Opening Home Theater…" : "Launch Home Theater"}" aria-label="Launch Home Theater on ${esc(d.name)}">${HT_ICON}</button>`;
 }
 
+// "HT v5.1.11 (5111)", the way Z-Keeper shows it.
+function htVersion(d) {
+  if (!d.htVersion && !d.htVersionCode) return "";
+  const v = d.htVersion ? "v" + esc(d.htVersion) : "";
+  const c = d.htVersionCode ? `(${d.htVersionCode})` : "";
+  return " · HT " + [v, c].filter(Boolean).join(" ");
+}
+
 function cardHtml(d) {
   const p = d.enabled ? d.playing : null;
   let status;
@@ -415,7 +424,7 @@ function cardHtml(d) {
       <label class="switch" title="Copy bookmarks to and from this player"><input type="checkbox" data-enable ${d.enabled ? "checked" : ""}> Sync</label></div>
     <div class="cmeta">${meta}</div>
     ${htNote}${stage}${waiting}
-    <div class="cfoot"><span class="meta tnum">${esc(d.ip)}${macs ? " · " + macs : ""}${d.firmware ? " · firmware " + esc(d.firmware) : ""}</span>
+    <div class="cfoot"><span class="meta tnum">${esc(d.ip)}${macs ? " · " + macs : ""}${d.firmware ? " · firmware " + esc(d.firmware) : ""}${htVersion(d)}</span>
       <button class="btn quiet danger" data-remove>Remove</button></div>
   </article>`;
 }
@@ -575,7 +584,7 @@ function eventHtml(e) {
     return `<span class="chip ${cls}" title="${esc(t.name)}: ${esc(t.state === "Ok" ? "copied" : t.state.toLowerCase())}${t.note ? ", " + esc(t.note) : ""}"><i aria-hidden="true">${ic}</i>${esc(t.name)}${note ? ` <em>${esc(note)}</em>` : ""}</span>`;
   }).join("");
   return `<article class="ev">${poster(e.poster, e.title)}
-    <div><h3>${esc(e.title)}</h3>${e.subtitle ? `<div class="sub">${esc(e.subtitle)}</div>` : ""}
+    <div><h3>${esc(e.title)}</h3>${e.subtitle ? `<div class="sub">${esc(e.subtitle)}</div>` : ""}${e.fileName ? `<div class="file">${esc(e.fileName)}</div>` : ""}
       <div class="what">${what}</div>${chips ? `<div class="chips">${chips}</div>` : `<div class="sub">No other players to copy to.</div>`}</div>
     <time class="tnum" datetime="${esc(e.timeUtc)}">${timeOf(e.timeUtc)}</time></article>`;
 }

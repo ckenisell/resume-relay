@@ -11,6 +11,9 @@ public sealed class Device
     public bool Enabled { get; set; } = true;
     public string Model { get; set; } = "";
     public string Firmware { get; set; } = "";
+    /// <summary>Installed Home Theater app version, e.g. "5.1.11" and 5111 (shown as "HT v5.1.11 (5111)").</summary>
+    public string HtVersion { get; set; } = "";
+    public int HtVersionCode { get; set; }
     /// <summary>The MAC shown on the card (wired if the player has one).</summary>
     public string Mac { get; set; } = "";
     /// <summary>Both MACs are kept for Wake-on-LAN; the packet is sent to each, as Z-Keeper does.</summary>
@@ -72,6 +75,8 @@ public sealed class StopEvent
     public string Title { get; set; } = "";
     /// <summary>"S02E01" for episodes, the year for films when known.</summary>
     public string Subtitle { get; set; } = "";
+    /// <summary>The file's name, e.g. "50 First Dates (2004).4K.(1#Theatrical Movie).mkv": a title can have several files.</summary>
+    public string FileName { get; set; } = "";
     public string FromName { get; set; } = "";
     public int PositionMs { get; set; }
     public int DurationMs { get; set; }
@@ -107,6 +112,7 @@ public sealed class DeviceLive
     /// <summary>Null until checked; false when the player answers but its Home Theater app does not.</summary>
     public bool? HomeTheaterRunning { get; set; }
     public DateTime HomeTheaterCheckedUtc { get; set; }
+    public DateTime HtVersionCheckedUtc { get; set; }
     public PowerAction Power { get; set; }
     public DateTime PowerSinceUtc { get; set; }
 }

@@ -265,6 +265,11 @@ rc = wait_for(lambda: (lambda c: c if c and c.get("reset") and all(t["state"] ==
 check("card says reset, chips say reset", rc, str(card_for("Braveheart", 0)))
 check("logged as a reset", log_has("Reset Braveheart on Bedroom (stopped at 0:00 on Living Room)."))
 
+# ---------------------------------------------------------------- 20. file name on the card, HT version on the player
+fc = card_for("Braveheart", 0)
+check("stop card names the exact file", fc and fc.get("fileName") == "Braveheart (1995).4K.(1#Theatrical Movie).mkv", str(fc and fc.get("fileName")))
+check("player reports its Home Theater version", wait_for(lambda: dev(LR).get("htVersion") == "5.1.11" and dev(LR).get("htVersionCode") == 5111, 40), str((dev(LR).get("htVersion"), dev(LR).get("htVersionCode"))))
+
 passed = sum(1 for _, ok in results if ok)
 print(f"\n{passed}/{len(results)} passed")
 sys.exit(0 if passed == len(results) else 1)

@@ -53,6 +53,7 @@ class Player:
         self.buggy_write = buggy_write
         self.offline = False
         self.ht_closed = False
+        self.ht_version, self.ht_code = "5.1.11", 5111
         self.playing = None
         self.lock = threading.Lock()
         self.entries = {}   # file entry id -> record
@@ -142,6 +143,10 @@ def make_handler():
                 if path == "/ZidooControlCenter/getModel":
                     return self.send(dict(status=200, model="Z9X PRO", ip=p.ip, net_mac=p.mac, wif_mac="",
                                           firmware="v1.0.95_G", duuid="uuid-" + p.mac))
+                if path == "/ZidooControlCenter/Apps/getApps":
+                    return self.send(dict(status=200, apps=[
+                        dict(label="Settings", packageName="com.android.settings", versionName="9", versionCode=28),
+                        dict(label="Home Theater", packageName="com.zidoo.poster", versionName=p.ht_version, versionCode=p.ht_code)]))
                 if path == "/ZidooControlCenter/Apps/openApp":
                     p.power_log.append("openApp")
                     p.ht_closed = False

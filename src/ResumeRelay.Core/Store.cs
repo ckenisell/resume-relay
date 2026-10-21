@@ -85,6 +85,18 @@ public sealed class Store
         }
     }
 
+    public void SetHomeTheaterVersion(string id, string name, int code)
+    {
+        lock (_lock)
+        {
+            var d = _devices.FirstOrDefault(x => x.Id == id);
+            if (d == null || (d.HtVersion == name && d.HtVersionCode == code)) return;
+            d.HtVersion = name;
+            d.HtVersionCode = code;
+            Save("devices.json", _devices);
+        }
+    }
+
     public bool UpdateDevice(string id, string? name, bool? enabled)
     {
         lock (_lock)

@@ -146,6 +146,28 @@ public sealed class ZidooClient
         using (doc) return Int(doc.RootElement, "status") == 200;
     }
 
+    /// <summary>
+    /// The installed Home Theater app's version, from the player's list of installed apps (package com.zidoo.poster),
+    /// e.g. ("5.1.11", 5111). This list comes from the player itself, so it answers even while Home Theater is closed.
+    /// </summary>
+    public async Task<(string Name, int Code)?> GetHomeTheaterVersionAsync(CancellationToken ct = default)
+    {
+        var doc = await GetJsonAsync("/ZidooControlCenter/Apps/getApps", TimeSpan.FromSeconds(8), ct);
+        if (doc == null) return null;
+        using (doc)
+        {
+            if (!doc.RootElement.TryGetProperty("apps", out var apps) || apps.ValueKind != JsonValueKind.Array) return null;
+            foreach (var app in apps.EnumerateArray())
+            {
+                if (!string.Equals(Str(app, "packageName"), "com.zidoo.poster", StringComparison.OrdinalIgnoreCase)) continue;
+                string name = Str(app, "versionName").Trim().TrimStart('v', 'V');
+                int code = int.TryParse(Str(app, "versionCode"), out int c) ? c : 0;
+                return name.Length > 0 || code > 0 ? (name, code) : null;
+            }
+            return null;
+        }
+    }
+
     /// <summary>Opens the Home Theater app on the player (com.zidoo.poster).</summary>
     public async Task<bool> LaunchHomeTheaterAsync(CancellationToken ct = default)
     {

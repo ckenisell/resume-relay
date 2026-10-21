@@ -84,6 +84,10 @@ public sealed class StopEvent
     public bool Finished { get; set; }
     /// <summary>Stopped at 0:00: the other players get the title's progress reset.</summary>
     public bool Reset { get; set; }
+    /// <summary>The reset was requested with "Reset Progress" on the Activity tab (FromName is "Resume Relay").</summary>
+    public bool Manual { get; set; }
+    /// <summary>The file's network path (smb://...), used to find it on every player. Empty on cards made before 0.3.2.</summary>
+    public string SourceUrl { get; set; } = "";
     /// <summary>File name of the cached poster, or "" when none.</summary>
     public string Poster { get; set; } = "";
     public List<StopTarget> Targets { get; set; } = new();

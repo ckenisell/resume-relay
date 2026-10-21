@@ -28,6 +28,8 @@ public sealed class RelayEngine : BackgroundService
     private static readonly TimeSpan OfflineBeforeRescan = TimeSpan.FromSeconds(90);
     private static readonly TimeSpan HomeTheaterCheckEvery = TimeSpan.FromSeconds(20);
     private static readonly TimeSpan HtVersionCheckEvery = TimeSpan.FromMinutes(30);
+    /// <summary>Shown as the source of a reset started with "Reset Progress".</summary>
+    public const string ManualResetFrom = "Resume Relay";
     private static readonly TimeSpan PowerOnTimeout = TimeSpan.FromSeconds(120);
     private static readonly TimeSpan WakePacketEvery = TimeSpan.FromSeconds(10);
     private static readonly Regex EpisodeTag = new(@"S(\d{1,2})E(\d{1,3})", RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -441,6 +443,7 @@ public sealed class RelayEngine : BackgroundService
             Title = TitleOnly(last.Title, last.Path),
             Subtitle = info.Subtitle,
             FileName = PathMapper.FileName(last.Path),
+            SourceUrl = last.SourceUrl,
             FromName = source.Name,
             PositionMs = position,
             DurationMs = last.DurationMs,
@@ -474,6 +477,58 @@ public sealed class RelayEngine : BackgroundService
                 _store.UpdateEventTarget(replaced.EventId, t.Id, TargetState.Skipped, "replaced by a later stop");
         }
         NudgeQueue();
+    }
+
+    /// <summary>
+    /// "Reset Progress" on an Activity card: clears that file's bookmark and watched mark on every player, including
+    /// the one it was stopped on. It goes through the same queue as a stop at 0:00, so each reset is checked by reading
+    /// it back, and a player that's off gets it when it comes back. Shown as a new card "from Resume Relay".
+    /// </summary>
+    public (StopEvent? Card, string Error) ResetEverywhere(string eventId)
+    {
+        var from = _store.Events(300).FirstOrDefault(e => e.Id == eventId);
+        if (from == null) return (null, "That card no longer exists.");
+        if (from.SourceUrl.Length == 0) return (null, "This card was made by an older version of Resume Relay and doesn't know where the file is.");
+        var targets = _store.Devices().Where(d => d.Enabled).ToList();
+        if (targets.Count == 0) return (null, "There are no players to reset.");
+
+        var now = DateTime.UtcNow;
+        var ev = new StopEvent
+        {
+            TimeUtc = now,
+            Title = from.Title,
+            Subtitle = from.Subtitle,
+            FileName = from.FileName,
+            SourceUrl = from.SourceUrl,
+            FromName = ManualResetFrom,
+            DurationMs = from.DurationMs,
+            Reset = true,
+            Manual = true,
+            Poster = from.Poster,
+            Targets = targets.Select(t => new StopTarget { DeviceId = t.Id, Name = t.Name }).ToList(),
+        };
+        _store.AddEvent(ev);
+        string label = from.Subtitle.Length > 0 && from.Subtitle.StartsWith('S') ? $"{from.Title} {from.Subtitle}" : from.Title;
+        _store.LogCopy(ActivityLevel.Info, $"Reset Progress pressed for {from.FileName}. Resetting it on {string.Join(", ", targets.Select(t => t.Name))}…");
+
+        foreach (var t in targets)
+        {
+            var replaced = _store.Enqueue(new PendingCopy
+            {
+                TargetId = t.Id,
+                SourceUrl = from.SourceUrl,
+                Title = label,
+                FromName = ManualResetFrom,
+                PositionMs = 0,
+                DurationMs = from.DurationMs,
+                CreatedUtc = now,
+                EventId = ev.Id,
+            });
+            if (replaced != null)
+                _store.UpdateEventTarget(replaced.EventId, t.Id, TargetState.Skipped, "replaced by a later reset");
+        }
+        NudgeQueue();
+        return (ev, "");
     }
 
     /// <summary>
@@ -613,6 +668,7 @@ public sealed class RelayEngine : BackgroundService
 
         // A stop at 0:00 is copied as a reset: the bookmark and the watched mark are cleared.
         bool reset = job.PositionMs == 0;
+        string why = job.FromName == ManualResetFrom ? "Reset Progress on the Activity tab" : $"stopped at 0:00 on {job.FromName}";
         string what = $"{job.Title} ({Clock(job.PositionMs)}) from {job.FromName} to {target.Name}";
 
         if (live.Playing != null && PathMapper.Same(live.Playing.SourceUrl, job.SourceUrl))
@@ -660,7 +716,7 @@ public sealed class RelayEngine : BackgroundService
         if (_store.Settings().WatchOnly)
         {
             _store.LogCopy(ActivityLevel.Info, reset
-                ? $"[watch-only] Would reset {job.Title} on {target.Name} (stopped at 0:00 on {job.FromName}; entry {entry.Id}, currently {Clock(entry.PlayPointMs)})."
+                ? $"[watch-only] Would reset {job.Title} on {target.Name} ({why}; entry {entry.Id}, currently {Clock(entry.PlayPointMs)})."
                 : $"[watch-only] Would copy {what} (entry {entry.Id}, currently {Clock(entry.PlayPointMs)}).");
             Finish(job, TargetState.WatchOnly, reset ? "watch-only: would reset" : "watch-only: would copy");
             return;
@@ -681,7 +737,7 @@ public sealed class RelayEngine : BackgroundService
         {
             bool watched = !reset && NearEnd(job.PositionMs, job.DurationMs);
             _store.LogCopy(ActivityLevel.Ok, reset
-                ? $"Reset {job.Title} on {target.Name} (stopped at 0:00 on {job.FromName})."
+                ? $"Reset {job.Title} on {target.Name} ({why})."
                 : $"Copied {what}" + (watched ? " (marked watched)." : "."));
             string note = string.Join(", ", new[]
             {

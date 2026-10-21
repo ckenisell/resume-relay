@@ -271,6 +271,20 @@ fc = card_for("Braveheart", 0)
 check("stop card names the exact file", fc and fc.get("fileName") == "Braveheart (1995).4K.(1#Theatrical Movie).mkv", str(fc and fc.get("fileName")))
 check("player reports its Home Theater version", wait_for(lambda: dev(LR).get("htVersion") == "5.1.11" and dev(LR).get("htVersionCode") == 5111, 40), str((dev(LR).get("htVersion"), dev(LR).get("htVersionCode"))))
 
+# ---------------------------------------------------------------- 21. "Reset Progress" on an Activity card
+mock(LR, "setlwt", url=E04, lwt=int(time.time() * 1000), pp=1300000)
+mock(HT, "setlwt", url=E04, lwt=int(time.time() * 1000), pp=1300000)
+play_then_stop(BR, E04, 1400000)
+src = wait_for(lambda: (lambda c: c if c and all(t["state"] == "Ok" for t in c["targets"]) else None)(card_for("Andor", 1400000)), 25)
+check("normal stop card offers Reset Progress", src and src.get("canReset") and not src.get("reset"), str(src))
+http("POST", RELAY + f"/api/events/{src['id']}/reset")
+check("reset clears the source player too", wait_for(lambda: bookmark(BR, E04)["playPoint"] == 0, 25), str(bookmark(BR, E04)["playPoint"]))
+check("...and every other player", wait_for(lambda: bookmark(LR, E04)["playPoint"] == 0 and bookmark(HT, E04)["playPoint"] == 0, 25))
+mc = wait_for(lambda: next((e for e in events() if e.get("manual") and e["fileName"] == "Andor - S01E04.mkv"
+                            and all(t["state"] == "Ok" and t["note"] == "reset" for t in e["targets"])), None), 25)
+check("new card from Resume Relay lists all three players as reset", mc and mc["fromName"] == "Resume Relay" and len(mc["targets"]) == 3, str(mc))
+check("logged per player", log_has("Reset Andor S01E04 on Bedroom (Reset Progress on the Activity tab)."))
+
 passed = sum(1 for _, ok in results if ok)
 print(f"\n{passed}/{len(results)} passed")
 sys.exit(0 if passed == len(results) else 1)

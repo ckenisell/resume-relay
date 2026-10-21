@@ -165,6 +165,14 @@ p.hint { margin: 0 0 14px; color: var(--muted); font-size: 13.5px; max-width: 75
 .cfoot { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 12px 10px 16px; margin-top: auto; }
 .cfoot .meta { color: var(--muted); font-size: 11.5px; overflow-wrap: anywhere; }
 
+.reset-btn { margin-top: 12px; font-size: 13px; padding: 6px 12px; }
+dialog.confirm { border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel); color: var(--text); padding: 22px 22px 18px; width: min(460px, calc(100vw - 32px)); box-shadow: 0 18px 50px rgba(0,0,0,.45); }
+dialog.confirm::backdrop { background: rgba(8, 10, 20, .6); }
+dialog.confirm h3 { margin: 0 0 8px; font-size: 17px; }
+dialog.confirm p { margin: 0 0 18px; color: var(--muted); font-size: 14px; overflow-wrap: anywhere; }
+dialog.confirm p b { color: var(--text); font-weight: 600; }
+dialog.confirm .row { display: flex; justify-content: flex-end; gap: 8px; }
+dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: transparent; }
 .menu { position: fixed; z-index: 10; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-sm); box-shadow: 0 8px 28px rgba(0,0,0,.35); padding: 4px; }
 .menu button { display: block; width: 100%; text-align: left; border: 0; background: transparent; padding: 8px 12px; border-radius: 6px; cursor: pointer; }
 .menu button:hover, .menu button:focus-visible { background: var(--panel-2); }
@@ -281,6 +289,15 @@ p.hint { margin: 0 0 14px; color: var(--muted); font-size: 13.5px; max-width: 75
 </main>
 
 <div class="menu" id="menu" role="menu" hidden></div>
+
+<dialog class="confirm" id="reset-dialog" aria-labelledby="reset-h">
+  <h3 id="reset-h">Reset Progress</h3>
+  <p>This will reset the progress for <b id="reset-file"></b> on all players.</p>
+  <div class="row">
+    <button class="btn" id="reset-cancel" type="button">Cancel</button>
+    <button class="btn go" id="reset-go" type="button">Continue</button>
+  </div>
+</dialog>
 
 <script>
 "use strict";
@@ -574,7 +591,9 @@ const CHIP = {
 const SYS_ICON = { Error: "✕", Warn: "!", Ok: "✓", Skip: "–", Info: "●" };
 
 function eventHtml(e) {
-  const what = e.reset
+  const what = e.manual
+    ? `Reset from <b>Resume Relay</b>: <b>progress reset on all players</b>`
+    : e.reset
     ? `Stopped at <b class="tnum">0:00</b> in ${esc(e.fromName)}: <b>progress reset</b>`
     : e.finished
     ? `Finished in ${esc(e.fromName)}: <b>marked watched</b>`
@@ -586,9 +605,29 @@ function eventHtml(e) {
   }).join("");
   return `<article class="ev">${poster(e.poster, e.title)}
     <div><h3>${esc(e.title)}</h3>${e.subtitle ? `<div class="sub">${esc(e.subtitle)}</div>` : ""}${e.fileName ? `<div class="file">${esc(e.fileName)}</div>` : ""}
-      <div class="what">${what}</div>${chips ? `<div class="chips">${chips}</div>` : `<div class="sub">No other players to copy to.</div>`}</div>
+      <div class="what">${what}</div>${chips ? `<div class="chips">${chips}</div>` : `<div class="sub">No other players to copy to.</div>`}
+      ${!e.reset && e.canReset ? `<button class="btn reset-btn" data-reset="${esc(e.id)}" data-file="${esc(e.fileName || e.title)}">Reset Progress</button>` : ""}</div>
     <time class="tnum" datetime="${esc(e.timeUtc)}">${timeOf(e.timeUtc)}</time></article>`;
 }
+
+// "Reset Progress": confirm, then reset that file on every player. The result appears as a new card.
+let resetId = null;
+$("#feed").addEventListener("click", e => {
+  const b = e.target.closest("[data-reset]"); if (!b) return;
+  resetId = b.dataset.reset;
+  $("#reset-file").textContent = b.dataset.file;
+  $("#reset-dialog").showModal();
+  $("#reset-cancel").focus();
+});
+$("#reset-cancel").onclick = () => { resetId = null; $("#reset-dialog").close(); };
+$("#reset-dialog").addEventListener("close", () => { resetId = null; });
+$("#reset-go").onclick = async () => {
+  const id = resetId; $("#reset-dialog").close();
+  if (!id) return;
+  try { await api("POST", `/api/events/${encodeURIComponent(id)}/reset`); }
+  catch (err) { alert(err.message); }
+  refresh();
+};
 
 function dayLabel(d) {
   const today = new Date(); today.setHours(0, 0, 0, 0);

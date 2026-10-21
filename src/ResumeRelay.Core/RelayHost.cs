@@ -150,10 +150,17 @@ public static class RelayHost
 
         app.MapGet("/api/events", (int? n) => Results.Ok(store.Events(Math.Clamp(n ?? 100, 1, 300)).Select(e => new
         {
-            e.Id, e.TimeUtc, e.Title, e.Subtitle, e.FileName, e.FromName, e.PositionMs, e.DurationMs, e.Finished, e.Reset,
+            e.Id, e.TimeUtc, e.Title, e.Subtitle, e.FileName, e.Manual, CanReset = e.SourceUrl.Length > 0, e.FromName, e.PositionMs, e.DurationMs, e.Finished, e.Reset,
             Poster = e.Poster.Length > 0 ? "/api/poster/" + e.Poster : null,
             e.Targets,
         })));
+
+        // "Reset Progress" on an Activity card.
+        app.MapPost("/api/events/{id}/reset", (string id) =>
+        {
+            var (card, err) = engine.ResetEverywhere(id);
+            return card == null ? Results.BadRequest(new { Error = err }) : Results.Ok(new { card.Id });
+        });
 
         app.MapGet("/api/poster/{name}", (string name) =>
         {

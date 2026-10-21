@@ -30,6 +30,8 @@ Resume Relay per home, on a computer that stays on while you watch.
   previous one.
 - **Stopping at 0:00 resets the title everywhere.** Start something from the beginning and stop it
   straight away, and the other players clear their bookmark and watched mark too.
+- **Reset Progress from the Activity tab.** One button clears a file's bookmark and watched mark on
+  every player.
 - **Sleeping players catch up.** A player that's off, asleep, or on without its Home Theater app
   open gets its copies as soon as it's ready. Waiting copies are shown on that player's card and
   kept for 14 days (you can change this in Settings).

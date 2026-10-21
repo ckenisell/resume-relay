@@ -146,6 +146,7 @@ p.hint { margin: 0 0 14px; color: var(--muted); font-size: 13.5px; max-width: 75
 .stage .grow { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .stage .t { font-weight: 650; font-size: 15.5px; line-height: 1.3; overflow-wrap: anywhere; }
 .stage .s { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+.stage .file { font-size: 12.5px; font-weight: 400; margin-top: 2px; overflow-wrap: anywhere; }
 .stage .push { margin-top: auto; }
 .poster { width: 96px; height: 144px; border-radius: 6px; flex: none; overflow: hidden; background: var(--line); box-shadow: 0 4px 14px rgba(0,0,0,.3); display: flex; align-items: center; justify-content: center; }
 .poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -399,7 +400,7 @@ function cardHtml(d) {
   let stage = "";
   if (p) {
     stage = `<div class="stage">${poster(p.poster, p.title || p.file)}
-      <div class="grow"><div class="t">${esc(p.title || p.file)}</div>${p.subtitle ? `<div class="s">${esc(p.subtitle)}</div>` : ""}
+      <div class="grow"><div class="t">${esc(p.title || p.file)}</div>${p.subtitle ? `<div class="s">${esc(p.subtitle)}</div>` : ""}${p.file && p.title ? `<div class="file">${esc(p.file)}</div>` : ""}
         ${p.shareable ? "" : `<div class="note">Playing from a drive the other players can't see, so this one can't be copied.</div>`}
         <div class="push"><div class="track" role="progressbar" aria-label="Position" aria-valuemin="0" aria-valuemax="100" data-track><i></i></div>
         <div class="times tnum"><span data-pos></span><span data-dur></span></div></div></div></div>`;

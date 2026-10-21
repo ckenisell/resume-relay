@@ -249,6 +249,7 @@ check("Launch HT opens it", wait_for(lambda: dev(BR)["homeTheater"] is True, 20)
 mock(LR, "play", url=E03, pos=300000)
 np_ = wait_for(lambda: (dev(LR)["playing"] or {}).get("poster") and dev(LR)["playing"], 15)
 check("now playing shows S01E03 with a poster", np_ and np_["subtitle"] == "S01E03" and np_["poster"], str(np_))
+check("now playing names the file", np_ and np_.get("file") == "Andor - S01E03.mkv", str(np_ and np_.get("file")))
 mock(LR, "stop")
 
 # ---------------------------------------------------------------- 19. a stop at 0:00 resets the title on the others

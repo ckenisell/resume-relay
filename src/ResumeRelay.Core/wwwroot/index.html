@@ -194,6 +194,14 @@ table.pr td.p { min-width: 170px; white-space: nowrap; }
 .pr-bar .ok { color: var(--ok); }
 .pr-sub { color: var(--muted); font-size: 11.5px; margin-top: 2px; }
 .pr-none { color: var(--muted); font-size: 12px; }
+/* ---------- watch sync ---------- */
+.ws-q { font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 6px 10px; width: 15em; max-width: 100%; }
+.wt { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--panel-2); color: var(--muted); border-radius: 999px; padding: 4px 12px; font-size: 12.5px; cursor: pointer; }
+.wt:hover { border-color: var(--muted); color: var(--text); }
+.wt.on { color: var(--text); border-color: color-mix(in srgb, var(--ok) 55%, var(--line)); background: color-mix(in srgb, var(--ok) 14%, var(--panel-2)); }
+.wt.on i { color: var(--ok); font-style: normal; font-weight: 800; }
+.wt[disabled] { cursor: progress; opacity: .7; }
+table.pr td.r .btn.mini { font-size: 12px; padding: 4px 9px; }
 dialog.confirm { border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel); color: var(--text); padding: 22px 22px 18px; width: min(460px, calc(100vw - 32px)); box-shadow: 0 18px 50px rgba(0,0,0,.45); }
 dialog.confirm::backdrop { background: rgba(8, 10, 20, .6); }
 dialog.confirm h3 { margin: 0 0 8px; font-size: 17px; }
@@ -269,6 +277,7 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
   <button class="tab" role="tab" id="tab-players" aria-controls="players" data-tab="players">Players <span class="badge" id="badge-players" hidden></span></button>
   <button class="tab" role="tab" id="tab-activity" aria-controls="activity" data-tab="activity">Activity <span class="badge bad" id="badge-activity" hidden></span></button>
   <button class="tab" role="tab" id="tab-progress" aria-controls="progress" data-tab="progress">Progress Reset</button>
+  <button class="tab" role="tab" id="tab-watch" aria-controls="watch" data-tab="watch">Watch Sync</button>
   <button class="tab" role="tab" id="tab-settings" aria-controls="settings" data-tab="settings" aria-label="Settings" title="Settings">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
   </button>
@@ -308,6 +317,28 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
     <p class="msg" id="pr-msg" role="status"></p>
     <div id="pr-status" class="pr-status" aria-live="polite"></div>
     <div id="pr-list"></div>
+  </section>
+
+  <section id="watch" role="tabpanel" aria-labelledby="tab-watch" hidden>
+    <h2>Watch Sync</h2>
+    <p class="hint">Where each movie and episode is marked watched, on the players you tick. Click a player's cell to mark that file watched or not watched there, or use <b>Set on all</b> for every ticked player. Marking watched removes that player's resume point; marking unwatched keeps it. It uses the same read as Progress Reset.</p>
+    <div class="pr-controls">
+      <div class="pr-players" id="ws-players"></div>
+      <label class="pr-sort">Show
+        <select id="ws-show">
+          <option value="different">Different between players</option>
+          <option value="watched">Watched on any player</option>
+          <option value="unwatched">Not watched anywhere</option>
+          <option value="all">All files</option>
+        </select></label>
+      <label class="pr-sort">Sort by
+        <select id="ws-sort"><option value="title">Title</option><option value="watched">Last watched</option></select></label>
+      <input id="ws-q" class="ws-q" type="search" placeholder="Search titles" aria-label="Search titles">
+      <button class="btn" id="ws-read">Read players</button>
+    </div>
+    <p class="msg" id="ws-msg" role="status"></p>
+    <div id="ws-status" class="pr-status" aria-live="polite"></div>
+    <div id="ws-list"></div>
   </section>
 
   <section id="settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
@@ -383,7 +414,7 @@ async function api(method, url, body) {
 function say(el, text, kind) { el.textContent = text; el.className = "msg" + (kind ? " " + kind : ""); }
 
 // ---------------- tabs ----------------
-const TABS = ["players", "activity", "progress", "settings"];
+const TABS = ["players", "activity", "progress", "watch", "settings"];
 function showTab(name, focus) {
   if (!TABS.includes(name)) name = "players";
   for (const t of TABS) {
@@ -395,6 +426,7 @@ function showTab(name, focus) {
   store.set("rr.tab", name);
   if (name === "activity") { markActivitySeen(); }
   if (name === "progress" && typeof loadProgress === "function" && state) loadProgress();
+  if (name === "watch" && typeof loadWatch === "function" && state) loadWatch(true);
 }
 document.querySelector(".tabs").addEventListener("click", e => { const b = e.target.closest(".tab"); if (b) showTab(b.dataset.tab); });
 document.querySelector(".tabs").addEventListener("keydown", e => {
@@ -840,6 +872,122 @@ $("#pr-list").addEventListener("click", e => {
     });
 });
 
+// ---------------- watch sync ----------------
+let watch = null, wsCache = "", wsV = -1, wsQuery = "", wsBusy = new Set(); // "key|deviceId" being saved
+function wsTicked() {
+  const all = (state?.devices || []).map(d => d.id);
+  let saved = null; try { saved = JSON.parse(store.get("rr.watchPlayers") || "null"); } catch { }
+  return Array.isArray(saved) ? all.filter(id => saved.includes(id)) : all;
+}
+function renderWatchControls() {
+  const box = $("#ws-players"), devs = state?.devices || [];
+  const sig = devs.map(d => d.id + d.name).join("|") + "#" + wsTicked().join("|");
+  if (box.dataset.sig === sig) return;
+  box.dataset.sig = sig;
+  const ticked = wsTicked();
+  box.innerHTML = devs.map(d => `<label><input type="checkbox" value="${esc(d.id)}" ${ticked.includes(d.id) ? "checked" : ""}> ${esc(d.name)}</label>`).join("");
+}
+$("#ws-players").addEventListener("change", () => {
+  store.set("rr.watchPlayers", JSON.stringify([...$("#ws-players").querySelectorAll("input:checked")].map(i => i.value)));
+  $("#ws-players").dataset.sig = ""; loadWatch(true);
+});
+for (const [id, key] of [["#ws-show", "rr.watchShow"], ["#ws-sort", "rr.watchSort"]]) {
+  try { const v = store.get(key); if (v) $(id).value = v; } catch { }
+  $(id).addEventListener("change", () => { store.set(key, $(id).value); loadWatch(true); });
+}
+let wsTyping = 0;
+$("#ws-q").addEventListener("input", () => { clearTimeout(wsTyping); wsTyping = setTimeout(() => loadWatch(true), 300); });
+$("#ws-read").onclick = async () => {
+  try { await api("POST", "/api/progress/read", { deviceIds: wsTicked() }); say($("#ws-msg"), ""); }
+  catch (err) { say($("#ws-msg"), err.message, "err"); }
+  loadWatch(true);
+};
+
+function wsCell(f, d, read) {
+  if (!read) return `<span class="pr-none">—</span>`;
+  const c = f.cells[d.id];
+  if (!c) return `<span class="pr-none">not in library</span>`;
+  const busy = wsBusy.has(f.key + "|" + d.id);
+  const sub = [c.lastWatchMs > 0 ? prDate(c.lastWatchMs) : "", !c.watched && c.playPointMs > 0 ? "resume " + clock(c.playPointMs) : ""].filter(Boolean).join(" · ");
+  return `<button class="wt${c.watched ? " on" : ""}" data-ws-key="${esc(f.key)}" data-ws-dev="${esc(d.id)}" ${busy ? "disabled" : ""}
+      title="Click to mark it ${c.watched ? "not watched" : "watched"} on ${esc(d.name)}">${busy ? "Saving…" : c.watched ? "<i>✓</i> Watched" : "Not watched"}</button>
+    ${sub ? `<div class="pr-sub tnum">${esc(sub)}</div>` : ""}`;
+}
+
+function renderWatch() {
+  renderWatchControls();
+  const read = $("#ws-read");
+  read.disabled = !!watch?.reading; read.textContent = watch?.reading ? "Reading…" : "Read players";
+  $("#ws-status").innerHTML = (watch?.status || []).map(esc).join("<br>");
+  if (!watch) return;
+  const ticked = wsTicked();
+  const devs = (state?.devices || []).filter(d => ticked.includes(d.id));
+  const readOf = Object.fromEntries((watch.devices || []).map(d => [d.deviceId, d]));
+  let rows = (watch.files || []).slice();
+  const lastOf = f => Math.max(-1, ...devs.map(d => f.cells[d.id]?.lastWatchMs ?? -1));
+  rows.sort($("#ws-sort").value === "watched"
+    ? (a, b) => lastOf(b) - lastOf(a) || a.display.localeCompare(b.display, undefined, { numeric: true })
+    : (a, b) => a.display.localeCompare(b.display, undefined, { numeric: true, sensitivity: "base" }));
+  let html;
+  if (!devs.length) html = `<div class="empty"><strong>No players ticked</strong>Tick the players to compare, then press Read players.</div>`;
+  else if (!devs.some(d => readOf[d.id]?.readUtc)) html = `<div class="empty"><strong>Not read yet</strong>Tick the players to compare, then press Read players.</div>`;
+  else {
+    const label = { different: "watched on some players but not others", watched: "watched on at least one player", unwatched: "not watched on any player", all: "" }[$("#ws-show").value];
+    const head = devs.map(d => {
+      const r = readOf[d.id];
+      return `<th>${esc(d.name)}<small>${esc(r?.readUtc ? "read " + timeOf(r.readUtc) : "not read")}</small>${r?.error ? `<small class="err">${esc(r.error)}</small>` : ""}</th>`;
+    }).join("");
+    const body = rows.map(f => `<tr><td class="t">${esc(f.display)}</td>
+      <td class="r"><button class="btn mini" data-ws-all="1" data-ws-key="${esc(f.key)}">Watched</button><button class="btn mini" data-ws-all="0" data-ws-key="${esc(f.key)}">Unwatched</button></td>
+      ${devs.map(d => `<td class="p">${wsCell(f, d, !!readOf[d.id]?.readUtc)}</td>`).join("")}</tr>`).join("");
+    const more = watch.total > rows.length ? ` <span class="pr-none">(showing the first ${rows.length.toLocaleString()}; search to narrow it down)</span>` : "";
+    html = `<div class="pr-box"><p class="pr-count">${watch.total.toLocaleString()} file(s)${label ? " " + label : ""}${more}</p>
+      ${rows.length ? `<div class="pr-wrap"><table class="pr"><thead><tr><th>Title</th><th>Set on all</th>${head}</tr></thead><tbody>${body}</tbody></table></div>` : ""}</div>`;
+  }
+  if (html !== wsCache) { $("#ws-list").innerHTML = html; wsCache = html; }
+}
+
+async function setWatched(f, devIds, watched) {
+  devIds = devIds.filter(id => f.cells[id]);
+  if (!devIds.length) return;
+  for (const id of devIds) wsBusy.add(f.key + "|" + id);
+  renderWatch();
+  try {
+    const r = await api("POST", "/api/watched/set", { key: f.key, deviceIds: devIds, watched });
+    const bad = r.filter(x => !x.ok);
+    say($("#ws-msg"), bad.length ? bad.map(x => `${x.name}: ${x.error}`).join(" · ") : "", bad.length ? "err" : "");
+  } catch (err) { say($("#ws-msg"), err.message, "err"); }
+  for (const id of devIds) wsBusy.delete(f.key + "|" + id);
+  loadWatch(true);
+}
+
+$("#ws-list").addEventListener("click", e => {
+  const b = e.target.closest("[data-ws-key]"); if (!b || b.disabled) return;
+  const f = (watch?.files || []).find(x => x.key === b.dataset.wsKey); if (!f) return;
+  const ticked = wsTicked();
+  const devIds = b.dataset.wsAll !== undefined ? ticked : [b.dataset.wsDev];
+  const watched = b.dataset.wsAll !== undefined ? b.dataset.wsAll === "1" : !f.cells[b.dataset.wsDev]?.watched;
+  // Marking watched removes the resume point: ask first when there is one to lose.
+  const losing = watched ? devIds.filter(id => f.cells[id] && !f.cells[id].watched && f.cells[id].playPointMs > 0) : [];
+  if (!losing.length) { setWatched(f, devIds, watched); return; }
+  const names = (state?.devices || []).filter(d => losing.includes(d.id)).map(d => `<b>${esc(d.name)}</b> (${clock(f.cells[d.id].playPointMs)})`);
+  confirmReset("Mark watched", `This will mark <b>${esc(f.fileName)}</b> watched and remove the resume point on ${names.join(", ")}.`,
+    () => setWatched(f, devIds, true));
+});
+
+async function loadWatch(force) {
+  try {
+    const p = await api("GET", "/api/progress?v=" + wsV);
+    const parts = [$("#ws-show").value, wsTicked().join(","), $("#ws-q").value.trim()], query = JSON.stringify(parts);
+    if (force || !p.unchanged || query !== wsQuery || !watch) {
+      const [show, players, q] = parts;
+      watch = await api("GET", `/api/watched?show=${encodeURIComponent(show)}&players=${encodeURIComponent(players)}&q=${encodeURIComponent(q)}&max=500`);
+      wsV = watch.version; wsQuery = query;
+    } else { watch.reading = p.reading; watch.status = p.status; }
+  } catch { }
+  renderWatch();
+}
+
 async function loadProgress() {
   try { progress = await api("GET", "/api/progress"); } catch { }
   renderProgress();
@@ -855,6 +1003,7 @@ async function refresh() {
     for (const [id, t] of launching) if (Date.now() - t > 60000) launching.delete(id);
     renderMode(s.settings); renderRooms(s.devices); renderFeed(); renderSettings(s.settings); renderBadges();
     if (!$("#progress").hidden || progress?.reading) await loadProgress(); else renderProgressControls();
+    if (!$("#watch").hidden) await loadWatch(false); else renderWatchControls();
     $("#autostart-row").hidden = s.autostart === null || s.autostart === undefined;
     if (!$("#autostart-row").hidden) $("#autostart").checked = s.autostart;
     if ($("#rooms-msg").textContent.startsWith("Can't reach")) say($("#rooms-msg"), "");

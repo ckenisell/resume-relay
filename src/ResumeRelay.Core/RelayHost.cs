@@ -240,7 +240,17 @@ public static class RelayHost
     /// <summary>The Progress Reset tab.</summary>
     private static void MapProgressApi(WebApplication app, ProgressService progress, CancellationToken stopping)
     {
-        app.MapGet("/api/progress", () => Results.Ok(progress.Snapshot()));
+        // The page passes the version it already has; an unchanged list isn't sent again.
+        app.MapGet("/api/progress", (long? v) =>
+            v == progress.Version ? Results.Ok(new { Unchanged = true, progress.Version, progress.Reading, Status = progress.StatusLines }) : Results.Ok(progress.Snapshot()));
+        app.MapGet("/api/watched", (string? show, string? players, string? q, int? max) =>
+            Results.Ok(progress.WatchSnapshot(show ?? "different",
+                (players ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries), q ?? "", max ?? 500)));
+        app.MapPost("/api/watched/set", async (WatchSetRequest req) =>
+        {
+            var r = await progress.SetWatchedAsync(req.Key ?? "", req.DeviceIds ?? new List<string>(), req.Watched);
+            return r.Count == 0 ? Results.BadRequest(new { Error = "That file is no longer in the list. Read the players again." }) : Results.Ok(r);
+        });
         app.MapPost("/api/progress/read", (ProgressReadRequest req) =>
             progress.StartRead(req.DeviceIds ?? new List<string>(), stopping) is { } err ? Results.BadRequest(new { Error = err }) : Results.Ok());
         app.MapPost("/api/progress/reset", async (ProgressKeyRequest req) =>
@@ -251,6 +261,7 @@ public static class RelayHost
 
     private sealed record ProgressReadRequest(List<string>? DeviceIds);
     private sealed record ProgressKeyRequest(string? Key);
+    private sealed record WatchSetRequest(string? Key, List<string>? DeviceIds, bool Watched);
     private sealed record AddDeviceRequest(string? Ip, int? Port);
     private sealed record UpdateDeviceRequest(string? Name, bool? Enabled);
     private sealed record AutostartRequest(bool Enabled);

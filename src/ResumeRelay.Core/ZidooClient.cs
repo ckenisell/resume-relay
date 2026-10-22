@@ -336,6 +336,17 @@ public sealed class ZidooClient
         using (doc) return Int(doc.RootElement, "status") == 200;
     }
 
+    /// <summary>
+    /// Marks one file watched (HT5 API guide: call once per file; it records "now" as last watched and parks the resume
+    /// point as a negative value). The reply isn't trusted; callers read the title back. Never sent with watched=0:
+    /// on some players that closes the Home Theater app.
+    /// </summary>
+    public async Task MarkAsWatchedAsync(int fileId, CancellationToken ct = default)
+    {
+        if (fileId <= 0) return;
+        using var doc = await GetJsonAsync($"/Poster/v2/markAsWatched?aggregationId={fileId}&watched=1", TimeSpan.FromSeconds(8), ct);
+    }
+
     // ---------- plumbing ----------
 
     private async Task<JsonDocument?> GetJsonAsync(string pathAndQuery, TimeSpan timeout, CancellationToken ct)

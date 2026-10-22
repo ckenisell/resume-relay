@@ -37,6 +37,9 @@ public sealed class ProgressCell
     public bool Watched { get; set; }
     /// <summary>Unix ms; -1 when never.</summary>
     public long LastWatchMs { get; set; } = -1;
+    /// <summary>The movie or season this file was read from, to read it back after a change.</summary>
+    public int TitleId { get; set; }
+    public bool FromSeason { get; set; }
 }
 
 public sealed class ProgressDevice
@@ -64,6 +67,9 @@ public sealed class ProgressService
     private readonly Dictionary<string, ProgressDevice> _devices = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, string> _status = new();
     private int _reading;
+    private long _version;
+    public long Version => Interlocked.Read(ref _version);
+    private void Changed() => Interlocked.Increment(ref _version);
 
     public ProgressService(Store store, RelayEngine engine)
     {
@@ -73,6 +79,7 @@ public sealed class ProgressService
     }
 
     public bool Reading => Volatile.Read(ref _reading) == 1;
+    public List<string> StatusLines => _status.Values.OrderBy(s => s).ToList();
 
     /// <summary>Starts reading the given players in the background. Returns an error, or null when started.</summary>
     public string? StartRead(IReadOnlyCollection<string> deviceIds, CancellationToken stopping)
@@ -164,6 +171,7 @@ public sealed class ProgressService
                 else _devices[d.Id].Error = result.Error; // keep the last good read, but say this one failed
             }
             _status.TryRemove(d.Id, out _);
+            Changed();
         }
     }
 
@@ -176,6 +184,7 @@ public sealed class ProgressService
         if (found.Count == 0)
             using (var doc = await api.GetDetailV2Async(id, ct))
                 if (doc != null) Walk(doc.RootElement, new Ctx { Series = series, IsSeason = season }, found);
+        foreach (var (_, cell) in found) { cell.TitleId = id; cell.FromSeason = season; }
         return found;
     }
 
@@ -265,6 +274,7 @@ public sealed class ProgressService
             var shown = _files.Values.Where(f => _devices.Values.Any(d => d.Cells.TryGetValue(f.Key, out var c) && c.PlayPointMs > 0));
             return new
             {
+                Version,
                 Reading,
                 Status = _status.Values.OrderBy(s => s).ToList(),
                 Devices = _devices.Values.Select(d => new { d.DeviceId, d.Name, d.ReadUtc, d.Error, d.Titles }),
@@ -275,6 +285,111 @@ public sealed class ProgressService
                 }).ToList(),
             };
         }
+    }
+
+    /// <summary>
+    /// The Watch Sync list. show: "different" (watched on some of the chosen players that have the file, not on
+    /// others), "watched" (watched on any of them), "unwatched" (on none), or "all". Capped, with the full count.
+    /// </summary>
+    public object WatchSnapshot(string show, IReadOnlyCollection<string> players, string search, int max)
+    {
+        lock (_lock)
+        {
+            var devs = _devices.Values.Where(d => d.ReadUtc != null && (players.Count == 0 || players.Contains(d.DeviceId))).ToList();
+            var q = search.Trim();
+            var rows = _files.Values.Where(f =>
+            {
+                if (q.Length > 0 && !f.Display.Contains(q, StringComparison.OrdinalIgnoreCase) && !f.FileName.Contains(q, StringComparison.OrdinalIgnoreCase)) return false;
+                var cells = devs.Select(d => d.Cells.GetValueOrDefault(f.Key)).Where(c => c != null).ToList();
+                if (cells.Count == 0) return false;
+                int w = cells.Count(c => c!.Watched);
+                return show switch
+                {
+                    "watched" => w > 0,
+                    "unwatched" => w == 0,
+                    "all" => true,
+                    _ => w > 0 && w < cells.Count,
+                };
+            }).ToList();
+            return new
+            {
+                Version,
+                Reading,
+                Status = _status.Values.OrderBy(s => s).ToList(),
+                Devices = _devices.Values.Select(d => new { d.DeviceId, d.Name, d.ReadUtc, d.Error, d.Titles }),
+                Total = rows.Count,
+                Files = rows
+                    .OrderBy(f => f.Display, StringComparer.OrdinalIgnoreCase)
+                    .Take(Math.Clamp(max, 1, 5000))
+                    .Select(f => new
+                    {
+                        f.Key, f.Display, f.IsEpisode, f.Title, f.FileName,
+                        Cells = _devices.Values.Where(d => d.Cells.ContainsKey(f.Key)).ToDictionary(d => d.DeviceId, d => d.Cells[f.Key]),
+                    }).ToList(),
+            };
+        }
+    }
+
+    /// <summary>
+    /// Marks one file watched or unwatched on the given players, and reads it back from each.
+    /// Watched: markAsWatched (falls back to a resume point at the end). Unwatched: the file's own resume point is
+    /// written back, which clears the watched mark but keeps the progress (0 when there was none).
+    /// </summary>
+    public async Task<List<WatchResult>> SetWatchedAsync(string key, IReadOnlyCollection<string> deviceIds, bool watched)
+    {
+        var results = new List<WatchResult>();
+        ProgressFile? file;
+        lock (_lock) file = _files.GetValueOrDefault(key);
+        if (file == null) return results;
+        foreach (string id in deviceIds.Distinct())
+        {
+            var d = _store.Device(id);
+            if (d == null) continue;
+            ProgressCell? cell;
+            lock (_lock) cell = _devices.GetValueOrDefault(id)?.Cells.GetValueOrDefault(key);
+            if (cell == null || cell.FileId <= 0) { results.Add(new(id, d.Name, false, "not in its library")); continue; }
+            if (!_engine.LiveOf(id).Online) { results.Add(new(id, d.Name, false, "is off or not answering")); continue; }
+
+            var api = new ZidooClient(d.Ip, d.Port);
+            async Task<ProgressCell?> ReadBack()
+            {
+                var now = await ReadTitleAsync(api, cell.TitleId, cell.FromSeason, file.Title, default);
+                return now.FirstOrDefault(x => x.File.Key == key).Cell;
+            }
+            ProgressCell? after;
+            if (watched)
+            {
+                await api.MarkAsWatchedAsync(cell.FileId);
+                after = await ReadBack();
+                if (after?.Watched != true && cell.DurationMs > 0)
+                {
+                    await api.SetPlayPointAsync(cell.FileId, cell.DurationMs, cell.DurationMs, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+                    after = await ReadBack();
+                }
+            }
+            else
+            {
+                int keep = cell.PlayPointMs > 0 && !NearEnd(cell.PlayPointMs, cell.DurationMs) ? cell.PlayPointMs : 0;
+                if (keep > 0) await api.SetPlayPointAsync(cell.FileId, keep, cell.DurationMs, cell.LastWatchMs > 0 ? cell.LastWatchMs : DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+                else await api.ResetPlayPointAsync(cell.FileId);
+                after = await ReadBack();
+            }
+
+            bool ok = after != null && after.Watched == watched;
+            if (after != null)
+                lock (_lock)
+                    if (_devices.TryGetValue(id, out var dev) && dev.Cells.TryGetValue(key, out var c))
+                    {
+                        c.PlayPointMs = after.PlayPointMs; c.Watched = after.Watched; c.LastWatchMs = after.LastWatchMs;
+                        if (after.DurationMs > 0) c.DurationMs = after.DurationMs;
+                    }
+            Changed();
+            _store.LogCopy(ok ? ActivityLevel.Ok : ActivityLevel.Error, ok
+                ? $"Marked {file.FileName} {(watched ? "watched" : "unwatched")} on {d.Name} (Watch Sync)."
+                : $"Could not mark {file.FileName} {(watched ? "watched" : "unwatched")} on {d.Name}: the player still shows it {(after?.Watched == true ? "watched" : "unwatched")}.");
+            results.Add(new(id, d.Name, ok, ok ? "" : "the player didn't take the change"));
+        }
+        return results;
     }
 
     /// <summary>A player that holds this file, with its id there (to look up the file's network path).</summary>
@@ -297,10 +412,14 @@ public sealed class ProgressService
             {
                 c.PlayPointMs = positionMs;
                 c.LastWatchMs = lastWatchMs;
-                c.Watched = positionMs > 0 && c.DurationMs > 0 && (positionMs >= c.DurationMs * 0.93 || c.DurationMs - positionMs <= 5 * 60_000);
+                c.Watched = positionMs > 0 && NearEnd(positionMs, c.DurationMs);
             }
+            Changed();
         }
     }
+
+    private static bool NearEnd(int positionMs, int durationMs) =>
+        durationMs > 0 && (positionMs >= durationMs * 0.93 || durationMs - positionMs <= 5 * 60_000);
 
     // ---------- resets from the tab ----------
 
@@ -339,6 +458,8 @@ public sealed class ProgressService
         return (null, "None of the players that have this file is answering right now, so its location can't be looked up.", "");
     }
 }
+
+public sealed record WatchResult(string DeviceId, string Name, bool Ok, string Error);
 
 /// <summary>Lenient JSON readers (Home Theater sends numbers as strings now and then).</summary>
 internal static class J

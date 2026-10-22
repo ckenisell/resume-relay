@@ -330,6 +330,35 @@ check("TV show reset card: one chip per player with episode counts", sc and len(
       and any(t["note"].startswith("2 episodes reset") for t in sc["targets"]), str(sc))
 check("the show's rows leave the list", wait_for(lambda: not ({k3, k4} & {f["key"] for f in http("GET", RELAY + "/api/progress")["files"]}), 20))
 
+# ---------------------------------------------------------------- 25. Watch Sync tab
+now = int(time.time() * 1000)
+for ip, url, pp, w in [(LR, BRAVE, 0, 1), (BR, BRAVE, 0, 0), (HT, BRAVE, 0, 0),
+                       (LR, ARRIVAL, 0, 1), (BR, ARRIVAL, 0, 1),
+                       (LR, E03, 0, 0), (BR, E03, 0, 0), (HT, E03, 0, 0)]:
+    mock(ip, "setlwt", url=url, lwt=now if w else -1, pp=pp, watched=w)
+http("POST", RELAY + "/api/progress/read", {"deviceIds": list(ids.values())})
+wait_for(lambda: not http("GET", RELAY + "/api/progress")["reading"], 60)
+allp = ",".join(ids.values())
+def wl(show):
+    return {f["key"]: f for f in http("GET", RELAY + f"/api/watched?show={show}&players={urllib.parse.quote(allp)}")["files"]}
+diff = wl("different")
+check("watched on one player only shows as different", kb in diff and diff[kb]["cells"][ids[LR]]["watched"] and not diff[kb]["cells"][ids[BR]]["watched"], str(diff.get(kb)))
+check("watched everywhere it exists is not different", ka not in diff, str(list(diff)))
+check("watched list includes it", ka in wl("watched"))
+check("never watched anywhere is in unwatched", k3 in wl("unwatched"))
+r = http("POST", RELAY + "/api/watched/set", {"key": kb, "deviceIds": [ids[BR], ids[HT]], "watched": True})
+check("mark watched on two players reports success", r and all(x["ok"] for x in r), str(r))
+check("...and the players show it watched", bookmark(BR, BRAVE)["watched"] and bookmark(HT, BRAVE)["watched"])
+check("...using markAsWatched", any(w.get("call") == "markAsWatched" for w in bookmark(BR, BRAVE)["writes"]))
+check("no longer different once all agree", kb not in wl("different"))
+mock(LR, "setlwt", url=E03, lwt=now, pp=1000000, watched=1)
+http("POST", RELAY + "/api/progress/read", {"deviceIds": [ids[LR]]})
+wait_for(lambda: not http("GET", RELAY + "/api/progress")["reading"], 60)
+r = http("POST", RELAY + "/api/watched/set", {"key": k3, "deviceIds": [ids[LR]], "watched": False})
+st = bookmark(LR, E03)
+check("mark unwatched keeps the resume point", r and r[0]["ok"] and not st["watched"] and st["playPoint"] == 1000000, f"{r} {st['watched']} {st['playPoint']}")
+check("mark unwatched never sends watched=0", not any(w.get("call") == "markAsWatched" and w.get("watched") == "0" for w in st["writes"]))
+
 passed = sum(1 for _, ok in results if ok)
 print(f"\n{passed}/{len(results)} passed")
 sys.exit(0 if passed == len(results) else 1)

@@ -172,7 +172,7 @@ def make_handler():
                 return
 
             with p.lock:
-                if p.ht_closed and path.startswith("/ZidooPoster"):
+                if p.ht_closed and path.startswith(("/ZidooPoster", "/Poster")):
                     # Player is on but the Home Theater app is closed: the library API doesn't answer usefully.
                     return self.send(dict(status=806, msg="The resource does not exist"))
                 if path == "/ZidooControlCenter/getModel":
@@ -245,6 +245,14 @@ def make_handler():
                                           parentId=rec["parentId"], type=0, name=rec["url"].rsplit("/", 1)[1],
                                           path=rec["url"], videoInfoId=rec["videoInfoId"], playPoint=rec["playPoint"],
                                           seasonNumber=rec["season"], episodeNumber=rec["episode"], state=3))
+                if path == "/Poster/v2/markAsWatched":
+                    rec = p.entries.get(int(q.get("aggregationId", 0)))
+                    p.writes.append(dict(q, call="markAsWatched"))
+                    if rec and q.get("watched") == "1":
+                        rec["watched"] = True
+                        rec["playPoint"] = -max(1, rec["playPoint"])   # parks the resume point as a negative value
+                        rec["lastWatchTime"] = now_ms()
+                    return self.send(dict(status=200, msg="success"))
                 if path == "/ZidooPoster/v2/setPlayPoint":
                     eid = int(q.get("id", 0))
                     rec = p.entries.get(eid)
@@ -252,6 +260,8 @@ def make_handler():
                     if not rec:
                         return self.send(dict(status=200, msg="success"))  # real players can say success for a bad id
                     rec["playPoint"] = int(q.get("playPoint", 0))
+                    pp, dur = rec["playPoint"], rec["dur"]
+                    rec["watched"] = pp > 0 and (pp >= dur * 0.93 or dur - pp <= 300000)  # short of the end clears watched
                     if rec["playPoint"] == 0:
                         rec["lastWatchTime"] = -1      # playPoint=0 erases the bookmark (and watched mark)
                         rec["watched"] = False
@@ -286,7 +296,7 @@ def make_handler():
                     return self.send(dict(ok=True))
                 if path == "/_test/state":
                     rec = p.by_url.get(q.get("url", "").lower())
-                    return self.send(dict(found=bool(rec), playPoint=rec["playPoint"] if rec else None,
+                    return self.send(dict(found=bool(rec), playPoint=rec["playPoint"] if rec else None, watched=bool(rec and rec.get("watched")),
                                           lastWatchTime=rec["lastWatchTime"] if rec else None, writes=p.writes,
                                           posterRequests=p.poster_requests, powerLog=p.power_log,
                                           offline=p.offline, htClosed=p.ht_closed,

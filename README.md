@@ -35,6 +35,8 @@ Resume Relay per home, on a computer that stays on while you watch.
 - **Progress Reset tab.** Read your players to see every file you've started, how far in it is on each
   player and when it was last watched, sorted by title or date. Reset one file, or every episode of a
   TV show, on all players at once.
+- **Watch Sync tab.** See where each movie and episode is marked watched on every player, find the ones
+  that differ, and mark them watched or unwatched per player or on all players at once.
 - **Sleeping players catch up.** A player that's off, asleep, or on without its Home Theater app
   open gets its copies as soon as it's ready. Waiting copies are shown on that player's card and
   kept for 14 days (you can change this in Settings).

@@ -33,6 +33,9 @@ public sealed record EntryInfo(int Id, int ParentId, int VideoInfoId, string Nam
 
 public enum Lookup { Found, NotFound, Failed }
 
+/// <summary>A row of a library listing. Type: 0 file, 1 movie, 2 collection, 3 series, 4 season, 5 episode.</summary>
+public sealed record LibraryRow(int Id, int Type, string Name, int CollectionId, int Year);
+
 /// <summary>
 /// Thin wrapper over the Zidoo Home Theater HTTP API (port 9529). Every call is a plain GET.
 /// Calls never throw for network problems; they report Unreachable/Failed instead.
@@ -120,6 +123,67 @@ public sealed class ZidooClient
             return new EntryInfo(id, Int(r, "parentId"), Int(r, "videoInfoId"), Str(r, "name"), Str(r, "path"), Int(r, "playPoint"),
                 Int(r, "type"), Int(r, "seasonNumber"), Int(r, "episodeNumber"));
         }
+    }
+
+    // ---------- library reads for the Progress Reset tab ----------
+    // Shapes per the HT5 API guide (z-keeper.com/learn/ht5-api-guide). Every call answers 804 while Home Theater
+    // is busy; those are retried after a pause, as the guide advises.
+
+    /// <summary>A raw JSON answer (caller disposes), retrying "busy" (804) answers a few times.</summary>
+    public async Task<JsonDocument?> GetLibraryJsonAsync(string pathAndQuery, CancellationToken ct = default)
+    {
+        int[] waits = { 600, 1500, 3000 };
+        for (int attempt = 0; ; attempt++)
+        {
+            var doc = await GetJsonAsync(pathAndQuery, TimeSpan.FromSeconds(20), ct);
+            if (doc == null || doc.RootElement.ValueKind != JsonValueKind.Object || Int(doc.RootElement, "status") != 804 || attempt >= waits.Length)
+                return doc;
+            doc.Dispose();
+            await Task.Delay(waits[attempt], ct);
+        }
+    }
+
+    /// <summary>One page of the poster wall's top-level tiles (movies, collections, series, single-season shows).</summary>
+    public async Task<List<LibraryRow>?> GetVideoListPageAsync(int page, int pageSize, CancellationToken ct = default)
+    {
+        using var doc = await GetLibraryJsonAsync($"/ZidooPoster/getVideoList?page={page}&pagesize={pageSize}&type=0", ct);
+        if (doc == null || Int(doc.RootElement, "status") != 200) return null;
+        return Rows(doc.RootElement, "data");
+    }
+
+    /// <summary>The members of a collection, or a series' seasons.</summary>
+    public async Task<List<LibraryRow>> GetCollectionAsync(int id, CancellationToken ct = default)
+    {
+        using var doc = await GetLibraryJsonAsync($"/ZidooPoster/getCollection?id={id}", ct);
+        return doc == null ? new() : Rows(doc.RootElement, "data");
+    }
+
+    /// <summary>An entry's direct children (a series' seasons, a season's episodes...). HT 5.1.03+.</summary>
+    public async Task<List<LibraryRow>> GetChildrenAsync(int id, CancellationToken ct = default)
+    {
+        using var doc = await GetLibraryJsonAsync($"/ZidooPoster/v2/getEntry?id={id}&start=0&count=500", ct);
+        return doc == null ? new() : Rows(doc.RootElement, "children");
+    }
+
+    /// <summary>A movie's or season's detail: every file with its resume point and last-watched time.</summary>
+    public Task<JsonDocument?> GetDetailAsync(int id, CancellationToken ct = default) =>
+        GetLibraryJsonAsync($"/ZidooPoster/getDetail?id={id}", ct);
+
+    public Task<JsonDocument?> GetDetailV2Async(int id, CancellationToken ct = default) =>
+        GetLibraryJsonAsync($"/Poster/v2/getDetail?id={id}", ct);
+
+    private static List<LibraryRow> Rows(JsonElement root, string name)
+    {
+        var list = new List<LibraryRow>();
+        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty(name, out var arr) || arr.ValueKind != JsonValueKind.Array) return list;
+        foreach (var e in arr.EnumerateArray())
+        {
+            if (e.ValueKind != JsonValueKind.Object) continue;
+            int id = Int(e, "id");
+            if (id <= 0) continue;
+            list.Add(new LibraryRow(id, Int(e, "type"), Str(e, "name"), Int(e, "collectionId"), Int(e, "year")));
+        }
+        return list;
     }
 
     /// <summary>A poster image, or null. Tries the same endpoints Z-Keeper uses, newest API first.</summary>

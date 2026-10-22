@@ -51,7 +51,11 @@ public sealed class PendingCopy
     /// <summary>Set once the copy had to wait (player off / Home Theater closed), for the "after it woke up" note.</summary>
     public string WaitedFor { get; set; } = "";
 
-    public string Key => TargetId + "|" + SourceUrl.ToLowerInvariant();
+    /// <summary>"" copies or resets one file; "series" resets every episode of the series this file belongs to.</summary>
+    public string Kind { get; set; } = "";
+    public const string SeriesKind = "series";
+
+    public string Key => TargetId + "|" + (Kind.Length > 0 ? Kind + ":" : "") + SourceUrl.ToLowerInvariant();
 }
 
 public enum ActivityLevel { Info, Ok, Skip, Warn, Error }
@@ -86,6 +90,8 @@ public sealed class StopEvent
     public bool Reset { get; set; }
     /// <summary>The reset was requested with "Reset Progress" on the Activity tab (FromName is "Resume Relay").</summary>
     public bool Manual { get; set; }
+    /// <summary>"Reset TV Show": every episode of the series (Title) was reset.</summary>
+    public bool Series { get; set; }
     /// <summary>The file's network path (smb://...), used to find it on every player. Empty on cards made before 0.3.2.</summary>
     public string SourceUrl { get; set; } = "";
     /// <summary>File name of the cached poster, or "" when none.</summary>

@@ -32,6 +32,9 @@ Resume Relay per home, on a computer that stays on while you watch.
   straight away, and the other players clear their bookmark and watched mark too.
 - **Reset Progress from the Activity tab.** One button clears a file's bookmark and watched mark on
   every player.
+- **Progress Reset tab.** Read your players to see every file you've started, how far in it is on each
+  player and when it was last watched, sorted by title or date. Reset one file, or every episode of a
+  TV show, on all players at once.
 - **Sleeping players catch up.** A player that's off, asleep, or on without its Home Theater app
   open gets its copies as soon as it's ready. Waiting copies are shown on that player's card and
   kept for 14 days (you can change this in Settings).

@@ -166,6 +166,34 @@ p.hint { margin: 0 0 14px; color: var(--muted); font-size: 13.5px; max-width: 75
 .cfoot .meta { color: var(--muted); font-size: 11.5px; overflow-wrap: anywhere; }
 
 .reset-btn { margin-top: 12px; font-size: 13px; padding: 6px 12px; }
+/* ---------- progress reset ---------- */
+.pr-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 14px 16px; margin-bottom: 14px; }
+.pr-players { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.pr-players label { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; }
+.pr-players input { width: 17px; height: 17px; margin: 0; accent-color: var(--amber); cursor: pointer; }
+.pr-sort { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13.5px; }
+.pr-sort select { font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 6px 8px; }
+.pr-status { color: var(--muted); font-size: 13px; margin: 0 0 10px; }
+.pr-status:empty { display: none; }
+.pr-box { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 14px 16px 6px; }
+.pr-count { color: var(--amber); font-weight: 600; margin: 0 0 10px; }
+.pr-wrap { overflow-x: auto; }
+table.pr { border-collapse: collapse; width: 100%; font-size: 13px; }
+table.pr th { text-align: left; font-weight: 650; padding: 4px 14px 10px 0; vertical-align: bottom; white-space: nowrap; }
+table.pr th small { display: block; color: var(--muted); font-weight: 400; font-size: 11.5px; }
+table.pr th small.err { color: var(--warn); }
+table.pr td { padding: 9px 14px 9px 0; border-top: 1px solid var(--line); vertical-align: middle; }
+table.pr td.t { min-width: 260px; overflow-wrap: anywhere; }
+table.pr td.r { white-space: nowrap; }
+table.pr td.r .btn { font-size: 12.5px; padding: 4px 10px; }
+table.pr td.r .btn + .btn { margin-left: 6px; }
+table.pr td.p { min-width: 170px; white-space: nowrap; }
+.pr-bar { display: flex; align-items: center; gap: 8px; }
+.pr-bar .track { flex: none; width: 82px; margin: 0; height: 5px; }
+.pr-bar .track i { background: #4A9EE8; }
+.pr-bar .ok { color: var(--ok); }
+.pr-sub { color: var(--muted); font-size: 11.5px; margin-top: 2px; }
+.pr-none { color: var(--muted); font-size: 12px; }
 dialog.confirm { border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel); color: var(--text); padding: 22px 22px 18px; width: min(460px, calc(100vw - 32px)); box-shadow: 0 18px 50px rgba(0,0,0,.45); }
 dialog.confirm::backdrop { background: rgba(8, 10, 20, .6); }
 dialog.confirm h3 { margin: 0 0 8px; font-size: 17px; }
@@ -240,6 +268,7 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
 <nav class="tabs" role="tablist" aria-label="Sections">
   <button class="tab" role="tab" id="tab-players" aria-controls="players" data-tab="players">Players <span class="badge" id="badge-players" hidden></span></button>
   <button class="tab" role="tab" id="tab-activity" aria-controls="activity" data-tab="activity">Activity <span class="badge bad" id="badge-activity" hidden></span></button>
+  <button class="tab" role="tab" id="tab-progress" aria-controls="progress" data-tab="progress">Progress Reset</button>
   <button class="tab" role="tab" id="tab-settings" aria-controls="settings" data-tab="settings" aria-label="Settings" title="Settings">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
   </button>
@@ -267,6 +296,20 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
     <div class="feed" id="feed"></div>
   </section>
 
+  <section id="progress" role="tabpanel" aria-labelledby="tab-progress" hidden>
+    <h2>Progress Reset</h2>
+    <p class="hint">Everything you have started and not reset, on the players you tick: each file with a resume point, and how far in it is on each player. It's read live from the players, title by title, which takes a minute or two per player. Nothing is changed on a player until you press a Reset button.</p>
+    <div class="pr-controls">
+      <div class="pr-players" id="pr-players"></div>
+      <label class="pr-sort">Sort by
+        <select id="pr-sort"><option value="title">Title</option><option value="watched">Last watched</option></select></label>
+      <button class="btn" id="pr-read">Read players</button>
+    </div>
+    <p class="msg" id="pr-msg" role="status"></p>
+    <div id="pr-status" class="pr-status" aria-live="polite"></div>
+    <div id="pr-list"></div>
+  </section>
+
   <section id="settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
     <h2>Settings</h2>
     <p class="hint">Changes are saved as soon as you leave a box.</p>
@@ -292,7 +335,7 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
 
 <dialog class="confirm" id="reset-dialog" aria-labelledby="reset-h">
   <h3 id="reset-h">Reset Progress</h3>
-  <p>This will reset the progress for <b id="reset-file"></b> on all players.</p>
+  <p id="reset-text"></p>
   <div class="row">
     <button class="btn" id="reset-cancel" type="button">Cancel</button>
     <button class="btn go" id="reset-go" type="button">Continue</button>
@@ -340,7 +383,7 @@ async function api(method, url, body) {
 function say(el, text, kind) { el.textContent = text; el.className = "msg" + (kind ? " " + kind : ""); }
 
 // ---------------- tabs ----------------
-const TABS = ["players", "activity", "settings"];
+const TABS = ["players", "activity", "progress", "settings"];
 function showTab(name, focus) {
   if (!TABS.includes(name)) name = "players";
   for (const t of TABS) {
@@ -351,6 +394,7 @@ function showTab(name, focus) {
   if (focus) $("#tab-" + name).focus();
   store.set("rr.tab", name);
   if (name === "activity") { markActivitySeen(); }
+  if (name === "progress" && typeof loadProgress === "function" && state) loadProgress();
 }
 document.querySelector(".tabs").addEventListener("click", e => { const b = e.target.closest(".tab"); if (b) showTab(b.dataset.tab); });
 document.querySelector(".tabs").addEventListener("keydown", e => {
@@ -591,7 +635,9 @@ const CHIP = {
 const SYS_ICON = { Error: "✕", Warn: "!", Ok: "✓", Skip: "–", Info: "●" };
 
 function eventHtml(e) {
-  const what = e.manual
+  const what = e.series
+    ? `Reset from <b>Resume Relay</b>: <b>all episodes reset on all players</b>`
+    : e.manual
     ? `Reset from <b>Resume Relay</b>: <b>progress reset on all players</b>`
     : e.reset
     ? `Stopped at <b class="tnum">0:00</b> in ${esc(e.fromName)}: <b>progress reset</b>`
@@ -610,24 +656,31 @@ function eventHtml(e) {
     <time class="tnum" datetime="${esc(e.timeUtc)}">${timeOf(e.timeUtc)}</time></article>`;
 }
 
-// "Reset Progress": confirm, then reset that file on every player. The result appears as a new card.
-let resetId = null;
-$("#feed").addEventListener("click", e => {
-  const b = e.target.closest("[data-reset]"); if (!b) return;
-  resetId = b.dataset.reset;
-  $("#reset-file").textContent = b.dataset.file;
+// The Cancel / Continue confirmation used by every reset button. Cancel closes it and does nothing.
+let onContinue = null;
+function confirmReset(title, html, action) {
+  $("#reset-h").textContent = title;
+  $("#reset-text").innerHTML = html;
+  onContinue = action;
   $("#reset-dialog").showModal();
   $("#reset-cancel").focus();
-});
-$("#reset-cancel").onclick = () => { resetId = null; $("#reset-dialog").close(); };
-$("#reset-dialog").addEventListener("close", () => { resetId = null; });
+}
+$("#reset-cancel").onclick = () => { onContinue = null; $("#reset-dialog").close(); };
+$("#reset-dialog").addEventListener("close", () => { onContinue = null; });
 $("#reset-go").onclick = async () => {
-  const id = resetId; $("#reset-dialog").close();
-  if (!id) return;
-  try { await api("POST", `/api/events/${encodeURIComponent(id)}/reset`); }
-  catch (err) { alert(err.message); }
+  const action = onContinue; $("#reset-dialog").close();
+  if (!action) return;
+  try { await action(); } catch (err) { alert(err.message); }
   refresh();
 };
+
+// "Reset Progress" on an Activity card: reset that file on every player. The result appears as a new card.
+$("#feed").addEventListener("click", e => {
+  const b = e.target.closest("[data-reset]"); if (!b) return;
+  const id = b.dataset.reset;
+  confirmReset("Reset Progress", `This will reset the progress for <b>${esc(b.dataset.file)}</b> on all players.`,
+    () => api("POST", `/api/events/${encodeURIComponent(id)}/reset`));
+});
 
 function dayLabel(d) {
   const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -696,6 +749,102 @@ $("#autostart").addEventListener("change", async e => {
   refresh();
 });
 
+// ---------------- progress reset ----------------
+let progress = null, prCache = "", prBusy = new Map(); // row key -> time a reset was pressed
+const prDate = ms => new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+function prTicked() {
+  const all = (state?.devices || []).map(d => d.id);
+  let saved = null; try { saved = JSON.parse(store.get("rr.progressPlayers") || "null"); } catch { }
+  return Array.isArray(saved) ? all.filter(id => saved.includes(id)) : all;
+}
+function renderProgressControls() {
+  const box = $("#pr-players"), devs = state?.devices || [];
+  const sig = devs.map(d => d.id + d.name).join("|") + "#" + prTicked().join("|");
+  if (box.dataset.sig === sig) return;
+  box.dataset.sig = sig;
+  const ticked = prTicked();
+  box.innerHTML = devs.map(d => `<label><input type="checkbox" value="${esc(d.id)}" ${ticked.includes(d.id) ? "checked" : ""}> ${esc(d.name)}</label>`).join("");
+}
+$("#pr-players").addEventListener("change", () => {
+  store.set("rr.progressPlayers", JSON.stringify([...$("#pr-players").querySelectorAll("input:checked")].map(i => i.value)));
+  $("#pr-players").dataset.sig = ""; renderProgress();
+});
+try { $("#pr-sort").value = store.get("rr.progressSort") || "title"; } catch { }
+$("#pr-sort").addEventListener("change", () => { store.set("rr.progressSort", $("#pr-sort").value); renderProgress(); });
+$("#pr-read").onclick = async () => {
+  try { await api("POST", "/api/progress/read", { deviceIds: prTicked() }); say($("#pr-msg"), ""); }
+  catch (err) { say($("#pr-msg"), err.message, "err"); }
+  loadProgress();
+};
+
+function prCell(c, read) {
+  if (!read) return `<span class="pr-none">—</span>`;
+  if (!c) return `<span class="pr-none">not in library</span>`;
+  if (!(c.playPointMs > 0)) return `<span class="pr-none">not started</span>`;
+  const pct = c.durationMs > 0 ? Math.min(100, Math.round(100 * c.playPointMs / c.durationMs)) : null;
+  return `<div class="pr-bar"><span class="track" aria-hidden="true"><i style="width:${pct ?? 0}%"></i></span>
+    <span class="tnum">${pct === null ? "" : pct + "%"}</span>${c.watched ? `<span class="ok" title="Watched">✓</span>` : ""}</div>
+    <div class="pr-sub tnum">${clock(c.playPointMs)}${c.durationMs > 0 ? " of " + clock(c.durationMs) : ""}${c.lastWatchMs > 0 ? " · " + prDate(c.lastWatchMs) : ""}</div>`;
+}
+
+function renderProgress() {
+  renderProgressControls();
+  const read = $("#pr-read");
+  read.disabled = !!progress?.reading; read.textContent = progress?.reading ? "Reading…" : "Read players";
+  $("#pr-status").innerHTML = (progress?.status || []).map(esc).join("<br>");
+  if (!progress) return;
+  const ticked = prTicked();
+  const devs = (state?.devices || []).filter(d => ticked.includes(d.id));
+  const readOf = Object.fromEntries((progress.devices || []).map(d => [d.deviceId, d]));
+  for (const [k, t] of prBusy) if (Date.now() - t > 90000) prBusy.delete(k);
+  let rows = (progress.files || []).filter(f => devs.some(d => readOf[d.id]?.readUtc && f.cells[d.id]?.playPointMs > 0));
+  const lastOf = f => Math.max(-1, ...devs.map(d => f.cells[d.id]?.lastWatchMs ?? -1));
+  rows.sort($("#pr-sort").value === "watched"
+    ? (a, b) => lastOf(b) - lastOf(a) || a.display.localeCompare(b.display, undefined, { numeric: true })
+    : (a, b) => a.display.localeCompare(b.display, undefined, { numeric: true, sensitivity: "base" }));
+
+  let html;
+  if (!devs.length) html = `<div class="empty"><strong>No players ticked</strong>Tick the players to read, then press Read players.</div>`;
+  else if (!devs.some(d => readOf[d.id]?.readUtc)) html = `<div class="empty"><strong>Not read yet</strong>Tick the players to read, then press Read players.</div>`;
+  else {
+    const head = devs.map(d => {
+      const r = readOf[d.id];
+      const sub = r?.readUtc ? `read ${timeOf(r.readUtc)}` : "not read";
+      return `<th>${esc(d.name)}<small>${esc(sub)}</small>${r?.error ? `<small class="err">${esc(r.error)}</small>` : ""}</th>`;
+    }).join("");
+    const body = rows.map(f => {
+      const busy = prBusy.has(f.key);
+      const btns = busy ? `<button class="btn" disabled>Resetting…</button>`
+        : `<button class="btn" data-pr-reset="${esc(f.key)}">Reset</button>${f.isEpisode ? `<button class="btn" data-pr-show="${esc(f.key)}">Reset TV Show</button>` : ""}`;
+      return `<tr><td class="t">${esc(f.display)}</td><td class="r">${btns}</td>${devs.map(d => `<td class="p">${prCell(f.cells[d.id], !!readOf[d.id]?.readUtc)}</td>`).join("")}</tr>`;
+    }).join("");
+    html = `<div class="pr-box"><p class="pr-count">${rows.length.toLocaleString()} file(s) in progress</p>
+      <div class="pr-wrap"><table class="pr"><thead><tr><th>Title</th><th>Reset</th>${head}</tr></thead><tbody>${body}</tbody></table></div></div>`;
+  }
+  if (html !== prCache) { $("#pr-list").innerHTML = html; prCache = html; }
+}
+
+$("#pr-list").addEventListener("click", e => {
+  const b = e.target.closest("[data-pr-reset], [data-pr-show]"); if (!b) return;
+  const key = b.dataset.prReset || b.dataset.prShow;
+  const f = (progress?.files || []).find(x => x.key === key); if (!f) return;
+  if (b.dataset.prReset)
+    confirmReset("Reset Progress", `This will reset the progress for <b>${esc(f.fileName)}</b> on all players.`, async () => {
+      await api("POST", "/api/progress/reset", { key }); prBusy.set(key, Date.now()); loadProgress();
+    });
+  else
+    confirmReset("Reset TV Show", `This will reset the progress of all episodes for <b>${esc(f.title)}</b> on all players.`, async () => {
+      await api("POST", "/api/progress/reset-series", { key });
+      for (const x of progress.files) if (x.isEpisode && x.title === f.title) prBusy.set(x.key, Date.now());
+      loadProgress();
+    });
+});
+
+async function loadProgress() {
+  try { progress = await api("GET", "/api/progress"); } catch { }
+  renderProgress();
+}
+
 // ---------------- refresh loop ----------------
 let busy = false;
 async function refresh() {
@@ -705,6 +854,7 @@ async function refresh() {
     state = s; events = ev; systemRows = sys;
     for (const [id, t] of launching) if (Date.now() - t > 60000) launching.delete(id);
     renderMode(s.settings); renderRooms(s.devices); renderFeed(); renderSettings(s.settings); renderBadges();
+    if (!$("#progress").hidden || progress?.reading) await loadProgress(); else renderProgressControls();
     $("#autostart-row").hidden = s.autostart === null || s.autostart === undefined;
     if (!$("#autostart-row").hidden) $("#autostart").checked = s.autostart;
     if ($("#rooms-msg").textContent.startsWith("Can't reach")) say($("#rooms-msg"), "");

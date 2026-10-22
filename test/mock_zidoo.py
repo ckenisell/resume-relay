@@ -81,10 +81,45 @@ class Player:
             else:
                 parent, season, episode = title(1, show), None, None
             eid = id_base + i * 7          # different numbering on every player
-            rec = dict(id=eid, videoInfoId=eid - 5000, parentId=parent, url=SHARE + rel, dur=dur, title=show,
+            rec = dict(id=eid, videoInfoId=eid - 5000, parentId=parent, url=SHARE + rel, rel=rel, dur=dur, title=show,
                        playPoint=0, lastWatchTime=-1, season=season, episode=episode)
             self.entries[eid] = rec
             self.by_url[rec["url"].lower()] = rec
+        # A movie collection, so the library reader has to open collections: Arrival sits inside one.
+        self.collections = {}
+        for tid, t in self.titles.items():
+            if t["type"] == 1 and t["name"] == "Arrival":
+                self.collections[id_base + 6000] = dict(name="Sci-Fi Collection", members=[tid])
+
+    def top_tiles(self):
+        """The poster wall: movies not in a collection, collections, series (as getVideoList lists them)."""
+        in_coll = {m for c in self.collections.values() for m in c["members"]}
+        rows = [dict(id=tid, parentId=t["parentId"], collectionId=tid if t["type"] == 3 else -1, aggregationId=tid + 1,
+                     type=t["type"], name=t["name"], year=2016)
+                for tid, t in sorted(self.titles.items()) if t["type"] in (1, 3) and tid not in in_coll]
+        rows += [dict(id=cid + 7, parentId=-1, collectionId=cid, aggregationId=-1, type=2, name=c["name"])
+                 for cid, c in sorted(self.collections.items())]
+        return rows
+
+    def file_row(self, r):
+        return dict(id=r["id"], type=0, name=r["rel"].rsplit("/", 1)[1], duration=r["dur"],
+                    watched=bool(r.get("watched")),
+                    aggregation=dict(id=r["id"] + 50000, uri=r["rel"], playPoint=r["playPoint"],
+                                     lastWatchTime=r["lastWatchTime"], addedTime=1790288635484))
+
+    def detail(self, tid):
+        """getDetail for a movie (files) or a season (episodes → files), shaped like the HT5 API guide's examples."""
+        t = self.titles[tid]
+        kids = sorted((r for r in self.entries.values() if r["parentId"] == tid), key=lambda r: r["id"])
+        if t["type"] == 1:
+            return dict(status=200, id=tid, type=1, name=t["name"], year=1995, watched=False, position=0,
+                        duration=kids[0]["dur"] if kids else 0,
+                        aggregation=dict(aggregations=[self.file_row(r) for r in kids]))
+        eps = [dict(id=r["id"] + 90000, type=5, name=f"Episode {r['episode']}", position=r["playPoint"],
+                    aggregation=dict(seasonNumber=r["season"], episodeNumber=r["episode"]),
+                    aggregations=[self.file_row(r)]) for r in kids]
+        return dict(status=200, id=tid, type=4, name=t["name"], aggregation=dict(aggregations=eps),
+                    currentWatchSeasonNumber=1, currentWatchEpisodeNumber=1)
 
     def play_path(self, url):
         # smb://10.0.0.56/Entertainment/... -> /data/system/smb/10.0.0.56#Entertainment/...
@@ -164,7 +199,23 @@ def make_handler():
                     return self.send(dict(status=200, video=dict(status=1, title=pl["title"], path=pl["path"],
                                                                   currentPosition=pl["pos"], duration=pl["dur"])))
                 if path == "/ZidooPoster/getVideoList":
-                    return self.send(dict(status=200, page=1, pagesize=1, size=1, data=[]))
+                    page, size = int(q.get("page", 1)), int(q.get("pagesize", 50))
+                    rows = p.top_tiles()[(page - 1) * size: page * size]
+                    return self.send(dict(status=200, page=page, pagesize=size, size=len(rows), data=rows))
+                if path == "/ZidooPoster/getCollection":
+                    cid = int(q.get("id", 0))
+                    if cid in p.collections:
+                        rows = [dict(id=m, parentId=-1, collectionId=-1, type=1, name=p.titles[m]["name"]) for m in p.collections[cid]["members"]]
+                    elif cid in p.titles and p.titles[cid]["type"] == 3:
+                        rows = [dict(id=k, parentId=cid, collectionId=-1, type=4, name=t["name"]) for k, t in sorted(p.titles.items()) if t["parentId"] == cid]
+                    else:
+                        return self.send(dict(status=804, msg="Url error"))
+                    return self.send(dict(status=200, data=rows))
+                if path == "/ZidooPoster/getDetail":
+                    tid = int(q.get("id", 0))
+                    if tid in p.titles and p.titles[tid]["type"] in (1, 4):
+                        return self.send(p.detail(tid))
+                    return self.send(dict(status=803, msg="not a movie or season"))
                 if path == "/ZidooPoster/v2/getPoster":
                     tid = int(q.get("id", 0))
                     p.poster_requests.append(tid)
@@ -185,7 +236,8 @@ def make_handler():
                         kids = [r for r in p.entries.values() if r["parentId"] == eid]
                         return self.send(dict(status=200, code="OK", msg="success", id=eid, parentId=t["parentId"],
                                               type=t["type"], name=t["name"], path="", playPoint=0,
-                                              children=[dict(id=k["id"], path=k["url"]) for k in kids]))
+                                              children=[dict(id=k["id"], type=0, path=k["url"], playPoint=k["playPoint"]) for k in kids]
+                                              + [dict(id=c, type=ct["type"], name=ct["name"]) for c, ct in sorted(p.titles.items()) if ct["parentId"] == eid]))
                     rec = p.entries.get(eid)
                     if not rec:
                         return self.send(dict(status=404, code="NOT_FOUND", msg="not found"))
@@ -202,6 +254,7 @@ def make_handler():
                     rec["playPoint"] = int(q.get("playPoint", 0))
                     if rec["playPoint"] == 0:
                         rec["lastWatchTime"] = -1      # playPoint=0 erases the bookmark (and watched mark)
+                        rec["watched"] = False
                     else:
                         rec["lastWatchTime"] = int(q["lastWatchTime"]) if q.get("lastWatchTime") else now_ms()
                     if p.buggy_write:
@@ -247,6 +300,8 @@ def make_handler():
                 if path == "/_test/setlwt":
                     rec = p.by_url[q["url"].lower()]
                     rec["lastWatchTime"] = int(q["lwt"]); rec["playPoint"] = int(q["pp"])
+                    if "watched" in q:
+                        rec["watched"] = q["watched"] == "1"
                     return self.send(dict(ok=True))
             return self.send(dict(error="unknown"), 404)
     return H

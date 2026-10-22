@@ -479,56 +479,94 @@ public sealed class RelayEngine : BackgroundService
         NudgeQueue();
     }
 
-    /// <summary>
-    /// "Reset Progress" on an Activity card: clears that file's bookmark and watched mark on every player, including
-    /// the one it was stopped on. It goes through the same queue as a stop at 0:00, so each reset is checked by reading
-    /// it back, and a player that's off gets it when it comes back. Shown as a new card "from Resume Relay".
-    /// </summary>
+    /// <summary>Raised when a copy or reset lands on a player (device id, that player's file id, position, last-watched
+    /// unix ms; 0 and -1 for a reset), so the Progress Reset tab can update its list without reading the players again.</summary>
+    public event Action<string, int, int, long>? FileWritten;
+
+    /// <summary>"Reset Progress" on an Activity card: resets that card's file everywhere.</summary>
     public (StopEvent? Card, string Error) ResetEverywhere(string eventId)
     {
         var from = _store.Events(300).FirstOrDefault(e => e.Id == eventId);
         if (from == null) return (null, "That card no longer exists.");
         if (from.SourceUrl.Length == 0) return (null, "This card was made by an older version of Resume Relay and doesn't know where the file is.");
+        return ResetFile(from.Title, from.Subtitle, from.FileName, from.SourceUrl, from.Poster, from.DurationMs);
+    }
+
+    /// <summary>
+    /// Clears one file's bookmark and watched mark on every player, including the one it was stopped on. It goes through
+    /// the same queue as a stop at 0:00, so each reset is checked by reading it back, and a player that's off gets it
+    /// when it comes back. Shown as a new card "from Resume Relay".
+    /// </summary>
+    public (StopEvent? Card, string Error) ResetFile(string title, string subtitle, string fileName, string sourceUrl, string poster, int durationMs)
+    {
         var targets = _store.Devices().Where(d => d.Enabled).ToList();
         if (targets.Count == 0) return (null, "There are no players to reset.");
+        var ev = NewResetCard(title, subtitle, fileName, sourceUrl, poster, durationMs, series: false, targets);
+        string label = subtitle.Length > 0 && subtitle.StartsWith('S') ? $"{title} {subtitle}" : title;
+        _store.LogCopy(ActivityLevel.Info, $"Reset Progress pressed for {fileName}. Resetting it on {string.Join(", ", targets.Select(t => t.Name))}…");
+        EnqueueResets(ev, targets, sourceUrl, label, durationMs, kind: "");
+        return (ev, "");
+    }
 
-        var now = DateTime.UtcNow;
+    /// <summary>
+    /// "Reset TV Show": clears the bookmark and watched mark of every episode of every season of a series, on every
+    /// player. The series is found on each player from one of its episodes' paths, so each player uses its own ids.
+    /// </summary>
+    public (StopEvent? Card, string Error) ResetSeries(string series, string anyEpisodeSourceUrl, string poster)
+    {
+        var targets = _store.Devices().Where(d => d.Enabled).ToList();
+        if (targets.Count == 0) return (null, "There are no players to reset.");
+        var ev = NewResetCard(series, "All episodes", "", anyEpisodeSourceUrl, poster, 0, series: true, targets);
+        _store.LogCopy(ActivityLevel.Info, $"Reset TV Show pressed for {series}. Resetting every episode on {string.Join(", ", targets.Select(t => t.Name))}…");
+        EnqueueResets(ev, targets, anyEpisodeSourceUrl, series, 0, kind: PendingCopy.SeriesKind);
+        return (ev, "");
+    }
+
+    private StopEvent NewResetCard(string title, string subtitle, string fileName, string sourceUrl, string poster, int durationMs, bool series, List<Device> targets)
+    {
         var ev = new StopEvent
         {
-            TimeUtc = now,
-            Title = from.Title,
-            Subtitle = from.Subtitle,
-            FileName = from.FileName,
-            SourceUrl = from.SourceUrl,
+            TimeUtc = DateTime.UtcNow,
+            Title = title,
+            Subtitle = subtitle,
+            FileName = fileName,
+            SourceUrl = sourceUrl,
             FromName = ManualResetFrom,
-            DurationMs = from.DurationMs,
+            DurationMs = durationMs,
             Reset = true,
             Manual = true,
-            Poster = from.Poster,
+            Series = series,
+            Poster = poster,
             Targets = targets.Select(t => new StopTarget { DeviceId = t.Id, Name = t.Name }).ToList(),
         };
         _store.AddEvent(ev);
-        string label = from.Subtitle.Length > 0 && from.Subtitle.StartsWith('S') ? $"{from.Title} {from.Subtitle}" : from.Title;
-        _store.LogCopy(ActivityLevel.Info, $"Reset Progress pressed for {from.FileName}. Resetting it on {string.Join(", ", targets.Select(t => t.Name))}…");
+        return ev;
+    }
 
+    private void EnqueueResets(StopEvent ev, List<Device> targets, string sourceUrl, string label, int durationMs, string kind)
+    {
+        // Stamped "now": the queue keeps the newest job per player and file, so an older copy still waiting for an
+        // off player must lose to this reset (an unstamped reset used to lose to it, and was dropped).
+        long now = new DateTimeOffset(ev.TimeUtc).ToUnixTimeMilliseconds();
         foreach (var t in targets)
         {
             var replaced = _store.Enqueue(new PendingCopy
             {
                 TargetId = t.Id,
-                SourceUrl = from.SourceUrl,
+                Kind = kind,
+                SourceUrl = sourceUrl,
                 Title = label,
                 FromName = ManualResetFrom,
                 PositionMs = 0,
-                DurationMs = from.DurationMs,
-                CreatedUtc = now,
+                DurationMs = durationMs,
+                LastWatchTimeMs = now,
+                CreatedUtc = ev.TimeUtc,
                 EventId = ev.Id,
             });
             if (replaced != null)
                 _store.UpdateEventTarget(replaced.EventId, t.Id, TargetState.Skipped, "replaced by a later reset");
         }
         NudgeQueue();
-        return (ev, "");
     }
 
     /// <summary>
@@ -562,6 +600,10 @@ public sealed class RelayEngine : BackgroundService
         catch { }
         return last.PositionMs;
     }
+
+    /// <summary>The poster for a file as seen on one player (for reset cards made from the Progress Reset tab).</summary>
+    public async Task<string> PosterForAsync(Device d, string sourceUrl) =>
+        (await GetTitleInfoAsync(d, sourceUrl, PathMapper.FileName(sourceUrl))).Poster;
 
     /// <summary>Poster (season poster for episodes) and subtitle for a file, looked up once per player and file.</summary>
     private Task<TitleInfo> GetTitleInfoAsync(Device d, string sourceUrl, string playPath)
@@ -668,7 +710,7 @@ public sealed class RelayEngine : BackgroundService
 
         // A stop at 0:00 is copied as a reset: the bookmark and the watched mark are cleared.
         bool reset = job.PositionMs == 0;
-        string why = job.FromName == ManualResetFrom ? "Reset Progress on the Activity tab" : $"stopped at 0:00 on {job.FromName}";
+        string why = job.FromName == ManualResetFrom ? "reset from Resume Relay" : $"stopped at 0:00 on {job.FromName}";
         string what = $"{job.Title} ({Clock(job.PositionMs)}) from {job.FromName} to {target.Name}";
 
         if (live.Playing != null && PathMapper.Same(live.Playing.SourceUrl, job.SourceUrl))
@@ -679,6 +721,7 @@ public sealed class RelayEngine : BackgroundService
         }
 
         var api = new ZidooClient(target.Ip, target.Port);
+        if (job.Kind == PendingCopy.SeriesKind) { await ProcessSeriesResetAsync(job, target, api, htNotReady, ct); return; }
 
         // 1. Find the file in the target's own library, by path.
         var (lookup, hit) = await api.GetIdByPathnameAsync(job.SourceUrl, ct);
@@ -736,6 +779,7 @@ public sealed class RelayEngine : BackgroundService
         if (readBack.HasValue && Landed(readBack.Value, job))
         {
             bool watched = !reset && NearEnd(job.PositionMs, job.DurationMs);
+            FileWritten?.Invoke(target.Id, entry.Id, reset ? 0 : readBack.Value, reset ? -1 : job.LastWatchTimeMs);
             _store.LogCopy(ActivityLevel.Ok, reset
                 ? $"Reset {job.Title} on {target.Name} ({why})."
                 : $"Copied {what}" + (watched ? " (marked watched)." : "."));
@@ -750,6 +794,82 @@ public sealed class RelayEngine : BackgroundService
         {
             Retry(job, what, readBack.HasValue ? $"the player still shows {Clock(readBack.Value)} after the write" : "could not read the bookmark back");
         }
+    }
+
+    /// <summary>
+    /// "Reset TV Show" on one player: find the series from one episode's path (this player's own ids), read every
+    /// season, clear each episode file that has a resume point or a watched mark, then read the seasons again to
+    /// make sure nothing is left.
+    /// </summary>
+    private async Task ProcessSeriesResetAsync(PendingCopy job, Device target, ZidooClient api, HashSet<string> htNotReady, CancellationToken ct)
+    {
+        string what = $"every episode of {job.Title} on {target.Name}";
+        var (lookup, hit) = await api.GetIdByPathnameAsync(job.SourceUrl, ct);
+        if (lookup == Lookup.NotFound)
+        {
+            _store.LogCopy(ActivityLevel.Skip, $"Not resetting {job.Title} on {target.Name}: its library does not have that show.");
+            Finish(job, TargetState.Skipped, "not in its library");
+            return;
+        }
+        if (lookup == Lookup.Failed) { WaitForHomeTheater(job, target, htNotReady); return; }
+
+        // Walk up from the episode's file to the series (file → episode → season → series).
+        int seriesId = 0, seasonId = 0, parent = hit!.Id;
+        for (int i = 0; i < 6 && parent > 1 && seriesId == 0; i++)
+        {
+            var e = await api.GetEntryAsync(parent, ct);
+            if (e == null) break;
+            if (e.Type == 3) seriesId = e.Id;
+            else if (e.Type == 4 && seasonId == 0) seasonId = e.Id;
+            parent = e.ParentId;
+        }
+        var seasons = new List<int>();
+        if (seriesId > 0)
+        {
+            var kids = await api.GetChildrenAsync(seriesId, ct);
+            if (!kids.Any(k => k.Type == 4)) kids = await api.GetCollectionAsync(seriesId, ct);
+            seasons.AddRange(kids.Where(k => k.Type == 4).Select(k => k.Id));
+        }
+        if (seasons.Count == 0 && seasonId > 0) seasons.Add(seasonId); // a single-season show
+        if (seasons.Count == 0)
+        {
+            Retry(job, what, "couldn't find the show's seasons");
+            return;
+        }
+
+        async Task<List<ProgressCell>> ReadAll()
+        {
+            var all = new List<ProgressCell>();
+            foreach (int id in seasons)
+                all.AddRange((await ProgressService.ReadTitleAsync(api, id, true, job.Title, ct)).Select(x => x.Cell));
+            return all;
+        }
+        static bool HasProgress(ProgressCell c) => c.PlayPointMs > 0 || c.Watched;
+
+        var before = await ReadAll();
+        var ids = before.Where(HasProgress).Select(c => c.FileId).Where(id => id > 0).Distinct().ToList();
+        if (_store.Settings().WatchOnly)
+        {
+            _store.LogCopy(ActivityLevel.Info, $"[watch-only] Would reset {ids.Count} episode file(s) of {job.Title} on {target.Name}.");
+            Finish(job, TargetState.WatchOnly, $"watch-only: would reset {ids.Count} episode{(ids.Count == 1 ? "" : "s")}");
+            return;
+        }
+        foreach (int id in ids) await api.ResetPlayPointAsync(id, ct);
+
+        var left = ids.Count == 0 ? new List<int>() : (await ReadAll()).Where(HasProgress).Select(c => c.FileId).Intersect(ids).ToList();
+        foreach (int id in ids.Except(left)) FileWritten?.Invoke(target.Id, id, 0, -1);
+        if (left.Count > 0)
+        {
+            Retry(job, what, $"{left.Count} episode(s) still show progress after the reset");
+            return;
+        }
+        _store.LogCopy(ActivityLevel.Ok, $"Reset every episode of {job.Title} on {target.Name} ({ids.Count} had progress).");
+        string note = string.Join(", ", new[]
+        {
+            ids.Count == 0 ? "nothing to reset" : $"{ids.Count} episode{(ids.Count == 1 ? "" : "s")} reset",
+            job.WaitedFor == WaitOff ? "after it woke up" : job.WaitedFor == WaitHomeTheater ? "after Home Theater opened" : "",
+        }.Where(x => x.Length > 0));
+        Finish(job, TargetState.Ok, note);
     }
 
     /// <summary>Removes the copy from the queue and sets its chip on the Activity card.</summary>

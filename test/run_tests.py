@@ -283,7 +283,52 @@ check("...and every other player", wait_for(lambda: bookmark(LR, E04)["playPoint
 mc = wait_for(lambda: next((e for e in events() if e.get("manual") and e["fileName"] == "Andor - S01E04.mkv"
                             and all(t["state"] == "Ok" and t["note"] == "reset" for t in e["targets"])), None), 25)
 check("new card from Resume Relay lists all three players as reset", mc and mc["fromName"] == "Resume Relay" and len(mc["targets"]) == 3, str(mc))
-check("logged per player", log_has("Reset Andor S01E04 on Bedroom (Reset Progress on the Activity tab)."))
+check("logged per player", log_has("Reset Andor S01E04 on Bedroom (reset from Resume Relay)."))
+
+# ---------------------------------------------------------------- 22. Progress Reset tab: read every player
+FEAT = SHARE + "/Movies/Braveheart/Featurettes/Braveheart (1995).(7#A Writer's Journal).mkv"
+now = int(time.time() * 1000)
+for ip, url, pp in [(LR, BRAVE, 3000000), (BR, BRAVE, 0), (HT, BRAVE, 0),
+                    (LR, ARRIVAL, 0), (BR, ARRIVAL, 1500000),
+                    (LR, E03, 600000), (BR, E03, 600000), (HT, E03, 0),
+                    (LR, E04, 0), (BR, E04, 0), (HT, E04, 900000),
+                    (LR, FEAT, 0), (BR, FEAT, 0)]:
+    mock(ip, "setlwt", url=url, lwt=now if pp else -1, pp=pp)
+http("POST", RELAY + "/api/progress/read", {"deviceIds": list(ids.values())})
+wait_for(lambda: not http("GET", RELAY + "/api/progress")["reading"], 60)
+prog = http("GET", RELAY + "/api/progress")
+check("all three players read", len([d for d in prog["devices"] if d["readUtc"]]) == 3, str(prog["devices"]))
+files = {f["key"]: f for f in prog["files"]}
+kb = "/movies/braveheart/braveheart (1995).4k.(1#theatrical movie).mkv"
+ka = "/movies/arrival (2016)/arrival (2016).mkv"
+k3, k4 = "/tv/andor/season 01/andor - s01e03.mkv", "/tv/andor/season 01/andor - s01e04.mkv"
+check("movie listed by its full file name", files.get(kb, {}).get("display") == "Braveheart (1995).4K.(1#Theatrical Movie).mkv", str(files.get(kb)))
+check("movie inside a collection is found", ka in files and files[ka]["cells"][ids[BR]]["playPointMs"] == 1500000, str(files.get(ka)))
+check("player without the file has no cell (not in library)", ka in files and ids[HT] not in files[ka]["cells"])
+check("player with the file but no progress shows 0 (not started)", files.get(kb, {}).get("cells", {}).get(ids[BR], {}).get("playPointMs") == 0)
+check("episode shown as Show - SxxEyy", files.get(k3, {}).get("display") == "Andor - S01E03", str(files.get(k3, {}).get("display")))
+check("episode cell has position, length and date", (lambda c: c["playPointMs"] == 600000 and c["durationMs"] == 2400000 and c["lastWatchMs"] > 0)(files[k3]["cells"][ids[LR]]) if k3 in files else False)
+check("files with no progress anywhere are left out", not any("writer's journal" in k for k in files), str(list(files)))
+
+# ---------------------------------------------------------------- 23. Reset one row
+http("POST", RELAY + "/api/progress/reset", {"key": ka})
+check("row reset clears the file on every player", wait_for(lambda: bookmark(BR, ARRIVAL)["playPoint"] == 0, 25))
+rc = wait_for(lambda: next((e for e in events() if e.get("manual") and e["fileName"] == "Arrival (2016).mkv" and not e.get("series")
+                            and all(t["state"] != "Pending" for t in e["targets"])), None), 25)
+check("row reset adds a Resume Relay card", rc and any(t["state"] == "Ok" for t in rc["targets"]), str(rc))
+check("reset row leaves the list without reading again", wait_for(lambda: ka not in {f["key"] for f in http("GET", RELAY + "/api/progress")["files"]}, 20))
+
+# ---------------------------------------------------------------- 24. Reset TV Show
+mock(LR, "setlwt", url=E04, lwt=now, pp=700000, watched=1)
+http("POST", RELAY + "/api/progress/reset-series", {"key": k3})
+check("TV show reset clears every episode on every player",
+      wait_for(lambda: all(bookmark(ip, u)["playPoint"] == 0 for ip in (LR, BR, HT) for u in (E03, E04)), 30),
+      str([(ip, u[-10:], bookmark(ip, u)["playPoint"]) for ip in (LR, BR, HT) for u in (E03, E04)]))
+sc = wait_for(lambda: next((e for e in events() if e.get("series") and e["title"] == "Andor"
+                            and all(t["state"] == "Ok" for t in e["targets"])), None), 30)
+check("TV show reset card: one chip per player with episode counts", sc and len(sc["targets"]) == 3
+      and any(t["note"].startswith("2 episodes reset") for t in sc["targets"]), str(sc))
+check("the show's rows leave the list", wait_for(lambda: not ({k3, k4} & {f["key"] for f in http("GET", RELAY + "/api/progress")["files"]}), 20))
 
 passed = sum(1 for _, ok in results if ok)
 print(f"\n{passed}/{len(results)} passed")

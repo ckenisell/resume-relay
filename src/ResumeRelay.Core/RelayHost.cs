@@ -68,9 +68,11 @@ public static class RelayHost
         builder.Services.AddSingleton(options.Host);
         builder.Services.AddSingleton<RelayEngine>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<RelayEngine>());
+        builder.Services.AddSingleton<ProgressService>();
 
         var app = builder.Build();
         MapApi(app, store, app.Services.GetRequiredService<RelayEngine>(), options.Host);
+        MapProgressApi(app, app.Services.GetRequiredService<ProgressService>(), app.Lifetime.ApplicationStopping);
         return app;
     }
 
@@ -150,7 +152,7 @@ public static class RelayHost
 
         app.MapGet("/api/events", (int? n) => Results.Ok(store.Events(Math.Clamp(n ?? 100, 1, 300)).Select(e => new
         {
-            e.Id, e.TimeUtc, e.Title, e.Subtitle, e.FileName, e.Manual, CanReset = e.SourceUrl.Length > 0, e.FromName, e.PositionMs, e.DurationMs, e.Finished, e.Reset,
+            e.Id, e.TimeUtc, e.Title, e.Subtitle, e.FileName, e.Manual, e.Series, CanReset = e.SourceUrl.Length > 0, e.FromName, e.PositionMs, e.DurationMs, e.Finished, e.Reset,
             Poster = e.Poster.Length > 0 ? "/api/poster/" + e.Poster : null,
             e.Targets,
         })));
@@ -235,6 +237,20 @@ public static class RelayHost
         app.MapPost("/api/pending/retry", () => { engine.NudgeQueue(); return Results.Ok(); });
     }
 
+    /// <summary>The Progress Reset tab.</summary>
+    private static void MapProgressApi(WebApplication app, ProgressService progress, CancellationToken stopping)
+    {
+        app.MapGet("/api/progress", () => Results.Ok(progress.Snapshot()));
+        app.MapPost("/api/progress/read", (ProgressReadRequest req) =>
+            progress.StartRead(req.DeviceIds ?? new List<string>(), stopping) is { } err ? Results.BadRequest(new { Error = err }) : Results.Ok());
+        app.MapPost("/api/progress/reset", async (ProgressKeyRequest req) =>
+            await progress.ResetFileAsync(req.Key ?? "") is { } err ? Results.BadRequest(new { Error = err }) : Results.Ok());
+        app.MapPost("/api/progress/reset-series", async (ProgressKeyRequest req) =>
+            await progress.ResetSeriesAsync(req.Key ?? "") is { } err ? Results.BadRequest(new { Error = err }) : Results.Ok());
+    }
+
+    private sealed record ProgressReadRequest(List<string>? DeviceIds);
+    private sealed record ProgressKeyRequest(string? Key);
     private sealed record AddDeviceRequest(string? Ip, int? Port);
     private sealed record UpdateDeviceRequest(string? Name, bool? Enabled);
     private sealed record AutostartRequest(bool Enabled);

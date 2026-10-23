@@ -314,6 +314,12 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
     <p class="hint">Everything you have started and not reset, on the players you tick: each file with a resume point, and how far in it is on each player. It's read live from the players, title by title, which takes a minute or two per player. Nothing is changed on a player until you press a Reset button.</p>
     <div class="pr-controls">
       <div class="pr-players" id="pr-players"></div>
+      <label class="pr-sort">Show
+        <select id="pr-show">
+          <option value="all">All files</option>
+          <option value="different">Different progress between players</option>
+          <option value="same">Same progress on all players</option>
+        </select></label>
       <label class="pr-sort">Sort by
         <select id="pr-sort"><option value="title">Title</option><option value="watched">Last watched</option></select></label>
       <button class="btn" id="pr-read">Read players</button>
@@ -807,6 +813,8 @@ $("#pr-players").addEventListener("change", () => {
   $("#pr-players").dataset.sig = ""; renderProgress();
 });
 try { $("#pr-sort").value = store.get("rr.progressSort") || "title"; } catch { }
+try { $("#pr-show").value = store.get("rr.progressShow") || "all"; } catch { }
+$("#pr-show").addEventListener("change", () => { store.set("rr.progressShow", $("#pr-show").value); renderProgress(); });
 $("#pr-sort").addEventListener("change", () => { store.set("rr.progressSort", $("#pr-sort").value); renderProgress(); });
 $("#pr-read").onclick = async () => {
   try { await api("POST", "/api/progress/read", { deviceIds: prTicked() }); say($("#pr-msg"), ""); }
@@ -835,6 +843,14 @@ function renderProgress() {
   const readOf = Object.fromEntries((progress.devices || []).map(d => [d.deviceId, d]));
   for (const [k, t] of prBusy) if (Date.now() - t > 90000) prBusy.delete(k);
   let rows = (progress.files || []).filter(f => devs.some(d => readOf[d.id]?.readUtc && f.cells[d.id]?.playPointMs > 0));
+  // Same progress: every ticked, read player that has the file is within 2 s of the others ("not started" = 0:00).
+  const show = $("#pr-show").value;
+  const same = f => {
+    const pts = devs.filter(d => readOf[d.id]?.readUtc && f.cells[d.id]).map(d => Math.max(0, f.cells[d.id].playPointMs || 0));
+    return pts.length > 0 && Math.max(...pts) - Math.min(...pts) <= 2000;
+  };
+  if (show === "different") rows = rows.filter(f => !same(f));
+  else if (show === "same") rows = rows.filter(same);
   const lastOf = f => Math.max(-1, ...devs.map(d => f.cells[d.id]?.lastWatchMs ?? -1));
   rows.sort($("#pr-sort").value === "watched"
     ? (a, b) => lastOf(b) - lastOf(a) || a.display.localeCompare(b.display, undefined, { numeric: true })
@@ -855,7 +871,8 @@ function renderProgress() {
         : `<button class="btn" data-pr-reset="${esc(f.key)}">Reset</button>${f.isEpisode ? `<button class="btn" data-pr-show="${esc(f.key)}">Reset TV Show</button>` : ""}`;
       return `<tr><td class="t">${esc(f.display)}</td><td class="r">${btns}</td>${devs.map(d => `<td class="p">${prCell(f.cells[d.id], !!readOf[d.id]?.readUtc)}</td>`).join("")}</tr>`;
     }).join("");
-    html = `<div class="pr-box"><p class="pr-count">${rows.length.toLocaleString()} file(s) in progress</p>
+    const label = { different: " with different progress between players", same: " with the same progress on all players" }[show] || "";
+    html = `<div class="pr-box"><p class="pr-count">${rows.length.toLocaleString()} file(s) in progress${label}</p>
       <div class="pr-wrap"><table class="pr"><thead><tr><th>Title</th><th>Reset</th>${head}</tr></thead><tbody>${body}</tbody></table></div></div>`;
   }
   if (html !== prCache) { $("#pr-list").innerHTML = html; prCache = html; }

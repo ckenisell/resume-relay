@@ -97,7 +97,10 @@ class Player:
         rows = [dict(id=tid, parentId=t["parentId"], collectionId=tid if t["type"] == 3 else -1, aggregationId=tid + 1,
                      type=t["type"], name=t["name"], year=2016)
                 for tid, t in sorted(self.titles.items()) if t["type"] in (1, 3) and tid not in in_coll]
-        rows += [dict(id=cid + 7, parentId=-1, collectionId=cid, aggregationId=-1, type=2, name=c["name"])
+        # Real players open a collection by the tile's own id; collectionId here points at something else
+        # (the series), the trap the 0.3.3-beta.3 reader fell into.
+        series = next((tid for tid, t in self.titles.items() if t["type"] == 3), -1)
+        rows += [dict(id=cid, parentId=-1, collectionId=series, aggregationId=-1, type=2, name=c["name"])
                  for cid, c in sorted(self.collections.items())]
         return rows
 

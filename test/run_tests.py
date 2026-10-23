@@ -370,6 +370,11 @@ allkeys = [f["key"] for n in range(1, p1["pages"] + 1) for f in page(n)["files"]
 check("pages: together they cover every file once", len(allkeys) == p1["total"] == len(set(allkeys)), str((len(allkeys), p1["total"])))
 check("sort by title runs across pages", [f["display"].lower() for f in page(1)["files"]] <= [f["display"].lower() for f in page(2)["files"]])
 
+# ---------------------------------------------------------------- 27. diagnostics page
+with urllib.request.urlopen(RELAY + "/api/progress/diagnostics?q=sci-fi", timeout=20) as r:
+    diag = r.read().decode()
+check("diagnostics names how each collection was opened", "Collection \"Sci-Fi Collection\"" in diag and "via getCollection?id=" in diag and "Arrival" in diag, diag[:400])
+
 passed = sum(1 for _, ok in results if ok)
 print(f"\n{passed}/{len(results)} passed")
 sys.exit(0 if passed == len(results) else 1)

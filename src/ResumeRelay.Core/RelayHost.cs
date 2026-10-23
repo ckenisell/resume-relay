@@ -252,6 +252,8 @@ public static class RelayHost
             var r = await progress.SetWatchedAsync(req.Key ?? "", req.DeviceIds ?? new List<string>(), req.Watched);
             return r.Count == 0 ? Results.BadRequest(new { Error = "That file is no longer in the list. Read the players again." }) : Results.Ok(r);
         });
+        // e.g. /api/progress/diagnostics?q=mario : what each player's library listing held, for troubleshooting.
+        app.MapGet("/api/progress/diagnostics", (string? q) => Results.Text(progress.DiagnosticsText(q ?? ""), "text/plain; charset=utf-8"));
         app.MapPost("/api/progress/read", (ProgressReadRequest req) =>
             progress.StartRead(req.DeviceIds ?? new List<string>(), stopping) is { } err ? Results.BadRequest(new { Error = err }) : Results.Ok());
         app.MapPost("/api/progress/reset", async (ProgressKeyRequest req) =>

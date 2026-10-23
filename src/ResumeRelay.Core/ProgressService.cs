@@ -49,6 +49,8 @@ public sealed class ProgressDevice
     public DateTime? ReadUtc { get; set; }
     public string Error { get; set; } = "";
     public int Titles { get; set; }
+    /// <summary>What the library listing held and how each collection or series was opened (for troubleshooting).</summary>
+    public List<string> Diagnostics { get; set; } = new();
     public Dictionary<string, ProgressCell> Cells { get; set; } = new(StringComparer.Ordinal);
 }
 
@@ -121,16 +123,34 @@ public sealed class ProgressService
 
             // 2. Open collections and series: movies and seasons are what getDetail reads.
             var work = new List<(int Id, bool Season, string Series)>();
+            var diag = new List<string>();
             async Task Expand(LibraryRow r, int depth)
             {
                 switch (r.Type)
                 {
                     case 1: work.Add((r.Id, false, "")); break;
                     case 4: work.Add((r.Id, true, SeriesFromSeason(r.Name))); break;
-                    case 2 or 3 when depth < 2:
-                        var members = await api.GetCollectionAsync(r.CollectionId > 0 ? r.CollectionId : r.Id, ct);
-                        if (members.Count == 0 && r.CollectionId > 0) members = await api.GetCollectionAsync(r.Id, ct);
-                        if (members.Count == 0) members = await api.GetChildrenAsync(r.Id, ct);
+                    case 0:
+                        lock (diag) diag.Add($"Unmatched file tile \"{r.Name}\" (id {r.Id}): not read (no movie or season to read it from).");
+                        break;
+                    case 2 or 3 or 6 when depth < 3:
+                        // Collections (2) and "my collections" (6) open by the tile's own id, as Z-Keeper does; the
+                        // tile's collectionId can point somewhere else. Series (3) keep the order proven on real players.
+                        var tries = r.Type == 3
+                            ? new[] { r.CollectionId, r.Id }
+                            : new[] { r.Id, r.CollectionId };
+                        var members = new List<LibraryRow>();
+                        string via = "";
+                        foreach (int cid in tries.Where(x => x > 0).Distinct())
+                        {
+                            members = await api.GetCollectionAsync(cid, ct);
+                            // A collection must hold movies (or other collections); a series must hold seasons or episodes.
+                            members = members.Where(m => r.Type == 3 ? m.Type is 4 or 5 : m.Type is 0 or 1 or 2 or 3 or 4 or 6).ToList();
+                            if (members.Count > 0) { via = $"getCollection?id={cid}"; break; }
+                        }
+                        if (members.Count == 0) { members = await api.GetChildrenAsync(r.Id, ct); via = $"getEntry children of {r.Id}"; }
+                        lock (diag) diag.Add($"{(r.Type == 3 ? "Series" : r.Type == 6 ? "My collection" : "Collection")} \"{r.Name}\" (id {r.Id}, collectionId {r.CollectionId}): "
+                            + (members.Count == 0 ? "could not be opened" : $"{members.Count} member(s) via {via}: " + string.Join("; ", members.Take(12).Select(m => $"{m.Name} [type {m.Type}, id {m.Id}]"))));
                         foreach (var m in members)
                         {
                             if (r.Type == 3 && m.Type == 4) work.Add((m.Id, true, r.Name));
@@ -140,7 +160,9 @@ public sealed class ProgressService
                         break;
                 }
             }
+            diag.Add($"{tiles.Count:N0} tiles: " + string.Join(", ", tiles.GroupBy(t => t.Type).OrderBy(g => g.Key).Select(g => $"{g.Count():N0} of type {g.Key}")));
             foreach (var t in tiles) await Expand(t, 0);
+            result.Diagnostics = diag;
             work = work.DistinctBy(w => w.Id).ToList();
             result.Titles = work.Count;
 
@@ -402,6 +424,26 @@ public sealed class ProgressService
             results.Add(new(id, d.Name, ok, ok ? "" : "the player didn't take the change"));
         }
         return results;
+    }
+
+    /// <summary>Plain-text report of the last read of each player, for troubleshooting a "not in library".</summary>
+    public string DiagnosticsText(string search)
+    {
+        lock (_lock)
+        {
+            var sb = new System.Text.StringBuilder();
+            foreach (var d in _devices.Values.OrderBy(d => d.Name))
+            {
+                sb.AppendLine($"== {d.Name} · read {d.ReadUtc?.ToLocalTime():g} · {d.Titles:N0} titles · {d.Cells.Count:N0} files{(d.Error.Length > 0 ? " · " + d.Error : "")}");
+                foreach (var line in d.Diagnostics.Where((l, i) => i == 0 || search.Length == 0 || l.Contains(search, StringComparison.OrdinalIgnoreCase)))
+                    sb.AppendLine("  " + line);
+                if (search.Length > 0)
+                    foreach (var f in _files.Values.Where(f => d.Cells.ContainsKey(f.Key) && f.Display.Contains(search, StringComparison.OrdinalIgnoreCase)))
+                        sb.AppendLine($"  file: {f.Uri} (id {d.Cells[f.Key].FileId}, title {d.Cells[f.Key].TitleId})");
+                sb.AppendLine();
+            }
+            return sb.Length == 0 ? "Nothing read yet. Press Read players first." : sb.ToString();
+        }
     }
 
     /// <summary>A player that holds this file, with its id there (to look up the file's network path).</summary>

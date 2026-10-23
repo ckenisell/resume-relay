@@ -243,9 +243,10 @@ public static class RelayHost
         // The page passes the version it already has; an unchanged list isn't sent again.
         app.MapGet("/api/progress", (long? v) =>
             v == progress.Version ? Results.Ok(new { Unchanged = true, progress.Version, progress.Reading, Status = progress.StatusLines }) : Results.Ok(progress.Snapshot()));
-        app.MapGet("/api/watched", (string? show, string? players, string? q, int? max) =>
+        app.MapGet("/api/watched", (string? show, string? players, string? q, string? sort, int? page, int? pageSize) =>
             Results.Ok(progress.WatchSnapshot(show ?? "different",
-                (players ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries), q ?? "", max ?? 500)));
+                (players ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries), q ?? "",
+                sort ?? "title", page ?? 1, pageSize ?? 500)));
         app.MapPost("/api/watched/set", async (WatchSetRequest req) =>
         {
             var r = await progress.SetWatchedAsync(req.Key ?? "", req.DeviceIds ?? new List<string>(), req.Watched);

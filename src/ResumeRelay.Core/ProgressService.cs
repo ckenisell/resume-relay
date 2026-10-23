@@ -288,10 +288,11 @@ public sealed class ProgressService
     }
 
     /// <summary>
-    /// The Watch Sync list. show: "different" (watched on some of the chosen players that have the file, not on
-    /// others), "watched" (watched on any of them), "unwatched" (on none), or "all". Capped, with the full count.
+    /// The Watch Sync list, one page at a time. show: "different" (watched on some of the chosen players that have
+    /// the file, not on others), "watched" (on any of them), "unwatched" (on none), "missing" (some of the chosen
+    /// players have the file and some don't), or "all". sort: "title" or "watched" (most recently watched first).
     /// </summary>
-    public object WatchSnapshot(string show, IReadOnlyCollection<string> players, string search, int max)
+    public object WatchSnapshot(string show, IReadOnlyCollection<string> players, string search, string sort, int page, int pageSize)
     {
         lock (_lock)
         {
@@ -305,12 +306,20 @@ public sealed class ProgressService
                 int w = cells.Count(c => c!.Watched);
                 return show switch
                 {
+                    "missing" => cells.Count < devs.Count,
                     "watched" => w > 0,
                     "unwatched" => w == 0,
                     "all" => true,
                     _ => w > 0 && w < cells.Count,
                 };
             }).ToList();
+            long LastWatched(ProgressFile f) => devs.Select(d => d.Cells.GetValueOrDefault(f.Key)?.LastWatchMs ?? -1).DefaultIfEmpty(-1).Max();
+            var ordered = sort == "watched"
+                ? rows.OrderByDescending(LastWatched).ThenBy(f => f.Display, NaturalOrder.Instance)
+                : rows.OrderBy(f => f.Display, NaturalOrder.Instance);
+            pageSize = Math.Clamp(pageSize, 1, 2000);
+            int pages = Math.Max(1, (rows.Count + pageSize - 1) / pageSize);
+            page = Math.Clamp(page, 1, pages);
             return new
             {
                 Version,
@@ -318,9 +327,12 @@ public sealed class ProgressService
                 Status = _status.Values.OrderBy(s => s).ToList(),
                 Devices = _devices.Values.Select(d => new { d.DeviceId, d.Name, d.ReadUtc, d.Error, d.Titles }),
                 Total = rows.Count,
-                Files = rows
-                    .OrderBy(f => f.Display, StringComparer.OrdinalIgnoreCase)
-                    .Take(Math.Clamp(max, 1, 5000))
+                Page = page,
+                Pages = pages,
+                PageSize = pageSize,
+                Files = ordered
+                    .Skip((page - 1) * pageSize)
+                    .Take(pageSize)
                     .Select(f => new
                     {
                         f.Key, f.Display, f.IsEpisode, f.Title, f.FileName,
@@ -456,6 +468,36 @@ public sealed class ProgressService
             return (found.File, entry.Path, poster);
         }
         return (null, "None of the players that have this file is answering right now, so its location can't be looked up.", "");
+    }
+}
+
+/// <summary>Sorts "Episode 2" before "Episode 10", ignoring case, like the page's own sort.</summary>
+internal sealed class NaturalOrder : IComparer<string>
+{
+    public static readonly NaturalOrder Instance = new();
+    public int Compare(string? a, string? b)
+    {
+        a ??= ""; b ??= "";
+        int i = 0, j = 0;
+        while (i < a.Length && j < b.Length)
+        {
+            if (char.IsDigit(a[i]) && char.IsDigit(b[j]))
+            {
+                int si = i, sj = j;
+                while (i < a.Length && char.IsDigit(a[i])) i++;
+                while (j < b.Length && char.IsDigit(b[j])) j++;
+                string na = a[si..i].TrimStart('0'), nb = b[sj..j].TrimStart('0');
+                int c = na.Length != nb.Length ? na.Length.CompareTo(nb.Length) : string.CompareOrdinal(na, nb);
+                if (c != 0) return c;
+            }
+            else
+            {
+                int c = char.ToLowerInvariant(a[i]).CompareTo(char.ToLowerInvariant(b[j]));
+                if (c != 0) return c;
+                i++; j++;
+            }
+        }
+        return (a.Length - i).CompareTo(b.Length - j);
     }
 }
 

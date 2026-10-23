@@ -359,6 +359,17 @@ st = bookmark(LR, E03)
 check("mark unwatched keeps the resume point", r and r[0]["ok"] and not st["watched"] and st["playPoint"] == 1000000, f"{r} {st['watched']} {st['playPoint']}")
 check("mark unwatched never sends watched=0", not any(w.get("call") == "markAsWatched" and w.get("watched") == "0" for w in st["writes"]))
 
+# ---------------------------------------------------------------- 26. Watch Sync: missing filter, pages, sort
+miss = wl("missing")
+check("missing filter lists files a player lacks", ka in miss and kb not in miss, str(list(miss)))
+def page(n, sort="title"):
+    return http("GET", RELAY + f"/api/watched?show=all&players={urllib.parse.quote(allp)}&sort={sort}&page={n}&pageSize=2")
+p1, p2 = page(1), page(2)
+check("pages: page 1 and 2 hold different files", p1["pages"] >= 2 and not ({f["key"] for f in p1["files"]} & {f["key"] for f in p2["files"]}), str((p1["pages"], p1["total"])))
+allkeys = [f["key"] for n in range(1, p1["pages"] + 1) for f in page(n)["files"]]
+check("pages: together they cover every file once", len(allkeys) == p1["total"] == len(set(allkeys)), str((len(allkeys), p1["total"])))
+check("sort by title runs across pages", [f["display"].lower() for f in page(1)["files"]] <= [f["display"].lower() for f in page(2)["files"]])
+
 passed = sum(1 for _, ok in results if ok)
 print(f"\n{passed}/{len(results)} passed")
 sys.exit(0 if passed == len(results) else 1)

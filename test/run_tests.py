@@ -402,6 +402,12 @@ with urllib.request.urlopen(RELAY + "/api/progress/diagnostics?q=zzz", timeout=2
     check("...and is named on the diagnostics page", "Couldn't be read" in r.read().decode())
 mock(BR, "flaky", every=0, fail="")
 
+# ---------------------------------------------------------------- 29. diagnostics compares the library walls
+with urllib.request.urlopen(RELAY + "/api/progress/diagnostics", timeout=20) as r:
+    diag = r.read().decode()
+check("diagnostics names posters that differ between walls", "poster(s) differ between players" in diag and "Collection: Sci-Fi Collection" in diag
+      and "Home Theater Room 0" in diag, diag[:500])
+
 passed = sum(1 for _, ok in results if ok)
 print(f"\n{passed}/{len(results)} passed")
 sys.exit(0 if passed == len(results) else 1)

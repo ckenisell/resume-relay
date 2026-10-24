@@ -49,6 +49,8 @@ public sealed class ProgressDevice
     public DateTime? ReadUtc { get; set; }
     public string Error { get; set; } = "";
     public int Titles { get; set; }
+    /// <summary>Every poster on the player's library wall, as "Kind: name" (to compare the walls of the players).</summary>
+    public List<string> Wall { get; set; } = new();
     /// <summary>Titles the player never answered for, even when asked again; their last known files are kept.</summary>
     public List<string> Unread { get; set; } = new();
     /// <summary>What the library listing held and how each collection or series was opened (for troubleshooting).</summary>
@@ -174,6 +176,8 @@ public sealed class ProgressService
                         break;
                 }
             }
+            result.Wall = tiles.Select(t => $"{TileKind(t.Type)}: {t.Name}").ToList();
+            foreach (var t in tiles.Where(t => t.Type == 4)) diag.Add($"Season on the wall by itself: \"{t.Name}\" (id {t.Id})");
             diag.Add($"{tiles.Count:N0} tiles: " + string.Join(", ", tiles.GroupBy(t => t.Type).OrderBy(g => g.Key).Select(g => $"{g.Count():N0} of type {g.Key}")));
             foreach (var t in tiles) await Expand(t, 0);
             result.Diagnostics = diag;
@@ -337,6 +341,11 @@ public sealed class ProgressService
             if (p.Value.ValueKind is JsonValueKind.Object or JsonValueKind.Array) Walk(p.Value, ctx, found);
     }
 
+    private static string TileKind(int type) => type switch
+    {
+        0 => "Unmatched file", 1 => "Movie", 2 => "Collection", 3 => "Show", 4 => "Season", 6 => "My collection", _ => $"Type {type}",
+    };
+
     private static readonly Regex EpisodeTag = new(@"S(\d{1,2})E(\d{1,3})", RegexOptions.IgnoreCase);
     private static string SeriesFromSeason(string name) => Regex.Replace(name, @"\s*[-:]?\s*Season\s+\d+\s*$", "", RegexOptions.IgnoreCase).Trim();
 
@@ -485,6 +494,22 @@ public sealed class ProgressService
         lock (_lock)
         {
             var sb = new System.Text.StringBuilder();
+            // Posters one player's wall shows and another's doesn't (or shows a different number of times).
+            var walls = _devices.Values.Where(d => d.Wall.Count > 0).OrderBy(d => d.Name).ToList();
+            if (walls.Count > 1)
+            {
+                var counts = walls.Select(d => d.Wall.GroupBy(x => x, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase)).ToList();
+                var diffs = counts.SelectMany(c => c.Keys).Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Where(k => counts.Select(c => c.GetValueOrDefault(k)).Distinct().Count() > 1)
+                    .Where(k => search.Length == 0 || k.Contains(search, StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(k => k, NaturalOrder.Instance).ToList();
+                sb.AppendLine(diffs.Count == 0
+                    ? "== Library walls: every player shows the same posters."
+                    : $"== Library walls: {diffs.Count} poster(s) differ between players (number of times each wall shows it):");
+                foreach (var k in diffs)
+                    sb.AppendLine($"  {k} — " + string.Join(", ", walls.Select((d, i) => $"{d.Name} {counts[i].GetValueOrDefault(k)}")));
+                sb.AppendLine();
+            }
             foreach (var d in _devices.Values.OrderBy(d => d.Name))
             {
                 sb.AppendLine($"== {d.Name} · read {d.ReadUtc?.ToLocalTime():g} · {d.Titles:N0} titles · {d.Cells.Count:N0} files{(d.Unread.Count > 0 ? $" · {d.Unread.Count} couldn't be read" : "")}{(d.Error.Length > 0 ? " · " + d.Error : "")}");

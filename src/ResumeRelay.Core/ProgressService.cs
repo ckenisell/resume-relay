@@ -49,6 +49,8 @@ public sealed class ProgressDevice
     public DateTime? ReadUtc { get; set; }
     public string Error { get; set; } = "";
     public int Titles { get; set; }
+    /// <summary>Titles the player never answered for, even when asked again; their last known files are kept.</summary>
+    public List<string> Unread { get; set; } = new();
     /// <summary>What the library listing held and how each collection or series was opened (for troubleshooting).</summary>
     public List<string> Diagnostics { get; set; } = new();
     public Dictionary<string, ProgressCell> Cells { get; set; } = new(StringComparer.Ordinal);
@@ -117,19 +119,26 @@ public sealed class ProgressService
             for (int page = 1; page <= 200; page++)
             {
                 var rows = await api.GetVideoListPageAsync(page, 500, ct);
-                if (rows == null || rows.Count == 0 || !rows.Any(r => seen.Add(r.Id))) break;
+                for (int retry = 1; rows == null && retry <= 3; retry++) // no answer is not the end of the list
+                {
+                    await Task.Delay(1500 * retry, ct);
+                    rows = await api.GetVideoListPageAsync(page, 500, ct);
+                }
+                if (rows == null) throw new InvalidOperationException($"the library list stopped answering at page {page}");
+                if (rows.Count == 0 || !rows.Any(r => seen.Add(r.Id))) break;
                 tiles.AddRange(rows);
             }
 
             // 2. Open collections and series: movies and seasons are what getDetail reads.
-            var work = new List<(int Id, bool Season, string Series)>();
+            var work = new List<(int Id, bool Season, string Series, string Name)>();
             var diag = new List<string>();
+            var unopened = new List<string>();
             async Task Expand(LibraryRow r, int depth)
             {
                 switch (r.Type)
                 {
-                    case 1: work.Add((r.Id, false, "")); break;
-                    case 4: work.Add((r.Id, true, SeriesFromSeason(r.Name))); break;
+                    case 1: work.Add((r.Id, false, "", r.Name)); break;
+                    case 4: work.Add((r.Id, true, SeriesFromSeason(r.Name), r.Name)); break;
                     case 0:
                         lock (diag) diag.Add($"Unmatched file tile \"{r.Name}\" (id {r.Id}): not read (no movie or season to read it from).");
                         break;
@@ -141,20 +150,25 @@ public sealed class ProgressService
                             : new[] { r.Id, r.CollectionId };
                         var members = new List<LibraryRow>();
                         string via = "";
-                        foreach (int cid in tries.Where(x => x > 0).Distinct())
+                        for (int attempt = 0; attempt < 3 && members.Count == 0; attempt++) // an empty answer may just be a busy player
                         {
-                            members = await api.GetCollectionAsync(cid, ct);
-                            // A collection must hold movies (or other collections); a series must hold seasons or episodes.
-                            members = members.Where(m => r.Type == 3 ? m.Type is 4 or 5 : m.Type is 0 or 1 or 2 or 3 or 4 or 6).ToList();
-                            if (members.Count > 0) { via = $"getCollection?id={cid}"; break; }
+                            if (attempt > 0) await Task.Delay(1500 * attempt, ct);
+                            foreach (int cid in tries.Where(x => x > 0).Distinct())
+                            {
+                                members = await api.GetCollectionAsync(cid, ct);
+                                // A collection must hold movies (or other collections); a series must hold seasons or episodes.
+                                members = members.Where(m => r.Type == 3 ? m.Type is 4 or 5 : m.Type is 0 or 1 or 2 or 3 or 4 or 6).ToList();
+                                if (members.Count > 0) { via = $"getCollection?id={cid}"; break; }
+                            }
+                            if (members.Count == 0) { members = await api.GetChildrenAsync(r.Id, ct); via = $"getEntry children of {r.Id}"; }
                         }
-                        if (members.Count == 0) { members = await api.GetChildrenAsync(r.Id, ct); via = $"getEntry children of {r.Id}"; }
+                        if (members.Count == 0) lock (unopened) unopened.Add(r.Name);
                         lock (diag) diag.Add($"{(r.Type == 3 ? "Series" : r.Type == 6 ? "My collection" : "Collection")} \"{r.Name}\" (id {r.Id}, collectionId {r.CollectionId}): "
                             + (members.Count == 0 ? "could not be opened" : $"{members.Count} member(s) via {via}: " + string.Join("; ", members.Take(12).Select(m => $"{m.Name} [type {m.Type}, id {m.Id}]"))));
                         foreach (var m in members)
                         {
-                            if (r.Type == 3 && m.Type == 4) work.Add((m.Id, true, r.Name));
-                            else if (r.Type == 3 && m.Type == 5) { work.Add((r.Id, true, r.Name)); break; } // single-season listing
+                            if (r.Type == 3 && m.Type == 4) work.Add((m.Id, true, r.Name, $"{r.Name}: {m.Name}"));
+                            else if (r.Type == 3 && m.Type == 5) { work.Add((r.Id, true, r.Name, r.Name)); break; } // single-season listing
                             else await Expand(m, depth + 1);
                         }
                         break;
@@ -166,20 +180,52 @@ public sealed class ProgressService
             work = work.DistinctBy(w => w.Id).ToList();
             result.Titles = work.Count;
 
-            // 3. Each movie and season, four at a time.
+            // 3. Each movie and season, three at a time. A title the player didn't answer for is not an empty title:
+            //    it is set aside and asked again, slowly, after the first pass.
             int done = 0;
-            await Parallel.ForEachAsync(work, new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = ct }, async (w, token) =>
+            var failed = new ConcurrentBag<(int Id, bool Season, string Series, string Name)>();
+            void Keep(List<(ProgressFile File, ProgressCell Cell)> read)
             {
-                var read = await ReadTitleAsync(api, w.Id, w.Season, w.Series, token);
-                lock (result.Cells) // four titles are read at once
+                lock (result.Cells)
                     foreach (var (file, cell) in read)
                     {
                         files.TryAdd(file.Key, file);
                         result.Cells[file.Key] = cell;
                     }
+            }
+            await Parallel.ForEachAsync(work, new ParallelOptions { MaxDegreeOfParallelism = 3, CancellationToken = ct }, async (w, token) =>
+            {
+                var (read, answered) = await ReadTitleCheckedAsync(api, w.Id, w.Season, w.Series, token);
+                if (answered) Keep(read); else failed.Add(w);
                 int n = Interlocked.Increment(ref done);
                 if (n % 10 == 0 || n == work.Count) _status[d.Id] = $"Reading {d.Name}… {n:N0} of {work.Count:N0} titles";
             });
+            var left = failed.ToList();
+            for (int round = 1; round <= 3 && left.Count > 0; round++)
+            {
+                _status[d.Id] = $"Reading {d.Name}… asking again for {left.Count:N0} title(s) it didn't answer";
+                await Task.Delay(2000 * round, ct);
+                var still = new List<(int, bool, string, string)>();
+                foreach (var w in left) // one at a time
+                {
+                    var (read, answered) = await ReadTitleCheckedAsync(api, w.Id, w.Season, w.Series, ct);
+                    if (answered) Keep(read); else still.Add(w);
+                }
+                left = still;
+            }
+            // Titles that never answered keep what the last read found for them, so their files don't turn into
+            // "not in library"; the player's column says how many couldn't be read.
+            result.Unread = left.Select(w => w.Name.Length > 0 ? w.Name : $"title {w.Id}").Concat(unopened.Select(n => n + " (collection or series)")).ToList();
+            if (left.Count > 0)
+                lock (_lock)
+                    if (_devices.TryGetValue(d.Id, out var prev))
+                    {
+                        var ids = left.Select(w => w.Id).ToHashSet();
+                        lock (result.Cells)
+                            foreach (var (key, cell) in prev.Cells.Where(c => ids.Contains(c.Value.TitleId)))
+                                result.Cells.TryAdd(key, cell);
+                    }
+            foreach (var u in result.Unread) diag.Add($"Couldn't be read (the player didn't answer, even when asked again): {u}");
             result.ReadUtc = DateTime.UtcNow;
         }
         catch (OperationCanceledException) { throw; }
@@ -198,16 +244,23 @@ public sealed class ProgressService
     }
 
     /// <summary>Reads one movie or season. Public for the TV show reset, which reads a series' seasons the same way.</summary>
-    public static async Task<List<(ProgressFile File, ProgressCell Cell)>> ReadTitleAsync(ZidooClient api, int id, bool season, string series, CancellationToken ct)
+    public static async Task<List<(ProgressFile File, ProgressCell Cell)>> ReadTitleAsync(ZidooClient api, int id, bool season, string series, CancellationToken ct) =>
+        (await ReadTitleCheckedAsync(api, id, season, series, ct)).Files;
+
+    /// <summary>Reads one movie or season. Answered is false when the player never gave a proper answer (no reply,
+    /// busy, an error): that title's files are unknown, not absent.</summary>
+    public static async Task<(List<(ProgressFile File, ProgressCell Cell)> Files, bool Answered)> ReadTitleCheckedAsync(ZidooClient api, int id, bool season, string series, CancellationToken ct)
     {
         var found = new List<(ProgressFile, ProgressCell)>();
+        bool answered = false;
+        static bool Ok(JsonDocument d) => d.RootElement.ValueKind == JsonValueKind.Object && (!J.Has(d.RootElement, "status") || J.Int(d.RootElement, "status") == 200);
         using (var doc = await api.GetDetailAsync(id, ct))
-            if (doc != null) Walk(doc.RootElement, new Ctx { Series = series, IsSeason = season }, found);
+            if (doc != null && Ok(doc)) { answered = true; Walk(doc.RootElement, new Ctx { Series = series, IsSeason = season }, found); }
         if (found.Count == 0)
             using (var doc = await api.GetDetailV2Async(id, ct))
-                if (doc != null) Walk(doc.RootElement, new Ctx { Series = series, IsSeason = season }, found);
+                if (doc != null && Ok(doc)) { answered = true; Walk(doc.RootElement, new Ctx { Series = series, IsSeason = season }, found); }
         foreach (var (_, cell) in found) { cell.TitleId = id; cell.FromSeason = season; }
-        return found;
+        return (found, answered);
     }
 
     private sealed record Ctx
@@ -299,7 +352,7 @@ public sealed class ProgressService
                 Version,
                 Reading,
                 Status = _status.Values.OrderBy(s => s).ToList(),
-                Devices = _devices.Values.Select(d => new { d.DeviceId, d.Name, d.ReadUtc, d.Error, d.Titles }),
+                Devices = _devices.Values.Select(d => new { d.DeviceId, d.Name, d.ReadUtc, d.Error, d.Titles, Unread = d.Unread.Count }),
                 Files = shown.Select(f => new
                 {
                     f.Key, f.Display, f.IsEpisode, f.Title, f.FileName,
@@ -347,7 +400,7 @@ public sealed class ProgressService
                 Version,
                 Reading,
                 Status = _status.Values.OrderBy(s => s).ToList(),
-                Devices = _devices.Values.Select(d => new { d.DeviceId, d.Name, d.ReadUtc, d.Error, d.Titles }),
+                Devices = _devices.Values.Select(d => new { d.DeviceId, d.Name, d.ReadUtc, d.Error, d.Titles, Unread = d.Unread.Count }),
                 Total = rows.Count,
                 Page = page,
                 Pages = pages,
@@ -434,8 +487,8 @@ public sealed class ProgressService
             var sb = new System.Text.StringBuilder();
             foreach (var d in _devices.Values.OrderBy(d => d.Name))
             {
-                sb.AppendLine($"== {d.Name} · read {d.ReadUtc?.ToLocalTime():g} · {d.Titles:N0} titles · {d.Cells.Count:N0} files{(d.Error.Length > 0 ? " · " + d.Error : "")}");
-                foreach (var line in d.Diagnostics.Where((l, i) => i == 0 || search.Length == 0 || l.Contains(search, StringComparison.OrdinalIgnoreCase)))
+                sb.AppendLine($"== {d.Name} · read {d.ReadUtc?.ToLocalTime():g} · {d.Titles:N0} titles · {d.Cells.Count:N0} files{(d.Unread.Count > 0 ? $" · {d.Unread.Count} couldn't be read" : "")}{(d.Error.Length > 0 ? " · " + d.Error : "")}");
+                foreach (var line in d.Diagnostics.Where((l, i) => i == 0 || search.Length == 0 || l.StartsWith("Couldn't be read") || l.Contains(search, StringComparison.OrdinalIgnoreCase)))
                     sb.AppendLine("  " + line);
                 if (search.Length > 0)
                     foreach (var f in _files.Values.Where(f => d.Cells.ContainsKey(f.Key) && f.Display.Contains(search, StringComparison.OrdinalIgnoreCase)))

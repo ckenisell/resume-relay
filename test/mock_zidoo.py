@@ -54,6 +54,7 @@ class Player:
         self.offline = False
         self.ht_closed = False
         self.ht_version, self.ht_code = "5.1.11", 5111
+        self.flaky_every, self.detail_calls, self.fail_ids = 0, 0, set()
         self.playing = None
         self.lock = threading.Lock()
         self.entries = {}   # file entry id -> record
@@ -214,6 +215,10 @@ def make_handler():
                     else:
                         return self.send(dict(status=804, msg="Url error"))
                     return self.send(dict(status=200, data=rows))
+                if path in ("/ZidooPoster/getDetail", "/Poster/v2/getDetail") and (p.flaky_every or int(q.get("id", 0)) in p.fail_ids):
+                    p.detail_calls += 1
+                    if int(q.get("id", 0)) in p.fail_ids or (p.flaky_every and p.detail_calls % p.flaky_every != 0):
+                        return self.send(dict(status=500, msg="busy"))   # a player too busy to answer properly
                 if path == "/ZidooPoster/getDetail":
                     tid = int(q.get("id", 0))
                     if tid in p.titles and p.titles[tid]["type"] in (1, 4):
@@ -304,6 +309,10 @@ def make_handler():
                                           posterRequests=p.poster_requests, powerLog=p.power_log,
                                           offline=p.offline, htClosed=p.ht_closed,
                                           titles={str(k): v for k, v in p.titles.items()}))
+                if path == "/_test/flaky":
+                    p.flaky_every = int(q.get("every", 0)); p.detail_calls = 0
+                    p.fail_ids = {int(x) for x in q.get("fail", "").split(",") if x}
+                    return self.send(dict(ok=True))
                 if path == "/_test/htclosed":
                     p.ht_closed = q.get("on") == "1"
                     return self.send(dict(ok=True))

@@ -863,7 +863,7 @@ function renderProgress() {
     const head = devs.map(d => {
       const r = readOf[d.id];
       const sub = r?.readUtc ? `read ${timeOf(r.readUtc)}` : "not read";
-      return `<th>${esc(d.name)}<small>${esc(sub)}</small>${r?.error ? `<small class="err">${esc(r.error)}</small>` : ""}</th>`;
+      return `<th>${esc(d.name)}<small>${esc(sub)}</small>${r?.error ? `<small class="err">${esc(r.error)}</small>` : ""}${r?.unread ? `<small class="err" title="The player didn't answer for these, even when asked again. Their last known state is shown. Read again, or see the diagnostics page.">${r.unread} title${r.unread === 1 ? "" : "s"} couldn't be read</small>` : ""}</th>`;
     }).join("");
     const body = rows.map(f => {
       const busy = prBusy.has(f.key);
@@ -953,7 +953,7 @@ function renderWatch() {
     const label = { different: "watched on some players but not others", watched: "watched on at least one player", unwatched: "not watched on any player", missing: "missing on at least one player", all: "" }[$("#ws-show").value];
     const head = devs.map(d => {
       const r = readOf[d.id];
-      return `<th>${esc(d.name)}<small>${esc(r?.readUtc ? "read " + timeOf(r.readUtc) : "not read")}</small>${r?.error ? `<small class="err">${esc(r.error)}</small>` : ""}</th>`;
+      return `<th>${esc(d.name)}<small>${esc(r?.readUtc ? "read " + timeOf(r.readUtc) : "not read")}</small>${r?.error ? `<small class="err">${esc(r.error)}</small>` : ""}${r?.unread ? `<small class="err" title="The player didn't answer for these, even when asked again. Their last known state is shown. Read again, or see the diagnostics page.">${r.unread} title${r.unread === 1 ? "" : "s"} couldn't be read</small>` : ""}</th>`;
     }).join("");
     const body = rows.map(f => `<tr><td class="t">${esc(f.display)}</td>
       <td class="r"><button class="btn mini" data-ws-all="1" data-ws-key="${esc(f.key)}">Watched</button><button class="btn mini" data-ws-all="0" data-ws-key="${esc(f.key)}">Unwatched</button></td>

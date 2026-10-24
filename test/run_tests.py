@@ -375,6 +375,33 @@ with urllib.request.urlopen(RELAY + "/api/progress/diagnostics?q=sci-fi", timeou
     diag = r.read().decode()
 check("diagnostics names how each collection was opened", "Collection \"Sci-Fi Collection\"" in diag and "via getCollection?id=" in diag and "Arrival" in diag, diag[:400])
 
+# ---------------------------------------------------------------- 28. a player that doesn't answer every request
+def br_files():
+    st = http("GET", RELAY + "/api/progress")
+    return next(d for d in st["devices"] if d["deviceId"] == ids[BR]), sum(1 for f in st["files"] if ids[BR] in f["cells"])
+def read_all():
+    http("POST", RELAY + "/api/progress/read", {"deviceIds": list(ids.values())})
+    time.sleep(1)
+    wait_for(lambda: not http("GET", RELAY + "/api/progress")["reading"], 120)
+def br_cells():
+    w = http("GET", RELAY + f"/api/watched?show=all&players={urllib.parse.quote(ids[BR])}&pageSize=2000")
+    return {f["key"] for f in w["files"] if ids[BR] in f["cells"]}
+read_all()
+before = br_cells()
+mock(BR, "flaky", every=2)          # every other title request fails
+read_all()
+dev_br = next(d for d in http("GET", RELAY + "/api/progress")["devices"] if d["deviceId"] == ids[BR])
+check("busy player: every title is still read (asked again)", br_cells() == before and dev_br["unread"] == 0, f"{len(br_cells())} vs {len(before)}, unread {dev_br['unread']}")
+arrival_title = next(int(k) for k, v in bookmark(BR, ARRIVAL)["titles"].items() if v["name"] == "Arrival" and v["type"] == 1)
+mock(BR, "flaky", every=0, fail=arrival_title)   # one title never answers
+read_all()
+dev_br = next(d for d in http("GET", RELAY + "/api/progress")["devices"] if d["deviceId"] == ids[BR])
+check("a title that never answers is reported", dev_br["unread"] == 1, str(dev_br))
+check("...and keeps its last known files (not 'not in library')", ka in br_cells(), str(sorted(br_cells())))
+with urllib.request.urlopen(RELAY + "/api/progress/diagnostics?q=zzz", timeout=20) as r:
+    check("...and is named on the diagnostics page", "Couldn't be read" in r.read().decode())
+mock(BR, "flaky", every=0, fail="")
+
 passed = sum(1 for _, ok in results if ok)
 print(f"\n{passed}/{len(results)} passed")
 sys.exit(0 if passed == len(results) else 1)

@@ -193,6 +193,32 @@ table.pr td.p { min-width: 170px; white-space: nowrap; }
 .pr-bar .track i { background: #4A9EE8; }
 .pr-bar .ok { color: var(--ok); }
 .pr-sub { color: var(--muted); font-size: 11.5px; margin-top: 2px; }
+.pr-heads { display: none; }
+/* Phones and narrow windows: the controls stack, and each table row becomes a card with one line per player. */
+@media (max-width: 760px) {
+  .pr-controls { flex-direction: column; align-items: stretch; gap: 12px; padding: 14px; }
+  .pr-controls .pr-sort { justify-content: space-between; }
+  .pr-controls .pr-sort select { flex: 1; min-width: 0; max-width: 70%; }
+  .pr-controls .ws-q { width: 100%; }
+  .pr-controls > .btn { width: 100%; }
+  .pr-box { padding: 12px; }
+  .pr-heads { display: flex; flex-direction: column; gap: 4px; margin: 0 0 12px; font-size: 13px; }
+  .pr-head { font-weight: 650; }
+  .pr-head small { display: inline; margin-left: 8px; font-weight: 400; color: var(--muted); font-size: 12px; }
+  .pr-head small.err { color: var(--warn); }
+  .pr-wrap { overflow: visible; }
+  table.pr, table.pr tbody, table.pr tr, table.pr td { display: block; width: 100%; }
+  table.pr thead { display: none; }
+  table.pr tr { background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; }
+  table.pr td, table.pr td.t, table.pr td.p { border-top: 0; padding: 0; min-width: 0; white-space: normal; }
+  table.pr td.t { font-weight: 650; font-size: 14px; margin-bottom: 10px; }
+  table.pr td.r { display: flex; flex-wrap: wrap; gap: 6px; }
+  table.pr td.r .btn + .btn { margin-left: 0; }
+  table.pr td.p { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+  table.pr td.p::before { content: attr(data-label); color: var(--muted); font-size: 12.5px; flex: 0 1 auto; }
+  table.pr td.p .pv { text-align: right; }
+  table.pr .pr-bar { justify-content: flex-end; }
+}
 .pr-none { color: var(--muted); font-size: 12px; }
 /* ---------- watch sync ---------- */
 .ws-q { font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 6px 10px; width: 15em; max-width: 100%; }
@@ -259,6 +285,11 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
 }
 @media (max-width: 600px) {
   .mode { margin-left: 0; width: 100%; justify-content: space-between; }
+  /* Five tabs must fit a phone's width: tighter padding and type. */
+  .tabs { gap: 0; padding-left: 4px; padding-right: 4px; }
+  .tab { padding: 9px 7px; font-size: 13px; gap: 4px; letter-spacing: -0.01em; }
+  .tab svg { width: 16px; height: 16px; }
+  .tab .badge { font-size: 10.5px; padding: 0 5px; }
   /* Stop cards: poster on the left spanning two rows; the time on top, the text under it. Every piece
      gets an explicit cell, otherwise the browser auto-places the text into the narrow poster column. */
   .ev { grid-template-columns: 56px minmax(0, 1fr); gap: 2px 12px; }
@@ -434,6 +465,7 @@ function showTab(name, focus) {
     $("#" + t).hidden = !on;
   }
   if (focus) $("#tab-" + name).focus();
+  $("#tab-" + name).scrollIntoView({ block: "nearest", inline: "nearest" });
   store.set("rr.tab", name);
   if (name === "activity") { markActivitySeen(); }
   if (name === "progress" && typeof loadProgress === "function" && state) loadProgress();
@@ -832,6 +864,9 @@ function prCell(c, read) {
     <div class="pr-sub tnum">${clock(c.playPointMs)}${c.durationMs > 0 ? " of " + clock(c.durationMs) : ""}${c.lastWatchMs > 0 ? " · " + prDate(c.lastWatchMs) : ""}</div>`;
 }
 
+// On a phone the table's header row is hidden; its per-player lines (read time, warnings) show as a list instead.
+const phoneHeads = head => `<div class="pr-heads">${head.replaceAll("<th>", '<div class="pr-head">').replaceAll("</th>", "</div>")}</div>`;
+
 function renderProgress() {
   renderProgressControls();
   const read = $("#pr-read");
@@ -869,11 +904,11 @@ function renderProgress() {
       const busy = prBusy.has(f.key);
       const btns = busy ? `<button class="btn" disabled>Resetting…</button>`
         : `<button class="btn" data-pr-reset="${esc(f.key)}">Reset</button>${f.isEpisode ? `<button class="btn" data-pr-show="${esc(f.key)}">Reset TV Show</button>` : ""}`;
-      return `<tr><td class="t">${esc(f.display)}</td><td class="r">${btns}</td>${devs.map(d => `<td class="p">${prCell(f.cells[d.id], !!readOf[d.id]?.readUtc)}</td>`).join("")}</tr>`;
+      return `<tr><td class="t">${esc(f.display)}</td><td class="r">${btns}</td>${devs.map(d => `<td class="p" data-label="${esc(d.name)}"><div class="pv">${prCell(f.cells[d.id], !!readOf[d.id]?.readUtc)}</div></td>`).join("")}</tr>`;
     }).join("");
     const label = { different: " with different progress between players", same: " with the same progress on all players" }[show] || "";
     html = `<div class="pr-box"><p class="pr-count">${rows.length.toLocaleString()} file(s) in progress${label}</p>
-      <div class="pr-wrap"><table class="pr"><thead><tr><th>Title</th><th>Reset</th>${head}</tr></thead><tbody>${body}</tbody></table></div></div>`;
+      ${phoneHeads(head)}<div class="pr-wrap"><table class="pr"><thead><tr><th>Title</th><th>Reset</th>${head}</tr></thead><tbody>${body}</tbody></table></div></div>`;
   }
   if (html !== prCache) { $("#pr-list").innerHTML = html; prCache = html; }
 }
@@ -957,7 +992,7 @@ function renderWatch() {
     }).join("");
     const body = rows.map(f => `<tr><td class="t">${esc(f.display)}</td>
       <td class="r"><button class="btn mini" data-ws-all="1" data-ws-key="${esc(f.key)}">Watched</button><button class="btn mini" data-ws-all="0" data-ws-key="${esc(f.key)}">Unwatched</button></td>
-      ${devs.map(d => `<td class="p">${wsCell(f, d, !!readOf[d.id]?.readUtc)}</td>`).join("")}</tr>`).join("");
+      ${devs.map(d => `<td class="p" data-label="${esc(d.name)}"><div class="pv">${wsCell(f, d, !!readOf[d.id]?.readUtc)}</div></td>`).join("")}</tr>`).join("");
     const first = (watch.page - 1) * watch.pageSize + 1, last = first + rows.length - 1;
     const pager = watch.pages > 1 ? `<nav class="pager" aria-label="Pages">
         <button class="btn" data-ws-page="1" ${watch.page === 1 ? "disabled" : ""} aria-label="First page">«</button>
@@ -966,7 +1001,7 @@ function renderWatch() {
         <button class="btn" data-ws-page="${watch.page + 1}" ${watch.page === watch.pages ? "disabled" : ""} aria-label="Next page">Next ›</button>
         <button class="btn" data-ws-page="${watch.pages}" ${watch.page === watch.pages ? "disabled" : ""} aria-label="Last page">»</button></nav>` : "";
     html = `<div class="pr-box"><p class="pr-count">${watch.total.toLocaleString()} file(s)${label ? " " + label : ""}</p>${pager}
-      ${rows.length ? `<div class="pr-wrap"><table class="pr"><thead><tr><th>Title</th><th>Set on all</th>${head}</tr></thead><tbody>${body}</tbody></table></div>` : ""}${pager}</div>`;
+      ${rows.length ? `${phoneHeads(head)}<div class="pr-wrap"><table class="pr"><thead><tr><th>Title</th><th>Set on all</th>${head}</tr></thead><tbody>${body}</tbody></table></div>` : ""}${pager}</div>`;
   }
   if (html !== wsCache) { $("#ws-list").innerHTML = html; wsCache = html; }
 }

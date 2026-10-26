@@ -206,20 +206,30 @@ table.pr td.p { min-width: 170px; white-space: nowrap; }
   .pr-head { font-weight: 650; }
   .pr-head small { display: inline; margin-left: 8px; font-weight: 400; color: var(--muted); font-size: 12px; }
   .pr-head small.err { color: var(--warn); }
-  .pr-wrap { overflow: visible; }
-  table.pr, table.pr tbody, table.pr tr, table.pr td { display: block; width: 100%; }
-  table.pr thead { display: none; }
-  table.pr tr { background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; }
-  table.pr td, table.pr td.t, table.pr td.p { border-top: 0; padding: 0; min-width: 0; white-space: normal; }
-  table.pr td.t { font-weight: 650; font-size: 14px; margin-bottom: 10px; }
-  table.pr td.r { display: flex; flex-wrap: wrap; gap: 6px; }
-  table.pr td.r .btn + .btn { margin-left: 0; }
-  table.pr td.p { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
-  table.pr td.p::before { content: attr(data-label); color: var(--muted); font-size: 12.5px; flex: 0 1 auto; }
-  table.pr td.p .pv { text-align: right; }
-  table.pr .pr-bar { justify-content: flex-end; }
+}
+/* Phone cards: one per movie, one per TV show with each of its episodes inside. */
+.mcards { display: none; }
+.mcard { background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; margin-bottom: 10px; font-size: 13px; }
+.mshow { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-weight: 700; font-size: 15px; padding-bottom: 8px; margin: 0 -14px; padding-left: 14px; padding-right: 14px; border-bottom: 2px solid var(--muted); }
+.mep + .mep { border-top: 2px solid var(--muted); margin: 0 -14px; padding: 0 14px; }
+.mep { padding-top: 0; }
+.mt { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-weight: 650; font-size: 14px; padding: 8px 0 3px; overflow-wrap: anywhere; }
+.mt .acts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; flex: none; }
+.mcard .btn { font-size: 12.5px; padding: 4px 10px; }
+.ml { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 5px; padding: 5px 0 0; border-top: 1px solid var(--line); }
+.mep > .ml:last-child { padding-bottom: 5px; }
+.ml > span { color: var(--muted); font-size: 12.5px; }
+.ml .pv { text-align: right; }
+.ml .pr-bar { justify-content: flex-end; }
+@media (max-width: 760px) {
+  .pr-wrap { display: none; }
+  .mcards { display: block; }
 }
 .pr-none { color: var(--muted); font-size: 12px; }
+/* Brief notice, e.g. after Launch HT. */
+.toast { position: fixed; left: 50%; bottom: 24px; width: max-content; transform: translate(-50%, 12px); max-width: min(92vw, 460px); background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-left: 4px solid var(--ok); border-radius: 10px; padding: 10px 16px; font-size: 13.5px; box-shadow: 0 8px 28px rgba(0,0,0,.35); opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; z-index: 50; }
+.toast.err { border-left-color: var(--warn); }
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
 /* ---------- watch sync ---------- */
 .ws-q { font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 6px 10px; width: 15em; max-width: 100%; }
 .wt { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--panel-2); color: var(--muted); border-radius: 999px; padding: 4px 12px; font-size: 12.5px; cursor: pointer; }
@@ -406,6 +416,7 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
 
 <div class="menu" id="menu" role="menu" hidden></div>
 
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 <dialog class="confirm" id="reset-dialog" aria-labelledby="reset-h">
   <h3 id="reset-h">Reset Progress</h3>
   <p id="reset-text"></p>
@@ -622,8 +633,9 @@ $("#rooms").addEventListener("click", async e => {
   else if (t.matches("[data-power='nowake']")) say($("#rooms-msg"), `${dev.name} can't be turned on from here yet: turn it on with its remote once so Resume Relay can learn its network address.`, "err");
   else if (t.matches("[data-launch]")) {
     launching.set(id, Date.now()); renderRooms(state.devices);
-    try { await api("POST", `/api/devices/${encodeURIComponent(id)}/launch`); }
-    catch (err) { say($("#rooms-msg"), err.message, "err"); }
+    const name = state.devices.find(d => d.id === id)?.name || "the player";
+    try { await api("POST", `/api/devices/${encodeURIComponent(id)}/launch`); toast(`The Home Theater app on ${name} has successfully started.`); }
+    catch (err) { toast(err.message, true); }
     launching.delete(id); refresh();
   }
   else if (t.matches("[data-discard]")) {
@@ -867,6 +879,28 @@ function prCell(c, read) {
 // On a phone the table's header row is hidden; its per-player lines (read time, warnings) show as a list instead.
 const phoneHeads = head => `<div class="pr-heads">${head.replaceAll("<th>", '<div class="pr-head">').replaceAll("</th>", "</div>")}</div>`;
 
+// Phone cards. Episodes of the same TV show share one card, in the order they appear in the list.
+// acts(f): the buttons beside a file's name; line(f, d): one player's value; showActs(f): the buttons beside a show's name.
+function phoneCards(rows, devs, acts, line, showActs) {
+  const groups = [], byShow = new Map();
+  for (const f of rows) {
+    if (f.isEpisode && f.title) {
+      let g = byShow.get(f.title);
+      if (!g) { g = { show: f.title, files: [] }; byShow.set(f.title, g); groups.push(g); }
+      g.files.push(f);
+    } else groups.push({ files: [f] });
+  }
+  const ep = f => `<div class="mep"><div class="mt"><span>${esc(f.display)}</span><span class="acts">${acts(f)}</span></div>
+    ${devs.map(d => `<div class="ml"><span>${esc(d.name)}</span><div class="pv">${line(f, d)}</div></div>`).join("")}</div>`;
+  return `<div class="mcards">${groups.map(g => `<div class="mcard">${g.show ? `<div class="mshow"><span>${esc(g.show)}</span>${showActs ? showActs(g.files[0]) : ""}</div>` : ""}${g.files.map(ep).join("")}</div>`).join("")}</div>`;
+}
+
+let toastTimer;
+function toast(text, err = false) {
+  const t = $("#toast"); t.textContent = text; t.className = "toast show" + (err ? " err" : "");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), err ? 7000 : 4000);
+}
+
 function renderProgress() {
   renderProgressControls();
   const read = $("#pr-read");
@@ -908,7 +942,11 @@ function renderProgress() {
     }).join("");
     const label = { different: " with different progress between players", same: " with the same progress on all players" }[show] || "";
     html = `<div class="pr-box"><p class="pr-count">${rows.length.toLocaleString()} file(s) in progress${label}</p>
-      ${phoneHeads(head)}<div class="pr-wrap"><table class="pr"><thead><tr><th>Title</th><th>Reset</th>${head}</tr></thead><tbody>${body}</tbody></table></div></div>`;
+      ${phoneHeads(head)}<div class="pr-wrap"><table class="pr"><thead><tr><th>Title</th><th>Reset</th>${head}</tr></thead><tbody>${body}</tbody></table></div>
+      ${phoneCards(rows, devs,
+        f => prBusy.has(f.key) ? `<button class="btn" disabled>Resetting…</button>` : `<button class="btn" data-pr-reset="${esc(f.key)}">Reset</button>`,
+        (f, d) => prCell(f.cells[d.id], !!readOf[d.id]?.readUtc),
+        f => `<button class="btn" data-pr-show="${esc(f.key)}">Reset TV Show</button>`)}</div>`;
   }
   if (html !== prCache) { $("#pr-list").innerHTML = html; prCache = html; }
 }
@@ -1001,7 +1039,10 @@ function renderWatch() {
         <button class="btn" data-ws-page="${watch.page + 1}" ${watch.page === watch.pages ? "disabled" : ""} aria-label="Next page">Next ›</button>
         <button class="btn" data-ws-page="${watch.pages}" ${watch.page === watch.pages ? "disabled" : ""} aria-label="Last page">»</button></nav>` : "";
     html = `<div class="pr-box"><p class="pr-count">${watch.total.toLocaleString()} file(s)${label ? " " + label : ""}</p>${pager}
-      ${rows.length ? `${phoneHeads(head)}<div class="pr-wrap"><table class="pr"><thead><tr><th>Title</th><th>Set on all</th>${head}</tr></thead><tbody>${body}</tbody></table></div>` : ""}${pager}</div>`;
+      ${rows.length ? `${phoneHeads(head)}<div class="pr-wrap"><table class="pr"><thead><tr><th>Title</th><th>Set on all</th>${head}</tr></thead><tbody>${body}</tbody></table></div>
+      ${phoneCards(rows, devs,
+        f => `<button class="btn mini" data-ws-all="1" data-ws-key="${esc(f.key)}">Watched</button><button class="btn mini" data-ws-all="0" data-ws-key="${esc(f.key)}">Unwatched</button>`,
+        (f, d) => wsCell(f, d, !!readOf[d.id]?.readUtc))}` : ""}${pager}</div>`;
   }
   if (html !== wsCache) { $("#ws-list").innerHTML = html; wsCache = html; }
 }

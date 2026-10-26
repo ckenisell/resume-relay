@@ -364,6 +364,12 @@ public sealed class RelayEngine : BackgroundService
                     if (await api.GetModelAsync(TimeSpan.FromSeconds(2), _stopping) == null)
                     {
                         _store.Log(ActivityLevel.Info, $"Turned {d.Name} off.");
+                        // Keep "turning off" until the poller has also seen it go (it needs two missed checks, a few
+                        // seconds). Ending here would show the player as on again for those seconds. The poller is
+                        // left to mark it off itself, because that is also where a film playing at the time is copied.
+                        var settle = DateTime.UtcNow.AddSeconds(30);
+                        while (live.Online && DateTime.UtcNow < settle && !_stopping.IsCancellationRequested)
+                            await Task.Delay(500, _stopping);
                         return;
                     }
                 }
@@ -375,26 +381,34 @@ public sealed class RelayEngine : BackgroundService
         return null;
     }
 
+    /// <summary>Launch HT: asks the player to open the HT app, then waits (up to 30 s) until the app answers, so the
+    /// page can keep its spinner going and say when it has started. Error text, or null once it is running.</summary>
     public async Task<string?> LaunchHomeTheaterAsync(string deviceId, CancellationToken ct)
     {
         var d = _store.Device(deviceId);
         if (d == null) return "Unknown player.";
         var api = new ZidooClient(d.Ip, d.Port);
         if (!await api.LaunchHomeTheaterAsync(ct)) return $"{d.Name} didn't accept the request. Is it on?";
-        _ = WaitForHomeTheaterAsync(d, api, TimeSpan.FromSeconds(45));
-        return null;
+        if (await WaitForHomeTheaterAsync(d, api, TimeSpan.FromSeconds(30), interval: 1000))
+        {
+            _store.Log(ActivityLevel.Info, $"Opened the Home Theater app on {d.Name}.");
+            return null;
+        }
+        _ = WaitForHomeTheaterAsync(d, api, TimeSpan.FromSeconds(60)); // keep watching in the background
+        return $"The Home Theater app on {d.Name} hasn't answered yet. It may still be starting; its card will update when it does.";
     }
 
-    private async Task WaitForHomeTheaterAsync(Device d, ZidooClient api, TimeSpan max)
+    private async Task<bool> WaitForHomeTheaterAsync(Device d, ZidooClient api, TimeSpan max, int interval = 2500)
     {
         var live = LiveOf(d.Id);
         var until = DateTime.UtcNow + max;
         while (DateTime.UtcNow < until && !_stopping.IsCancellationRequested)
         {
             await CheckHomeTheaterAsync(d, live, api, force: true, _stopping);
-            if (live.HomeTheaterRunning == true) { NudgeQueue(); return; }
-            try { await Task.Delay(2500, _stopping); } catch (OperationCanceledException) { return; }
+            if (live.HomeTheaterRunning == true) { NudgeQueue(); return true; }
+            try { await Task.Delay(interval, _stopping); } catch (OperationCanceledException) { return false; }
         }
+        return false;
     }
 
     // ===================================================================== stop → card → queue

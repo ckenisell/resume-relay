@@ -188,7 +188,7 @@ def make_handler():
                         dict(label="Home Theater", packageName="com.zidoo.poster", versionName=p.ht_version, versionCode=p.ht_code)]))
                 if path == "/ZidooControlCenter/Apps/openApp":
                     p.power_log.append("openApp")
-                    p.ht_closed = False
+                    threading.Timer(2.0, lambda: setattr(p, "ht_closed", False)).start()  # the app takes a moment to start
                     return self.send(dict(status=200, msg="success"))
                 if path == "/ZidooControlCenter/RemoteControl/sendkey":
                     if q.get("key") == "Key.PowerOn.Poweroff":

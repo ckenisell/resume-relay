@@ -408,6 +408,24 @@ with urllib.request.urlopen(RELAY + "/api/progress/diagnostics", timeout=20) as 
 check("diagnostics names posters that differ between walls", "poster(s) differ between players" in diag and "Collection: Sci-Fi Collection" in diag
       and "Home Theater Room 0" in diag, diag[:500])
 
+# ---------------------------------------------------------------- 30. power off never flashes back to "on"; Launch HT waits for the app
+http("POST", RELAY + "/api/devices/" + urllib.parse.quote(ids[HT]) + "/power", {"on": False})
+seen, t0 = [], time.time()
+while time.time() - t0 < 40:
+    pw = dev(HT)["power"]
+    if not seen or seen[-1] != pw: seen.append(pw)
+    if pw == "off": break
+    time.sleep(0.3)
+check("power off goes straight from turning off to off", seen[-1] == "off" and "on" not in seen[1:], str(seen))
+http("POST", RELAY + "/api/devices/" + urllib.parse.quote(ids[HT]) + "/power", {"on": True})
+wait_for(lambda: dev(HT)["power"] == "on" and dev(HT)["homeTheater"] is True, 60)
+mock(HT, "htclosed", on=1)
+wait_for(lambda: dev(HT)["homeTheater"] is False, 40)
+t0 = time.time()
+http("POST", RELAY + "/api/devices/" + urllib.parse.quote(ids[HT]) + "/launch")
+took = time.time() - t0
+check("Launch HT returns only once the app answers", took >= 1.5 and dev(HT)["homeTheater"] is True, f"{took:.1f}s, {dev(HT)['homeTheater']}")
+
 passed = sum(1 for _, ok in results if ok)
 print(f"\n{passed}/{len(results)} passed")
 sys.exit(0 if passed == len(results) else 1)

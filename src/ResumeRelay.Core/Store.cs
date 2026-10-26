@@ -23,6 +23,7 @@ public sealed class Store
     private readonly string _dir;
     private List<Device> _devices;
     private Settings _settings;
+    private PlexConfig _plex;
     private List<PendingCopy> _pending;
     private readonly LinkedList<ActivityEntry> _activity;
     private readonly LinkedList<StopEvent> _events;
@@ -39,6 +40,8 @@ public sealed class Store
         Directory.CreateDirectory(dir);
         _devices = Load<List<Device>>("devices.json") ?? new();
         _settings = Load<Settings>("settings.json") ?? new();
+        _plex = Load<PlexConfig>("plex.json") ?? new();
+        if (_plex.ClientId.Length == 0) { _plex.ClientId = "resume-relay-" + Guid.NewGuid().ToString("N"); Save("plex.json", _plex); }
         _pending = Load<List<PendingCopy>>("pending.json") ?? new();
         _activity = new LinkedList<ActivityEntry>(Load<List<ActivityEntry>>("activity.json") ?? new());
         _events = new LinkedList<StopEvent>(Load<List<StopEvent>>("events.json") ?? new());
@@ -120,6 +123,33 @@ public sealed class Store
             Save("pending.json", _pending);
             return n > 0;
         }
+    }
+
+    /// <summary>Adds a Plex user as a player, or refreshes its token. Returns true when it is new.</summary>
+    public bool UpsertPlexUser(Device d)
+    {
+        lock (_lock)
+        {
+            var existing = _devices.FirstOrDefault(x => x.Id == d.Id);
+            if (existing == null) { _devices.Add(Clone(d)); Save("devices.json", _devices); return true; }
+            existing.PlexToken = d.PlexToken;
+            existing.PlexUserTitle = d.PlexUserTitle;
+            existing.PlexOwner = d.PlexOwner;
+            Save("devices.json", _devices);
+            return false;
+        }
+    }
+
+    // ---------- plex ----------
+
+    public PlexConfig Plex()
+    {
+        lock (_lock) return Clone(_plex);
+    }
+
+    public void SavePlex(PlexConfig p)
+    {
+        lock (_lock) { _plex = Clone(p); Save("plex.json", _plex); }
     }
 
     // ---------- settings ----------

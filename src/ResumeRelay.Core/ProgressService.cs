@@ -109,6 +109,7 @@ public sealed class ProgressService
         var files = new ConcurrentDictionary<string, ProgressFile>(StringComparer.Ordinal);
         try
         {
+            if (d.IsPlex) { await ReadPlexAsync(d, result, files, ct); return; }
             var api = new ZidooClient(d.Ip, d.Port);
             _status[d.Id] = $"Connecting to {d.Name}…";
             if (await api.GetModelAsync(TimeSpan.FromSeconds(6), ct) == null) { result.Error = "off or not answering"; return; }
@@ -247,6 +248,48 @@ public sealed class ProgressService
         }
     }
 
+    /// <summary>A Plex user: the whole library in one listing per library, with that user's progress.</summary>
+    private async Task ReadPlexAsync(Device d, ProgressDevice result, ConcurrentDictionary<string, ProgressFile> files, CancellationToken ct)
+    {
+        _status[d.Id] = $"Reading {d.Name} from Plex…";
+        var cfg = _store.Plex();
+        var items = await _engine.PlexItemsAsync(d, refresh: true, ct);
+        if (items == null) { result.Error = "the Plex server isn't answering"; return; }
+        int unmapped = 0;
+        foreach (var it in items)
+            foreach (var f in it.Files)
+            {
+                var rel = PlexPaths.Rel(f, cfg.Mappings);
+                if (rel == null) { unmapped++; continue; }
+                var m = EpisodeTag.Match(Path.GetFileName(rel));
+                var file = new ProgressFile
+                {
+                    Key = PlexPaths.Key(rel),
+                    Uri = rel,
+                    FileName = Path.GetFileName(rel),
+                    IsEpisode = it.IsEpisode,
+                    Title = it.IsEpisode ? it.Show : it.Title,
+                    Year = it.Year,
+                    Season = it.Season > 0 ? it.Season : m.Success ? int.Parse(m.Groups[1].Value) : 0,
+                    Episode = it.Episode > 0 ? it.Episode : m.Success ? int.Parse(m.Groups[2].Value) : 0,
+                    EpisodeName = it.IsEpisode ? it.Title : "",
+                };
+                files.TryAdd(file.Key, file);
+                result.Cells[file.Key] = new ProgressCell
+                {
+                    FileId = it.Key,
+                    TitleId = it.Key,
+                    PlayPointMs = it.ViewOffsetMs,
+                    DurationMs = it.DurationMs,
+                    Watched = it.Watched,
+                    LastWatchMs = it.LastViewedAt > 0 ? it.LastViewedAt * 1000 : -1,
+                };
+            }
+        result.Titles = items.Count;
+        result.Diagnostics.Add($"Plex: {items.Count:N0} movies and episodes, {result.Cells.Count:N0} files" + (unmapped > 0 ? $"; {unmapped:N0} file(s) outside the Plex card's folder mapping were left out" : ""));
+        result.ReadUtc = DateTime.UtcNow;
+    }
+
     /// <summary>Reads one movie or season. Public for the TV show reset, which reads a series' seasons the same way.</summary>
     public static async Task<List<(ProgressFile File, ProgressCell Cell)>> ReadTitleAsync(ZidooClient api, int id, bool season, string series, CancellationToken ct) =>
         (await ReadTitleCheckedAsync(api, id, season, series, ct)).Files;
@@ -316,7 +359,7 @@ public sealed class ProgressService
             bool episode = ctx.IsSeason || ctx.Episode > 0;
             var file = new ProgressFile
             {
-                Key = uri.Replace('\\', '/').ToLowerInvariant(),
+                Key = PlexPaths.RelOfUrl(uri) is { } r ? PlexPaths.Key(r) : uri.Replace('\\', '/').ToLowerInvariant(),
                 Uri = uri,
                 FileName = name,
                 IsEpisode = episode,
@@ -445,6 +488,7 @@ public sealed class ProgressService
             lock (_lock) cell = _devices.GetValueOrDefault(id)?.Cells.GetValueOrDefault(key);
             if (cell == null || cell.FileId <= 0) { results.Add(new(id, d.Name, false, "not in its library")); continue; }
             if (!_engine.LiveOf(id).Online) { results.Add(new(id, d.Name, false, "is off or not answering")); continue; }
+            if (d.IsPlex) { results.Add(await SetPlexWatchedAsync(d, file, key, cell, watched)); continue; }
 
             var api = new ZidooClient(d.Ip, d.Port);
             async Task<ProgressCell?> ReadBack()
@@ -486,6 +530,35 @@ public sealed class ProgressService
             results.Add(new(id, d.Name, ok, ok ? "" : "the player didn't take the change"));
         }
         return results;
+    }
+
+    /// <summary>Watch Sync for a Plex user: "mark as played" / "mark as unplayed" (which clears the resume point, so it is
+    /// written back afterwards), then read back.</summary>
+    private async Task<WatchResult> SetPlexWatchedAsync(Device d, ProgressFile file, string key, ProgressCell cell, bool watched)
+    {
+        var api = _engine.PlexFor(d);
+        if (watched) await api.ScrobbleAsync(cell.FileId);
+        else
+        {
+            int keep = cell.PlayPointMs > 0 && !NearEnd(cell.PlayPointMs, cell.DurationMs) ? cell.PlayPointMs : 0;
+            await api.UnscrobbleAsync(cell.FileId);
+            if (keep > 0) await api.SetProgressAsync(cell.FileId, keep);
+        }
+        var after = await api.ItemAsync(cell.FileId);
+        bool ok = after != null && after.Watched == watched;
+        if (after != null)
+            lock (_lock)
+                if (_devices.TryGetValue(d.Id, out var dev) && dev.Cells.TryGetValue(key, out var c))
+                {
+                    c.PlayPointMs = after.ViewOffsetMs; c.Watched = after.Watched;
+                    c.LastWatchMs = after.LastViewedAt > 0 ? after.LastViewedAt * 1000 : -1;
+                    if (after.DurationMs > 0) c.DurationMs = after.DurationMs;
+                }
+        Changed();
+        _store.LogCopy(ok ? ActivityLevel.Ok : ActivityLevel.Error, ok
+            ? $"Marked {file.FileName} {(watched ? "watched" : "unwatched")} on {d.Name} (Watch Sync)."
+            : $"Could not mark {file.FileName} {(watched ? "watched" : "unwatched")} on {d.Name}: Plex still shows it {(after?.Watched == true ? "played" : "unplayed")}.");
+        return new WatchResult(d.Id, d.Name, ok, ok ? "" : "Plex didn't take the change");
     }
 
     /// <summary>Plain-text report of the last read of each player, for troubleshooting a "not in library".</summary>
@@ -577,10 +650,19 @@ public sealed class ProgressService
     private async Task<(ProgressFile? File, string UrlOrError, string Poster)> ResolveAsync(string key)
     {
         if (Find(key) is not { } found) return (null, "That file is no longer in the list. Read the players again.", "");
-        foreach (var (deviceId, fileId) in found.Holders.OrderByDescending(h => _engine.LiveOf(h.DeviceId).Online))
+        // A Zidoo that has the file is asked first (it has the exact network path); a Plex user's path comes from the
+        // folder mapping.
+        foreach (var (deviceId, fileId) in found.Holders.OrderByDescending(h => _engine.LiveOf(h.DeviceId).Online).ThenBy(h => _store.Device(h.DeviceId)?.IsPlex == true))
         {
             var d = _store.Device(deviceId);
             if (d == null || fileId <= 0) continue;
+            if (d.IsPlex)
+            {
+                if (await _engine.PlexSourceUrlAsync(d, fileId) is not { } url) continue;
+                string pp = "";
+                try { pp = await _engine.PosterForAsync(d, url); } catch { }
+                return (found.File, url, pp);
+            }
             var entry = await new ZidooClient(d.Ip, d.Port).GetEntryAsync(fileId);
             if (entry == null || entry.Path.Length == 0) continue;
             string poster = "";

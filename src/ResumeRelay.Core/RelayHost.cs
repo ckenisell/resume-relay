@@ -73,6 +73,8 @@ public static class RelayHost
         var app = builder.Build();
         MapApi(app, store, app.Services.GetRequiredService<RelayEngine>(), options.Host);
         MapProgressApi(app, app.Services.GetRequiredService<ProgressService>(), app.Lifetime.ApplicationStopping);
+        PlexApi.Map(app, store, app.Services.GetRequiredService<RelayEngine>());
+        MapIcons(app, store);
         return app;
     }
 
@@ -91,7 +93,7 @@ public static class RelayHost
             {
                 var l = engine.LiveOf(dev.Id);
                 bool online = dev.Enabled && l.Online;
-                string power = l.Power switch
+                string power = dev.IsPlex ? (l.Online ? "on" : "off") : l.Power switch
                 {
                     PowerAction.TurningOn => "turningOn",
                     PowerAction.TurningOff => "turningOff",
@@ -99,12 +101,13 @@ public static class RelayHost
                 };
                 return new
                 {
-                    dev.Id, dev.Name, dev.Ip, dev.Port, dev.Enabled, dev.Model, dev.Firmware, dev.Mac, dev.HtVersion, dev.HtVersionCode,
+                    dev.Id, Kind = dev.IsPlex ? "plex" : "zidoo", dev.Name, dev.Ip, dev.Port, dev.Enabled, dev.Model, dev.Firmware, dev.Mac, dev.HtVersion, dev.HtVersionCode,
+                    PlexUser = dev.IsPlex ? dev.PlexUserTitle : null,
                     Online = online,
                     l.LastSeenUtc,
                     Power = power,
-                    CanWake = new[] { dev.NetMac, dev.WifiMac, dev.Mac }.Any(m => WakeOnLan.ParseMac(m) != null),
-                    HomeTheater = l.Online ? l.HomeTheaterRunning : null,
+                    CanWake = !dev.IsPlex && new[] { dev.NetMac, dev.WifiMac, dev.Mac }.Any(m => WakeOnLan.ParseMac(m) != null),
+                    HomeTheater = l.Online && !dev.IsPlex ? l.HomeTheaterRunning : null,
                     Playing = l.Playing == null || !dev.Enabled ? null : new
                     {
                         l.Playing.Title,
@@ -138,6 +141,8 @@ public static class RelayHost
                 Autostart = host.SupportsAutostart ? (bool?)host.GetAutostart() : null,
                 Settings = store.Settings(),
                 Devices = devices,
+                Plex = PlexApi.Summary(store),
+                Icons = new { Zidoo = IconFile(store, "zidoo") != null, Plex = IconFile(store, "plex") != null, V = IconVersion(store) },
                 Pending = pending,
                 DataFolder = store.DataDirectory,
             });
@@ -152,7 +157,8 @@ public static class RelayHost
 
         app.MapGet("/api/events", (int? n) => Results.Ok(store.Events(Math.Clamp(n ?? 100, 1, 300)).Select(e => new
         {
-            e.Id, e.TimeUtc, e.Title, e.Subtitle, e.FileName, e.Manual, e.Series, CanReset = e.SourceUrl.Length > 0, e.FromName, e.PositionMs, e.DurationMs, e.Finished, e.Reset,
+            e.Id, e.TimeUtc, e.Title, e.Subtitle, e.FileName, e.Manual, e.Series, CanReset = e.SourceUrl.Length > 0, e.FromName,
+            FromKind = e.FromKind.Length > 0 ? e.FromKind : e.Manual ? "" : "zidoo", e.PositionMs, e.DurationMs, e.Finished, e.Reset,
             Poster = e.Poster.Length > 0 ? "/api/poster/" + e.Poster : null,
             e.Targets,
         })));
@@ -235,6 +241,53 @@ public static class RelayHost
             engine.Discard(key) ? Results.Ok() : Results.NotFound());
 
         app.MapPost("/api/pending/retry", () => { engine.NudgeQueue(); return Results.Ok(); });
+    }
+
+    // ---------- badge icons (Settings: "Activity badges") ----------
+
+    private static readonly string[] IconKinds = { "zidoo", "plex" };
+    private static readonly Dictionary<string, string> IconTypes = new()
+    {
+        [".png"] = "image/png", [".jpg"] = "image/jpeg", [".webp"] = "image/webp", [".gif"] = "image/gif", [".ico"] = "image/x-icon", [".svg"] = "image/svg+xml",
+    };
+
+    private static string IconDir(Store store) => Path.Combine(store.DataDirectory, "icons");
+
+    private static string? IconFile(Store store, string kind) =>
+        Directory.Exists(IconDir(store)) ? Directory.EnumerateFiles(IconDir(store), kind + ".*").FirstOrDefault() : null;
+
+    private static long IconVersion(Store store) =>
+        IconKinds.Select(k => IconFile(store, k)).Where(f => f != null).Select(f => File.GetLastWriteTimeUtc(f!).Ticks / 10_000_000).DefaultIfEmpty(0).Max();
+
+    /// <summary>The person's own picture for the Zidoo or Plex badge, kept in the data folder (never shipped with the app).</summary>
+    private static void MapIcons(WebApplication app, Store store)
+    {
+        app.MapGet("/api/icon/{kind}", (string kind) =>
+        {
+            if (!IconKinds.Contains(kind) || IconFile(store, kind) is not { } f) return Results.NotFound();
+            // An SVG is served as an image only (it can't run scripts when used in <img>), with a strict policy anyway.
+            return Results.File(f, IconTypes.GetValueOrDefault(Path.GetExtension(f).ToLowerInvariant(), "application/octet-stream"));
+        });
+        app.MapPost("/api/icon/{kind}", async (string kind, HttpRequest req) =>
+        {
+            if (!IconKinds.Contains(kind)) return Results.NotFound();
+            string type = (req.ContentType ?? "").Split(';')[0].Trim().ToLowerInvariant();
+            string? ext = IconTypes.FirstOrDefault(t => t.Value == type).Key;
+            if (ext == null) return Results.BadRequest(new { Error = "Choose a PNG, JPG, WebP, GIF, ICO or SVG image." });
+            using var ms = new MemoryStream();
+            await req.Body.CopyToAsync(ms);
+            if (ms.Length == 0) return Results.BadRequest(new { Error = "That file is empty." });
+            if (ms.Length > 512 * 1024) return Results.BadRequest(new { Error = "Choose an image under 512 KB (a small icon is plenty)." });
+            Directory.CreateDirectory(IconDir(store));
+            if (IconFile(store, kind) is { } old) File.Delete(old);
+            await File.WriteAllBytesAsync(Path.Combine(IconDir(store), kind + ext), ms.ToArray());
+            return Results.Ok();
+        });
+        app.MapDelete("/api/icon/{kind}", (string kind) =>
+        {
+            if (IconKinds.Contains(kind) && IconFile(store, kind) is { } f) File.Delete(f);
+            return Results.Ok();
+        });
     }
 
     /// <summary>The Progress Reset tab.</summary>

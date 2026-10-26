@@ -358,7 +358,10 @@ def main():
         srv = ThreadingHTTPServer((pl.ip, 9529), make_handler())
         threading.Thread(target=srv.serve_forever, daemon=True).start()
     threading.Thread(target=wol_listener, daemon=True).start()
-    print("mock players up", flush=True)
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # run with -I, which leaves this folder off the path
+    import mock_plex
+    mock_plex.start(FILES, tiny_png(7))
+    print("mock players and Plex up", flush=True)
     while True:
         time.sleep(3600)
 

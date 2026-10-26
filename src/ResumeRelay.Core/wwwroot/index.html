@@ -233,6 +233,50 @@ table.pr tr.ep + tr:not(.ep):not(.show) td { border-top: 2px solid var(--muted);
   .mcards { display: block; }
 }
 .pr-none { color: var(--muted); font-size: 12px; }
+/* ---------- Zidoo / Plex badges ---------- */
+.kb { display: inline-flex; align-items: center; gap: 5px; vertical-align: -3px; font-size: 12px; font-weight: 650; padding: 1px 7px 1px 4px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); white-space: nowrap; }
+.kb svg, .kb img { width: 16px; height: 16px; flex: none; object-fit: contain; }
+.kb svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.kb.zidoo svg { color: #5FA8E8; }
+.kb.plex svg { color: var(--amber); }
+.kb.icon { padding: 0; border: 0; background: none; gap: 0; }
+.chip .kb.icon svg, .chip .kb.icon img { width: 14px; height: 14px; }
+.chead .kb.icon svg, .chead .kb.icon img { width: 26px; height: 26px; }
+.chead .kb.icon { width: 38px; height: 38px; justify-content: center; border: 1px solid var(--line); border-radius: 50%; background: var(--btn-bg); flex: none; }
+/* ---------- Plex card ---------- */
+.plex-card { margin-top: 22px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 16px 18px; max-width: 900px; }
+.plex-card h3 { margin: 0 0 4px; font-size: 17px; display: flex; align-items: center; gap: 10px; }
+.plex-card h4 { margin: 18px 0 6px; font-size: 14px; }
+.plex-card p { margin: 4px 0 10px; color: var(--muted); font-size: 13px; }
+.plex-card p b { color: var(--text); }
+.plex-code { font: 700 30px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .18em; color: var(--amber); margin: 8px 0; }
+.plex-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 0; }
+.plex-row input { font: inherit; font-size: 13px; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 6px 10px; min-width: 0; flex: 1 1 220px; }
+.plex-row input.pin { flex: 0 0 6em; }
+.plex-row .arrow { color: var(--muted); }
+.plex-users { list-style: none; margin: 0; padding: 0; }
+.plex-users li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 0; border-top: 1px solid var(--line); }
+.plex-users li:first-child { border-top: 0; }
+.plex-users .who { flex: 1 1 160px; font-weight: 600; }
+.plex-users .who small { display: block; font-weight: 400; color: var(--muted); font-size: 12px; }
+.plex-users .on { color: var(--ok); font-size: 13px; font-weight: 600; }
+.plex-test { font-size: 13px; margin: 8px 0 0; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--panel-2); }
+.plex-test.ok { border-left: 3px solid var(--ok); } .plex-test.err { border-left: 3px solid var(--bad); }
+.plex-test ul { margin: 6px 0 0; padding-left: 18px; color: var(--muted); overflow-wrap: anywhere; }
+.plex-foot { display: flex; justify-content: flex-end; margin-top: 12px; }
+@media (max-width: 600px) {
+  .plex-card { padding: 14px; }
+  .plex-row input { flex-basis: 100%; }
+  .plex-row .arrow { display: none; }
+  #plex-maps .plex-row { padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+}
+/* ---------- Settings: badge icons ---------- */
+.plex-card h3 .kb.icon svg, .plex-card h3 .kb.icon img { width: 22px; height: 22px; }
+.icons-set { margin-top: 26px; max-width: 900px; }
+.icons-set h3 { font-size: 15px; margin: 0 0 4px; }
+.icons-set p { color: var(--muted); font-size: 12.5px; margin: 0 0 10px; }
+.icon-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 8px 0; }
+.icon-row .kb { min-width: 74px; }
 /* Brief notice, e.g. after Launch HT. */
 .toast { position: fixed; left: 50%; bottom: 24px; width: max-content; transform: translate(-50%, 12px); max-width: min(92vw, 460px); background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-left: 4px solid var(--ok); border-radius: 10px; padding: 10px 16px; font-size: 13.5px; box-shadow: 0 8px 28px rgba(0,0,0,.35); opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; z-index: 50; }
 .toast.err { border-left-color: var(--warn); }
@@ -349,6 +393,7 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
     </form>
     <p class="msg" id="rooms-msg" role="status"></p>
     <div class="grid" id="rooms"></div>
+    <section class="plex-card" id="plex-card" aria-labelledby="plex-h"></section>
   </section>
 
   <section id="activity" role="tabpanel" aria-labelledby="tab-activity" hidden>
@@ -417,6 +462,11 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
         <input type="number" name="pendingMaxDays" min="1" max="365" required> days</label>
     </form>
     <p class="msg" id="set-msg" role="status"></p>
+    <div class="icons-set">
+      <h3>Activity badges</h3>
+      <p>Each Activity card shows whether the stop happened on a Zidoo or on Plex, and each player chip shows which kind it is. You can use your own small image for either badge; it's kept in Resume Relay's data folder on this computer.</p>
+      <div id="icon-rows"></div>
+    </div>
     <p class="foot" id="foot"></p>
   </section>
 </main>
@@ -444,6 +494,19 @@ let feedCache = "";
 
 const POWER_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v8"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/></svg>`;
 const HT_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/><path d="M10.5 7.8v4.4l3.6-2.2z"/></svg>`;
+
+// Neutral pictures for "this happened on a Zidoo" (a media player box) and "on Plex" (a media server). Either can be
+// replaced with the person's own image in Settings.
+const KIND_SVG = {
+  zidoo: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="8" width="19" height="8" rx="2"/><path d="M6 12h4"/><circle cx="17.5" cy="12" r=".6"/><path d="M5.5 16v2M18.5 16v2"/></svg>`,
+  plex: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3.5" width="16" height="7" rx="1.5"/><rect x="4" y="13.5" width="16" height="7" rx="1.5"/><path d="M7.5 7h.01M7.5 17h.01M11 7h5M11 17h5"/></svg>`,
+};
+const KIND_NAME = { zidoo: "Zidoo", plex: "Plex" };
+const kindIcon = kind => state?.icons?.[kind] ? `<img src="/api/icon/${kind}?v=${state.icons.v}" alt="">` : KIND_SVG[kind] || "";
+function kindBadge(kind, iconOnly = false) {
+  if (!KIND_SVG[kind]) return "";
+  return `<span class="kb ${kind}${iconOnly ? " icon" : ""}" title="${KIND_NAME[kind]}"${iconOnly ? ` role="img" aria-label="${KIND_NAME[kind]}"` : ""}>${kindIcon(kind)}${iconOnly ? "" : KIND_NAME[kind]}</span>`;
+}
 
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
@@ -546,16 +609,18 @@ function cardHtml(d) {
   if (!d.enabled) status = "Not synced";
   else if (d.power === "turningOn") status = "Turning on…";
   else if (d.power === "turningOff") status = "Turning off…";
+  else if (!d.online && d.kind === "plex") status = "Plex server isn't answering";
   else if (!d.online) status = d.lastSeenUtc ? `Off · last seen ${ago(d.lastSeenUtc)}` : "Off";
   else if (p) status = p.paused ? "Paused" : "Playing";
   else status = "Idle";
-  const meta = [status, d.model, d.ip].filter(Boolean).map(esc).join(" · ");
+  const plex = d.kind === "plex";
+  const meta = (plex ? [status, "Plex user"] : [status, d.model, d.ip]).filter(Boolean).map(esc).join(" · ");
 
   let stage = "";
   if (p) {
     stage = `<div class="stage">${poster(p.poster, p.title || p.file)}
       <div class="grow"><div class="t">${esc(p.title || p.file)}</div>${p.subtitle ? `<div class="s">${esc(p.subtitle)}</div>` : ""}${p.file && p.title ? `<div class="file">${esc(p.file)}</div>` : ""}
-        ${p.shareable ? "" : `<div class="note">Playing from a drive the other players can't see, so this one can't be copied.</div>`}
+        ${p.shareable ? "" : plex ? `<div class="note">Plex's path for this file isn't covered by the folders on the Plex card, so it can't be copied.</div>` : `<div class="note">Playing from a drive the other players can't see, so this one can't be copied.</div>`}
         <div class="push"><div class="track" role="progressbar" aria-label="Position" aria-valuemin="0" aria-valuemax="100" data-track><i></i></div>
         <div class="times tnum"><span data-pos></span><span data-dur></span></div></div></div></div>`;
   }
@@ -565,7 +630,7 @@ function cardHtml(d) {
   let waiting = "";
   if (d.waiting && d.waiting.length) {
     const n = d.waiting.length;
-    const until = d.online ? "Copies as soon as Home Theater is open." : "Copies as soon as it's on.";
+    const until = plex ? "Copies as soon as the Plex server answers." : d.online ? "Copies as soon as Home Theater is open." : "Copies as soon as it's on.";
     waiting = `<div class="cwait"><h3>${n} waiting · ${until}</h3><ul>${d.waiting.map(w => `<li><div>
       ${esc(w.title)} <span class="tnum">${clock(w.positionMs)}</span>, from ${esc(w.fromName)} <span class="why">· ${ago(w.createdUtc)}${w.why ? " · " + esc(w.why) : ""}</span></div>
       <button class="btn quiet danger" data-discard="${esc(w.key)}" title="Don't copy this one">Discard</button></li>`).join("")}</ul></div>`;
@@ -575,11 +640,12 @@ function cardHtml(d) {
   const cls = ["card", p ? "playing" : "", (!d.online || !d.enabled) ? "dim" : ""].filter(Boolean).join(" ");
   const nameEl = editing === d.id ? "" : `<button class="name" data-rename title="Rename">${esc(d.name)}</button>`;
   return `<article class="${cls}" data-id="${esc(d.id)}" aria-label="${esc(d.name)}">
-    <div class="chead">${powerButton(d)}${htButton(d)}${nameEl}
+    <div class="chead">${plex ? kindBadge("plex", true) : powerButton(d) + htButton(d)}${nameEl}
       <label class="switch" title="Copy bookmarks to and from this player"><input type="checkbox" data-enable ${d.enabled ? "checked" : ""}> Sync</label></div>
     <div class="cmeta">${meta}</div>
     ${htNote}${stage}${waiting}
-    <div class="cfoot"><span class="meta tnum">${esc(d.ip)}${macs ? " · " + macs : ""}${d.firmware ? " · firmware " + esc(d.firmware) : ""}${htVersion(d)}</span>
+    <div class="cfoot"><span class="meta tnum">${plex ? `Plex user ${esc(d.plexUser)}${state?.plex?.server ? " · server " + esc(state.plex.server.name) : ""}`
+      : `${esc(d.ip)}${macs ? " · " + macs : ""}${d.firmware ? " · firmware " + esc(d.firmware) : ""}${htVersion(d)}`}</span>
       <button class="btn quiet danger" data-remove>Remove</button></div>
   </article>`;
 }
@@ -649,7 +715,9 @@ $("#rooms").addEventListener("click", async e => {
     await api("DELETE", "/api/pending?key=" + encodeURIComponent(t.dataset.discard)); refresh();
   }
   else if (t.matches("[data-remove]")) {
-    if (!confirm(`Remove ${dev.name}? It will no longer send or receive bookmarks. Scan again to add it back.`)) return;
+    if (!confirm(dev.kind === "plex"
+      ? `Remove ${dev.name}? Their Plex resume points will no longer sync. You can add them back on the Plex card.`
+      : `Remove ${dev.name}? It will no longer send or receive bookmarks. Scan again to add it back.`)) return;
     await api("DELETE", `/api/devices/${encodeURIComponent(id)}`); refresh();
   }
 });
@@ -734,14 +802,15 @@ function eventHtml(e) {
     : e.manual
     ? `Reset from <b>Resume Relay</b>: <b>progress reset on all players</b>`
     : e.reset
-    ? `Stopped at <b class="tnum">0:00</b> in ${esc(e.fromName)}: <b>progress reset</b>`
+    ? `Stopped at <b class="tnum">0:00</b> on ${kindBadge(e.fromKind)} ${esc(e.fromName)}: <b>progress reset</b>`
     : e.finished
-    ? `Finished in ${esc(e.fromName)}: <b>marked watched</b>`
-    : `Stopped at <b class="tnum">${clock(e.positionMs)}</b> in ${esc(e.fromName)}`;
+    ? `Finished on ${kindBadge(e.fromKind)} ${esc(e.fromName)}: <b>marked watched</b>`
+    : `Stopped at <b class="tnum">${clock(e.positionMs)}</b> on ${kindBadge(e.fromKind)} ${esc(e.fromName)}`;
   const chips = e.targets.map(t => {
     const [cls, ic] = CHIP[t.state] || CHIP.Pending;
     const note = t.state === "Pending" ? "copying" : t.note;
-    return `<span class="chip ${cls}" title="${esc(t.name)}: ${esc(t.state === "Ok" ? "copied" : t.state.toLowerCase())}${t.note ? ", " + esc(t.note) : ""}"><i aria-hidden="true">${ic}</i>${esc(t.name)}${note ? ` <em>${esc(note)}</em>` : ""}</span>`;
+    const kind = t.kind || "zidoo";
+    return `<span class="chip ${cls}" title="${KIND_NAME[kind]} · ${esc(t.name)}: ${esc(t.state === "Ok" ? "copied" : t.state.toLowerCase())}${t.note ? ", " + esc(t.note) : ""}"><i aria-hidden="true">${ic}</i>${kindBadge(kind, true)}${esc(t.name)}${note ? ` <em>${esc(note)}</em>` : ""}</span>`;
   }).join("");
   return `<article class="ev">${poster(e.poster, e.title)}
     <div><h3>${esc(e.title)}</h3>${e.subtitle ? `<div class="sub">${esc(e.subtitle)}</div>` : ""}${e.fileName ? `<div class="file">${esc(e.fileName)}</div>` : ""}
@@ -1113,13 +1182,197 @@ async function loadProgress() {
 
 // ---------------- refresh loop ----------------
 let busy = false;
+// ---------------- Plex card ----------------
+// Sign in with a code at plex.tv/link → pick the server → map the folders → add users. Each user becomes a player card.
+const plexUi = { folders: null, servers: null, users: null, test: null, mappings: null, suggested: null, choosing: false, msg: "", kind: "", busy: "" };
+let plexSig = "", plexPolling = false;
+function plexSay(msg, kind = "") { plexUi.msg = msg; plexUi.kind = kind; renderPlex(true); }
+
+function renderPlex(force = false) {
+  const box = $("#plex-card"), p = state?.plex; if (!box || !p) return;
+  if (!force && box.contains(document.activeElement) && document.activeElement.matches("input")) return; // don't redraw under typing
+  const sig = JSON.stringify([p, plexUi, state.icons]);
+  if (!force && sig === plexSig) return;
+  plexSig = sig;
+  const busy = what => plexUi.busy === what ? "disabled" : "";
+  let body;
+  if (p.linking) {
+    body = `<p>On any phone or computer signed in to Plex, go to <a href="${esc(p.linkUrl)}" target="_blank" rel="noopener"><b>plex.tv/link</b></a> and enter this code:</p>
+      <div class="plex-code" aria-live="polite">${esc(p.linking)}</div>
+      <p>This page carries on by itself once the code is entered. Your Plex password never goes through Resume Relay.</p>
+      <div class="plex-row"><button class="btn quiet" data-plex="cancel">Cancel</button></div>`;
+    if (!plexPolling) plexWaitForLink();
+  } else if (!p.signedIn) {
+    body = `<p>Sync resume points and watched marks with Plex too. Each Plex user you add becomes a player: stop something on a Zidoo and resume it in Plex, or the other way round.</p>
+      <div class="plex-row"><button class="btn" data-plex="signin" ${busy("signin")}>${plexUi.busy === "signin" ? "Asking plex.tv…" : "Sign in with Plex"}</button></div>`;
+  } else if (!p.server || plexUi.choosing) {
+    if (plexUi.servers === null && plexUi.busy !== "servers") plexLoadServers();
+    const list = plexUi.servers || [];
+    body = `<p>Signed in as <b>${esc(p.username)}</b>. Choose the Plex server that has your movies and TV shows.</p>
+      ${plexUi.servers === null ? `<p>Looking for your servers…</p>` : list.length === 0 ? `<p>No Plex servers were found on this account.</p>`
+        : `<ul class="plex-users">${list.map(x => `<li><span class="who">${esc(x.name)}<small>${x.owned ? "Your server" : "Shared with you"}</small></span>
+          <button class="btn" data-plex="server" data-id="${esc(x.clientId)}" ${busy("server")}>${x.selected ? "In use" : "Use this server"}</button></li>`).join("")}</ul>`}
+      <div class="plex-foot"><button class="btn quiet danger" data-plex="signout">Sign out of Plex</button></div>`;
+  } else {
+    if (plexUi.users === null && plexUi.busy !== "users") plexLoadUsers();
+    let maps = plexUi.mappings ?? p.mappings.map(m => ({ ...m }));
+    let suggestedNote = "";
+    if (!maps.length && plexUi.suggested === null && plexUi.busy !== "suggest") plexSuggest();
+    if (!maps.length && plexUi.suggested?.length) { maps = plexUi.suggested.map(m => ({ ...m })); plexUi.mappings = maps; suggestedNote = `<p>Suggested from a file your Zidoos have played that Plex also has. Check it, then press <b>Save folders</b>.</p>`; }
+    if (!maps.length && plexUi.suggested) {
+      const libs = (plexUi.folders || []).flatMap(f => f.locations).filter(Boolean);
+      suggestedNote = `<p>${libs.length ? `Plex's library folders are <b>${libs.map(esc).join("</b>, <b>")}</b>. ` : ""}Play anything on a Zidoo for a few seconds and stop it, then reload this page: Resume Relay then fills these in for you from that file.</p>`;
+    }
+    if (!maps.length) maps = [{ plexFolder: "", zidooFolder: "" }];
+    const t = plexUi.test;
+    const test = !t ? "" : t.error ? `<div class="plex-test err">${esc(t.error)}</div>` : `<div class="plex-test ${t.mapped === t.total && (!t.asked || t.found === t.asked) ? "ok" : "err"}">
+        ${t.mapped.toLocaleString()} of ${t.total.toLocaleString()} Plex files are inside these folders.
+        ${t.player ? (t.asked ? ` ${t.found} of ${t.asked} sample files were found on ${esc(t.player)} by the mapped path.` : "") : " Turn a Zidoo on to check the paths against it."}
+        ${t.outside.length ? `<ul>${t.outside.map(o => `<li>Not covered: ${esc(o)}</li>`).join("")}</ul>` : ""}
+        ${t.samples.filter(x => !x.found).length ? `<ul>${t.samples.filter(x => !x.found).map(x => `<li>Not found on ${esc(t.player)}: ${esc(x.zidoo)}</li>`).join("")}</ul>` : ""}</div>`;
+    const users = plexUi.users;
+    body = `<p>Signed in as <b>${esc(p.username)}</b> · server <b>${esc(p.server.name)}</b> <span class="tnum">(${esc(p.server.url)})</span>
+        <button class="btn quiet" data-plex="change">Change server</button></p>
+      <h4>Folders</h4>
+      <p>Plex and the Zidoos reach the same files by different paths. Each line says which Plex folder is which Zidoo folder; files are then matched by the rest of their path.</p>
+      ${suggestedNote}
+      <div id="plex-maps">${maps.map((m, i) => `<div class="plex-row" data-i="${i}">
+          <input data-map="plexFolder" value="${esc(m.plexFolder)}" placeholder="Plex folder, e.g. /shares/Entertainment" aria-label="Plex folder">
+          <span class="arrow" aria-hidden="true">=</span>
+          <input data-map="zidooFolder" value="${esc(m.zidooFolder)}" placeholder="Zidoo folder, e.g. smb://10.0.0.56/Entertainment" aria-label="Zidoo folder">
+          <button class="btn quiet danger" data-plex="unmap" data-i="${i}" aria-label="Remove this folder">Remove</button></div>`).join("")}</div>
+      <div class="plex-row"><button class="btn quiet" data-plex="addmap">+ Add folder</button>
+        <button class="btn" data-plex="savemaps" ${busy("save")}>Save folders</button>
+        <button class="btn" data-plex="test" ${busy("test")}>${plexUi.busy === "test" ? "Testing…" : "Test"}</button></div>
+      ${test}
+      <h4>Plex users</h4>
+      <p>Each user you add becomes a player on this tab, with their own resume points and watched marks.</p>
+      ${users === null ? `<p>Loading users…</p>` : `<ul class="plex-users">${users.map(u => `<li><span class="who">${esc(u.title)}<small>${u.admin ? "Owner" : u.protected ? "Has a PIN" : "Plex Home user"}</small></span>
+        ${u.added ? `<span class="on">✓ Syncing</span>` : `${u.protected ? `<input class="pin" data-pin="${esc(u.uuid)}" inputmode="numeric" maxlength="8" placeholder="PIN" aria-label="${esc(u.title)}'s PIN">` : ""}
+          <button class="btn" data-plex="adduser" data-uuid="${esc(u.uuid)}" ${busy("add:" + u.uuid)}>Add</button>`}</li>`).join("")}</ul>`}
+      <div class="plex-foot"><button class="btn quiet danger" data-plex="signout">Sign out of Plex</button></div>`;
+  }
+  box.innerHTML = `<h3 id="plex-h">${kindBadge("plex", true)} Plex</h3>${body}${plexUi.msg ? `<p class="msg ${esc(plexUi.kind)}" role="status">${esc(plexUi.msg)}</p>` : ""}`;
+}
+
+async function plexWaitForLink() {
+  plexPolling = true;
+  try {
+    for (let i = 0; i < 200; i++) {
+      await new Promise(r => setTimeout(r, 3000));
+      const r = await api("GET", "/api/plex/signin");
+      if (r.done) { plexUi.servers = null; plexSay(`Signed in to Plex as ${r.username}.`, "ok"); break; }
+      if (r.expired) { plexSay("The code expired. Press Sign in with Plex to get a new one.", "err"); break; }
+    }
+  } catch (err) { plexSay(err.message, "err"); }
+  plexPolling = false; refresh();
+}
+async function plexLoadServers() {
+  plexUi.busy = "servers";
+  try {
+    plexUi.servers = await api("GET", "/api/plex/servers");
+    plexUi.busy = "";
+    const mine = plexUi.servers.filter(x => x.owned);
+    if (!state.plex.server && plexUi.servers.length === 1) await plexUseServer(plexUi.servers[0].clientId);
+    else if (!state.plex.server && mine.length === 1) await plexUseServer(mine[0].clientId);
+  } catch (err) { plexUi.servers = []; plexUi.busy = ""; plexSay(err.message, "err"); }
+  renderPlex(true);
+}
+async function plexUseServer(id) {
+  plexUi.busy = "server"; renderPlex(true);
+  try {
+    const r = await api("POST", "/api/plex/server", { clientId: id });
+    Object.assign(plexUi, { choosing: false, users: null, test: null, suggested: null, mappings: null });
+    plexUi.busy = ""; plexSay(`Using ${r.name}.`, "ok");
+  } catch (err) { plexUi.busy = ""; plexSay(err.message, "err"); }
+  await refresh();
+}
+async function plexLoadUsers() {
+  plexUi.busy = "users";
+  try { plexUi.users = await api("GET", "/api/plex/users"); } catch (err) { plexUi.users = []; plexUi.msg = err.message; plexUi.kind = "err"; }
+  plexUi.busy = ""; renderPlex(true);
+}
+async function plexSuggest() {
+  plexUi.busy = "suggest";
+  try { const r = await api("GET", "/api/plex/suggest"); plexUi.suggested = r.suggested || []; plexUi.folders = r.folders || []; } catch { plexUi.suggested = []; }
+  plexUi.busy = ""; renderPlex(true);
+}
+function plexReadMaps() {
+  return [...document.querySelectorAll("#plex-maps .plex-row")].map(r => ({
+    plexFolder: r.querySelector("[data-map=plexFolder]").value.trim(), zidooFolder: r.querySelector("[data-map=zidooFolder]").value.trim(),
+  }));
+}
+$("#plex-card").addEventListener("input", e => { if (e.target.matches("[data-map]")) plexUi.mappings = plexReadMaps(); });
+$("#plex-card").addEventListener("click", async e => {
+  const b = e.target.closest("[data-plex]"); if (!b) return;
+  const what = b.dataset.plex;
+  plexUi.msg = "";
+  try {
+    if (what === "signin") {
+      plexUi.busy = "signin"; renderPlex(true);
+      await api("POST", "/api/plex/signin"); plexUi.busy = ""; await refresh(); renderPlex(true);
+    } else if (what === "cancel") {
+      await api("POST", "/api/plex/signout"); await refresh(); renderPlex(true);
+    } else if (what === "server") await plexUseServer(b.dataset.id);
+    else if (what === "change") { plexUi.choosing = true; plexUi.servers = null; renderPlex(true); }
+    else if (what === "addmap") { plexUi.mappings = [...plexReadMaps(), { plexFolder: "", zidooFolder: "" }]; renderPlex(true); }
+    else if (what === "unmap") { const m = plexReadMaps(); m.splice(+b.dataset.i, 1); plexUi.mappings = m; renderPlex(true); }
+    else if (what === "savemaps") {
+      plexUi.busy = "save"; renderPlex(true);
+      await api("POST", "/api/plex/mapping", { mappings: plexReadMaps() });
+      plexUi.busy = ""; plexUi.mappings = null; plexUi.test = null; await refresh(); plexSay("Folders saved.", "ok");
+    } else if (what === "test") {
+      plexUi.busy = "test"; plexUi.test = null; renderPlex(true);
+      try { plexUi.test = await api("POST", "/api/plex/test"); } catch (err) { plexUi.test = { error: err.message }; }
+      plexUi.busy = ""; renderPlex(true);
+    } else if (what === "adduser") {
+      const uuid = b.dataset.uuid, pin = document.querySelector(`[data-pin="${CSS.escape(uuid)}"]`)?.value || "";
+      plexUi.busy = "add:" + uuid; renderPlex(true);
+      try {
+        const r = await api("POST", "/api/plex/users", { uuid, pin });
+        plexUi.busy = ""; plexUi.users = null; await refresh(); plexSay(`Added ${r.name}. Their card is above with the other players.`, "ok");
+      } catch (err) { plexUi.busy = ""; plexSay(err.message, "err"); }
+    } else if (what === "signout") {
+      if (!confirm("Sign out of Plex? The Plex users are removed from the players and stop syncing.")) return;
+      await api("POST", "/api/plex/signout");
+      Object.assign(plexUi, { servers: null, users: null, test: null, mappings: null, suggested: null, choosing: false });
+      await refresh(); plexSay("Signed out of Plex.");
+    }
+  } catch (err) { plexUi.busy = ""; plexSay(err.message, "err"); }
+});
+
+// ---------------- Settings: badge pictures ----------------
+let iconSig = "";
+function renderIcons() {
+  const sig = JSON.stringify(state?.icons || {}); if (sig === iconSig) return; iconSig = sig;
+  $("#icon-rows").innerHTML = ["zidoo", "plex"].map(k => `<div class="icon-row">${kindBadge(k)}
+    <label class="btn">Choose image…<input type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/x-icon,image/vnd.microsoft.icon,image/svg+xml" data-icon="${k}" hidden></label>
+    ${state.icons[k] ? `<button class="btn quiet" data-icon-reset="${k}">Use the default</button>` : ""}</div>`).join("");
+}
+$("#icon-rows").addEventListener("change", async e => {
+  const input = e.target.closest("[data-icon]"); if (!input || !input.files[0]) return;
+  const f = input.files[0];
+  try {
+    const type = f.type === "image/vnd.microsoft.icon" ? "image/x-icon" : f.type;
+    const r = await fetch(`/api/icon/${input.dataset.icon}`, { method: "POST", headers: { "Content-Type": type }, body: f });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `Upload failed (${r.status})`);
+    say($("#set-msg"), `${KIND_NAME[input.dataset.icon]} badge updated.`, "ok");
+  } catch (err) { say($("#set-msg"), err.message, "err"); }
+  feedCache = ""; cardCache.clear(); refresh();
+});
+$("#icon-rows").addEventListener("click", async e => {
+  const b = e.target.closest("[data-icon-reset]"); if (!b) return;
+  await api("DELETE", `/api/icon/${b.dataset.iconReset}`);
+  feedCache = ""; cardCache.clear(); refresh();
+});
+
 async function refresh() {
   if (busy) return; busy = true;
   try {
     const [s, ev, sys] = await Promise.all([api("GET", "/api/state"), api("GET", "/api/events?n=150"), api("GET", "/api/activity?n=150&system=true")]);
     state = s; events = ev; systemRows = sys;
     for (const [id, t] of launching) if (Date.now() - t > 60000) launching.delete(id);
-    renderMode(s.settings); renderRooms(s.devices); renderFeed(); renderSettings(s.settings); renderBadges();
+    renderMode(s.settings); renderRooms(s.devices); renderPlex(); renderFeed(); renderSettings(s.settings); renderIcons(); renderBadges();
     if (!$("#progress").hidden || progress?.reading) await loadProgress(); else renderProgressControls();
     if (!$("#watch").hidden) await loadWatch(false); else renderWatchControls();
     $("#autostart-row").hidden = s.autostart === null || s.autostart === undefined;

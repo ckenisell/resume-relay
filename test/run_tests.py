@@ -1,5 +1,5 @@
 """End-to-end scenarios for Resume Relay against mock_zidoo.py. Run with the relay on :8090."""
-import json, time, urllib.request, urllib.parse, sys
+import json, time, urllib.request, urllib.parse, urllib.error, sys
 
 RELAY = "http://127.0.0.1:8090"
 LR, BR, HT = "127.0.0.2", "127.0.0.3", "127.0.0.4"
@@ -425,6 +425,105 @@ t0 = time.time()
 http("POST", RELAY + "/api/devices/" + urllib.parse.quote(ids[HT]) + "/launch")
 took = time.time() - t0
 check("Launch HT returns only once the app answers", took >= 1.5 and dev(HT)["homeTheater"] is True, f"{took:.1f}s, {dev(HT)['homeTheater']}")
+
+# ---------------------------------------------------------------- 31. Plex: sign in, server, folders, users
+PLEX, PLEXTV = "http://127.0.0.6:32400", "http://127.0.0.7:32400"
+def plexmock(path, **q):
+    return http("GET", f"{PLEX}/_test/{path}?" + urllib.parse.urlencode(q))
+def plexitem(user, key):
+    return plexmock("item", user=user, key=key)
+settings(watchOnly=False)
+pin = http("POST", RELAY + "/api/plex/signin")
+check("Plex sign-in gives a code for plex.tv/link", pin["code"] == "RRPX" and pin["linkUrl"] == "https://plex.tv/link", str(pin))
+check("not signed in until the code is entered", http("GET", RELAY + "/api/plex/signin")["done"] is False)
+http("GET", PLEXTV + "/_test/link")
+check("signed in once the code is entered", wait_for(lambda: http("GET", RELAY + "/api/plex/signin")["done"], 10))
+servers = http("GET", RELAY + "/api/plex/servers")
+check("only servers are listed (not players)", [x["name"] for x in servers] == ["CHETPLEX"], str(servers))
+srv = http("POST", RELAY + "/api/plex/server", {"clientId": servers[0]["clientId"]})
+check("server reached on its local address, not the relay", srv["url"] == PLEX, str(srv))
+sug = http("GET", RELAY + "/api/plex/suggest")
+check("folder mapping suggested from a file a Zidoo played", sug["suggested"] and sug["suggested"][0] == {"plexFolder": "/shares/Entertainment", "zidooFolder": SHARE}, str(sug))
+http("POST", RELAY + "/api/plex/mapping", {"mappings": sug["suggested"][:1]})
+t = http("POST", RELAY + "/api/plex/test")
+check("mapping test: every Plex file is covered and a Zidoo finds them", t["mapped"] == t["total"] == 4 and t["asked"] > 0 and t["found"] == t["asked"], str(t))
+users = http("GET", RELAY + "/api/plex/users")
+check("Plex Home users are listed", [u["title"] for u in users] == ["chet", "Kid"], str(users))
+http("POST", RELAY + "/api/plex/users", {"uuid": "uuid-chet"})
+try:
+    http("POST", RELAY + "/api/plex/users", {"uuid": "uuid-kid", "pin": "0000"})
+    bad = None
+except urllib.error.HTTPError as e:
+    bad = json.loads(e.read().decode())
+check("a wrong PIN is refused", bad and "PIN" in bad["error"], str(bad))
+http("POST", RELAY + "/api/plex/users", {"uuid": "uuid-kid", "pin": "1234"})
+st = http("GET", RELAY + "/api/state")
+pdev = [d for d in st["devices"] if d["kind"] == "plex"]
+PO = next(d["id"] for d in pdev if d["plexUser"] == "chet")
+PK = next(d["id"] for d in pdev if d["plexUser"] == "Kid")
+check("Plex users become players", len(pdev) == 2 and all(d["name"].endswith(" on Plex") for d in pdev), str(pdev))
+check("tokens never reach the page", "srv-owner" not in json.dumps(st) and "acct-owner" not in json.dumps(st))
+check("Plex users show as on", wait_for(lambda: all(d["online"] for d in http("GET", RELAY + "/api/state")["devices"] if d["kind"] == "plex"), 15))
+keys = plexmock("keys")
+P_ARR, P_E03 = keys["Arrival (2016).mkv"], keys["Andor - S01E03.mkv"]
+
+# ---------------------------------------------------------------- 32. Zidoo → Plex
+play_then_stop(LR, ARRIVAL, 2222000)
+check("a Zidoo stop is copied to each Plex user", wait_for(lambda: plexitem("1001", P_ARR)["viewOffset"] == 2222000 and plexitem("1002", P_ARR)["viewOffset"] == 2222000, 30),
+      str(plexitem("1001", P_ARR)))
+zc = wait_for(lambda: (lambda c: c if c and all(t["state"] != "Pending" for t in c["targets"]) else None)(card_for("Arrival", 2222000)), 20)
+check("the card says the stop was on a Zidoo, and which targets are Plex",
+      zc and zc["fromKind"] == "zidoo" and {t["name"]: t["kind"] for t in zc["targets"]}.get("chet on Plex") == "plex", str(zc))
+play_then_stop(LR, E03, 2350000)
+check("a finished episode is marked played on Plex", wait_for(lambda: plexitem("1001", P_E03)["viewCount"] >= 1 and plexitem("1001", P_E03)["viewOffset"] == 0, 30), str(plexitem("1001", P_E03)))
+
+# ---------------------------------------------------------------- 33. Plex → Zidoos
+plexmock("play", user="1001", key=P_ARR, pos=3000000)
+check("what a Plex user is playing shows on their card",
+      wait_for(lambda: (lambda d: d["playing"] and d["playing"]["title"] == "Arrival")(next(d for d in http("GET", RELAY + "/api/state")["devices"] if d["id"] == PO)), 15))
+plexmock("stop", user="1001", final=3012000)
+check("a Plex stop is copied to the Zidoos at the exact saved time", wait_for(lambda: bookmark(LR, ARRIVAL)["playPoint"] == 3012000 and bookmark(BR, ARRIVAL)["playPoint"] == 3012000, 30),
+      str((bookmark(LR, ARRIVAL)["playPoint"], bookmark(BR, ARRIVAL)["playPoint"])))
+check("...and to the other Plex user", wait_for(lambda: plexitem("1002", P_ARR)["viewOffset"] == 3012000, 20), str(plexitem("1002", P_ARR)))
+pc = wait_for(lambda: card_for("Arrival", 3012000), 20)
+check("the card says the stop was on Plex", pc and pc["fromKind"] == "plex" and pc["fromName"] == "chet on Plex", str(pc))
+plexmock("play", user="1002", key=P_ARR, pos=6500000)
+time.sleep(4)
+plexmock("stop", user="1002", final=6700000)
+check("finishing on Plex (it marks it played) marks it watched on the Zidoos",
+      wait_for(lambda: bookmark(LR, ARRIVAL)["playPoint"] >= 6900000 or bookmark(LR, ARRIVAL).get("watched"), 30), str(bookmark(LR, ARRIVAL)))
+
+# ---------------------------------------------------------------- 34. resets, Progress Reset and Watch Sync with Plex
+plexmock("set", user="1001", key=P_ARR, pos=1800000)
+fc = wait_for(lambda: card_for("Arrival", 3012000), 5)
+http("POST", RELAY + f"/api/events/{fc['id']}/reset")
+check("Reset Progress clears Plex too", wait_for(lambda: plexitem("1001", P_ARR)["viewOffset"] == 0 and plexitem("1001", P_ARR)["viewCount"] == 0, 30), str(plexitem("1001", P_ARR)))
+plexmock("set", user="1001", key=P_E03, pos=900000)
+plexmock("set", user="1002", key=P_E03, pos=0, count=1)
+http("POST", RELAY + "/api/progress/read", {"deviceIds": list(ids.values()) + [PO, PK]})
+wait_for(lambda: not http("GET", RELAY + "/api/progress")["reading"], 60)
+prog = http("GET", RELAY + "/api/progress")
+pf = {f["key"]: f for f in prog["files"]}
+check("Progress Reset reads Plex users as a column", k3 in pf and pf[k3]["cells"].get(PO, {}).get("playPointMs") == 900000, str(pf.get(k3)))
+w = {f["key"]: f for f in http("GET", RELAY + f"/api/watched?show=all&players={urllib.parse.quote(PO + ',' + PK)}")["files"]}
+check("Watch Sync shows Plex's played mark", w.get(k3, {}).get("cells", {}).get(PK, {}).get("watched") is True, str(w.get(k3)))
+r = http("POST", RELAY + "/api/watched/set", {"key": k3, "deviceIds": [PO], "watched": True})
+check("Watch Sync marks played on Plex", r and r[0]["ok"] and plexitem("1001", P_E03)["viewCount"] >= 1, str(r))
+r = http("POST", RELAY + "/api/watched/set", {"key": k3, "deviceIds": [PK], "watched": False})
+check("Watch Sync marks unplayed on Plex", r and r[0]["ok"] and plexitem("1002", P_E03)["viewCount"] == 0, str(r))
+plexmock("set", user="1002", key=P_E03, pos=500000)
+http("POST", RELAY + "/api/progress/reset-series", {"key": k3})
+check("Reset TV Show clears the show on Plex with one 'mark as unplayed'",
+      wait_for(lambda: any(x["path"] == "/:/unscrobble" and x["key"] >= 900 for x in plexitem("1002", P_E03)["writes"]) and plexitem("1002", P_E03)["viewOffset"] == 0, 30),
+      str(plexitem("1002", P_E03)))
+
+# ---------------------------------------------------------------- 35. badge icons
+req = urllib.request.Request(RELAY + "/api/icon/plex", data=b"\x89PNG\r\n\x1a\nfake", method="POST", headers={"Content-Type": "image/png"})
+urllib.request.urlopen(req, timeout=10)
+check("a custom badge icon is saved and served", http("GET", RELAY + "/api/state")["icons"]["plex"] is True
+      and urllib.request.urlopen(RELAY + "/api/icon/plex", timeout=10).read(4) == b"\x89PNG")
+http("DELETE", RELAY + "/api/icon/plex")
+check("...and can be removed", http("GET", RELAY + "/api/state")["icons"]["plex"] is False)
 
 passed = sum(1 for _, ok in results if ok)
 print(f"\n{passed}/{len(results)} passed")

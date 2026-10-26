@@ -21,6 +21,8 @@ Resume Relay per home, on a computer that stays on while you watch.
 
 ## What it does
 
+- **Works with Plex too.** Sign in with Plex on the Players tab and add your Plex users: resume points and watched
+  marks then sync between the Zidoos and Plex, in both directions.
 - **Copies resume points between rooms automatically.** Within seconds of stopping, the same file
   on every other player resumes where you left off, to the exact second. Movies, TV episodes and
   extras are all matched exactly by file path.
@@ -42,8 +44,8 @@ Resume Relay per home, on a computer that stays on while you watch.
   kept for 14 days (you can change this in Settings).
 - **Turn players on and off.** Each player has a power button like Z-Keeper's: red is off, green is
   on, and an orange ring spins while it's switching. **Launch HT** opens the Home Theater app.
-- **See every copy.** The Activity tab shows a card for each stop, with the poster and a mark for
-  every other player: ✓ copied, ◷ waiting, – skipped, ✕ failed.
+- **See every copy.** The Activity tab shows a card for each stop, with the poster, whether it happened on a Zidoo
+  or on Plex, and a mark for every other player: ✓ copied, ◷ waiting, – skipped, ✕ failed.
 - **Every write is checked.** Before writing, it confirms the player's entry really is that file.
   After writing, it reads the position back, because some Home Theater builds report errors for
   writes that actually worked.
@@ -61,6 +63,7 @@ Resume Relay per home, on a computer that stays on while you watch.
     **uGreen** NAS (UGOS Pro, with the Docker app), QNAP, Unraid or TrueNAS. Intel/AMD and ARM
     (64-bit) are both supported. The container must use **host networking**.
 - Zidoo players with **Home Theater v5.1.11 (code 5111) or newer**
+- Optional: a **Plex Media Server** that reads the same network share as the Zidoos
 - Your video files on a network share (SMB or NFS) that all players use, so each file has the same
   path everywhere
 - To turn players on from the app (Wake-on-LAN): the player in standby (not unplugged), on a
@@ -73,6 +76,20 @@ Resume Relay per home, on a computer that stays on while you watch.
 3. It starts in **Watch-only** mode, which shows what it would copy without writing anything.
    Play something on one player, stop it, and check **Activity**. When it looks right, press
    **Start copying**.
+
+## Plex
+
+The **Plex** card at the bottom of the Players tab sets it up:
+
+1. **Sign in with Plex.** Enter the code it shows at [plex.tv/link](https://plex.tv/link) on any device signed in to
+   Plex. Your Plex server is found by itself.
+2. **Folders.** Plex and the Zidoos reach the same files by different paths (for example `/shares/Entertainment` on
+   the Plex server and `smb://10.0.0.56/Entertainment` on the Zidoos). Once a Zidoo has played something Plex also
+   has, the card fills these in for you. Press **Test** to check them.
+3. **Add users.** The server's owner and any Plex Home users (with their PIN if they have one). Each becomes a player.
+
+Plex counts a file as finished at about 90% (its default), so finishing in Plex marks it watched on the Zidoos. If
+Plex doesn't keep a very early resume point (a stop in the first minute), the Activity chip says so.
 
 ## Windows app
 

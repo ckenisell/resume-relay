@@ -1,8 +1,19 @@
 namespace ResumeRelay;
 
-/// <summary>A Zidoo player the user has registered. Identified by MAC, never by IP.</summary>
+/// <summary>A Zidoo player the user has registered (identified by MAC, never by IP), or a Plex user (Kind "plex").</summary>
 public sealed class Device
 {
+    /// <summary>"" for a Zidoo player, "plex" for a Plex user on the Plex server set up on the Players tab.</summary>
+    public string Kind { get; set; } = "";
+    public const string PlexKind = "plex";
+    public bool IsPlex => Kind == PlexKind;
+    /// <summary>Plex only: the plex.tv account id, the name Plex shows for the user, whether it is the server's owner,
+    /// and the user's own access token for the server (never sent to the page).</summary>
+    public string PlexUserId { get; set; } = "";
+    public string PlexUserTitle { get; set; } = "";
+    public bool PlexOwner { get; set; }
+    public string PlexToken { get; set; } = "";
+
     /// <summary>Stable identity: the wired MAC (lower-case, colon separated), else Wi-Fi MAC, else the player's UUID.</summary>
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
@@ -82,6 +93,8 @@ public sealed class StopEvent
     /// <summary>The file's name, e.g. "50 First Dates (2004).4K.(1#Theatrical Movie).mkv": a title can have several files.</summary>
     public string FileName { get; set; } = "";
     public string FromName { get; set; } = "";
+    /// <summary>Where the stop happened: "zidoo", "plex", or "" for a reset pressed in Resume Relay.</summary>
+    public string FromKind { get; set; } = "";
     public int PositionMs { get; set; }
     public int DurationMs { get; set; }
     /// <summary>True when the stop was at the end (the other players mark it watched).</summary>
@@ -105,6 +118,8 @@ public sealed class StopTarget
 {
     public string DeviceId { get; set; } = "";
     public string Name { get; set; } = "";
+    /// <summary>"zidoo" or "plex" ("" on cards made before 0.4: those were all Zidoo players).</summary>
+    public string Kind { get; set; } = "";
     public TargetState State { get; set; } = TargetState.Pending;
     public string Note { get; set; } = "";
 }
@@ -139,4 +154,6 @@ public sealed class NowPlaying
     /// <summary>Poster file for the card, filled in the background once the title is identified.</summary>
     public string Poster { get; set; } = "";
     public string Subtitle { get; set; } = "";
+    /// <summary>Plex only: the item's ratingKey, to read its saved position back after the stop.</summary>
+    public int PlexKey { get; set; }
 }

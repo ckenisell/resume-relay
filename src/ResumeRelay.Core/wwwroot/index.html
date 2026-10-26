@@ -188,6 +188,13 @@ table.pr td.r { white-space: nowrap; }
 table.pr td.r .btn { font-size: 12.5px; padding: 4px 10px; }
 table.pr td.r .btn + .btn { margin-left: 6px; }
 table.pr td.p { min-width: 170px; white-space: nowrap; }
+table.pr tr.show td { border-top: 2px solid var(--muted); padding: 10px 14px 6px 0; }
+table.pr tr:first-child.show td { border-top: 1px solid var(--line); }
+.show-h { display: flex; align-items: center; gap: 14px; font-weight: 700; font-size: 14.5px; }
+.show-h .btn { font-size: 12.5px; padding: 4px 10px; }
+table.pr tr.ep td.t { padding-left: 18px; }
+table.pr tr.show + tr.ep td { border-top-color: transparent; }
+table.pr tr.ep + tr:not(.ep):not(.show) td { border-top: 2px solid var(--muted); }
 .pr-bar { display: flex; align-items: center; gap: 8px; }
 .pr-bar .track { flex: none; width: 82px; margin: 0; height: 5px; }
 .pr-bar .track i { background: #4A9EE8; }
@@ -881,7 +888,7 @@ const phoneHeads = head => `<div class="pr-heads">${head.replaceAll("<th>", '<di
 
 // Phone cards. Episodes of the same TV show share one card, in the order they appear in the list.
 // acts(f): the buttons beside a file's name; line(f, d): one player's value; showActs(f): the buttons beside a show's name.
-function phoneCards(rows, devs, acts, line, showActs) {
+function groupShows(rows) {
   const groups = [], byShow = new Map();
   for (const f of rows) {
     if (f.isEpisode && f.title) {
@@ -890,6 +897,19 @@ function phoneCards(rows, devs, acts, line, showActs) {
       g.files.push(f);
     } else groups.push({ files: [f] });
   }
+  return groups;
+}
+
+// Desktop table rows, grouped the same way: a TV show gets a header row (its name, then showActs) with its episodes below.
+function tableRows(rows, devs, acts, line, showActs) {
+  const row = (f, ep) => `<tr${ep ? ' class="ep"' : ""}><td class="t">${esc(f.display)}</td><td class="r">${acts(f)}</td>${devs.map(d => `<td class="p" data-label="${esc(d.name)}"><div class="pv">${line(f, d)}</div></td>`).join("")}</tr>`;
+  return groupShows(rows).map(g => g.show
+    ? `<tr class="show"><td colspan="${devs.length + 2}"><div class="show-h"><span>${esc(g.show)}</span>${showActs ? showActs(g.files[0]) : ""}</div></td></tr>${g.files.map(f => row(f, true)).join("")}`
+    : row(g.files[0], false)).join("");
+}
+
+function phoneCards(rows, devs, acts, line, showActs) {
+  const groups = groupShows(rows);
   const ep = f => `<div class="mep"><div class="mt"><span>${esc(f.display)}</span><span class="acts">${acts(f)}</span></div>
     ${devs.map(d => `<div class="ml"><span>${esc(d.name)}</span><div class="pv">${line(f, d)}</div></div>`).join("")}</div>`;
   return `<div class="mcards">${groups.map(g => `<div class="mcard">${g.show ? `<div class="mshow"><span>${esc(g.show)}</span>${showActs ? showActs(g.files[0]) : ""}</div>` : ""}${g.files.map(ep).join("")}</div>`).join("")}</div>`;
@@ -934,19 +954,14 @@ function renderProgress() {
       const sub = r?.readUtc ? `read ${timeOf(r.readUtc)}` : "not read";
       return `<th>${esc(d.name)}<small>${esc(sub)}</small>${r?.error ? `<small class="err">${esc(r.error)}</small>` : ""}${r?.unread ? `<small class="err" title="The player didn't answer for these, even when asked again. Their last known state is shown. Read again, or see the diagnostics page.">${r.unread} title${r.unread === 1 ? "" : "s"} couldn't be read</small>` : ""}</th>`;
     }).join("");
-    const body = rows.map(f => {
-      const busy = prBusy.has(f.key);
-      const btns = busy ? `<button class="btn" disabled>Resetting…</button>`
-        : `<button class="btn" data-pr-reset="${esc(f.key)}">Reset</button>${f.isEpisode ? `<button class="btn" data-pr-show="${esc(f.key)}">Reset TV Show</button>` : ""}`;
-      return `<tr><td class="t">${esc(f.display)}</td><td class="r">${btns}</td>${devs.map(d => `<td class="p" data-label="${esc(d.name)}"><div class="pv">${prCell(f.cells[d.id], !!readOf[d.id]?.readUtc)}</div></td>`).join("")}</tr>`;
-    }).join("");
+    const prActs = f => prBusy.has(f.key) ? `<button class="btn" disabled>Resetting…</button>` : `<button class="btn" data-pr-reset="${esc(f.key)}">Reset</button>`;
+    const prLine = (f, d) => prCell(f.cells[d.id], !!readOf[d.id]?.readUtc);
+    const prShowActs = f => `<button class="btn" data-pr-show="${esc(f.key)}">Reset TV Show</button>`;
+    const body = tableRows(rows, devs, prActs, prLine, prShowActs);
     const label = { different: " with different progress between players", same: " with the same progress on all players" }[show] || "";
     html = `<div class="pr-box"><p class="pr-count">${rows.length.toLocaleString()} file(s) in progress${label}</p>
       ${phoneHeads(head)}<div class="pr-wrap"><table class="pr"><thead><tr><th>Title</th><th>Reset</th>${head}</tr></thead><tbody>${body}</tbody></table></div>
-      ${phoneCards(rows, devs,
-        f => prBusy.has(f.key) ? `<button class="btn" disabled>Resetting…</button>` : `<button class="btn" data-pr-reset="${esc(f.key)}">Reset</button>`,
-        (f, d) => prCell(f.cells[d.id], !!readOf[d.id]?.readUtc),
-        f => `<button class="btn" data-pr-show="${esc(f.key)}">Reset TV Show</button>`)}</div>`;
+      ${phoneCards(rows, devs, prActs, prLine, prShowActs)}</div>`;
   }
   if (html !== prCache) { $("#pr-list").innerHTML = html; prCache = html; }
 }
@@ -1028,9 +1043,9 @@ function renderWatch() {
       const r = readOf[d.id];
       return `<th>${esc(d.name)}<small>${esc(r?.readUtc ? "read " + timeOf(r.readUtc) : "not read")}</small>${r?.error ? `<small class="err">${esc(r.error)}</small>` : ""}${r?.unread ? `<small class="err" title="The player didn't answer for these, even when asked again. Their last known state is shown. Read again, or see the diagnostics page.">${r.unread} title${r.unread === 1 ? "" : "s"} couldn't be read</small>` : ""}</th>`;
     }).join("");
-    const body = rows.map(f => `<tr><td class="t">${esc(f.display)}</td>
-      <td class="r"><button class="btn mini" data-ws-all="1" data-ws-key="${esc(f.key)}">Watched</button><button class="btn mini" data-ws-all="0" data-ws-key="${esc(f.key)}">Unwatched</button></td>
-      ${devs.map(d => `<td class="p" data-label="${esc(d.name)}"><div class="pv">${wsCell(f, d, !!readOf[d.id]?.readUtc)}</div></td>`).join("")}</tr>`).join("");
+    const wsActs = f => `<button class="btn mini" data-ws-all="1" data-ws-key="${esc(f.key)}">Watched</button><button class="btn mini" data-ws-all="0" data-ws-key="${esc(f.key)}">Unwatched</button>`;
+    const wsLine = (f, d) => wsCell(f, d, !!readOf[d.id]?.readUtc);
+    const body = tableRows(rows, devs, wsActs, wsLine);
     const first = (watch.page - 1) * watch.pageSize + 1, last = first + rows.length - 1;
     const pager = watch.pages > 1 ? `<nav class="pager" aria-label="Pages">
         <button class="btn" data-ws-page="1" ${watch.page === 1 ? "disabled" : ""} aria-label="First page">«</button>
@@ -1040,9 +1055,7 @@ function renderWatch() {
         <button class="btn" data-ws-page="${watch.pages}" ${watch.page === watch.pages ? "disabled" : ""} aria-label="Last page">»</button></nav>` : "";
     html = `<div class="pr-box"><p class="pr-count">${watch.total.toLocaleString()} file(s)${label ? " " + label : ""}</p>${pager}
       ${rows.length ? `${phoneHeads(head)}<div class="pr-wrap"><table class="pr"><thead><tr><th>Title</th><th>Set on all</th>${head}</tr></thead><tbody>${body}</tbody></table></div>
-      ${phoneCards(rows, devs,
-        f => `<button class="btn mini" data-ws-all="1" data-ws-key="${esc(f.key)}">Watched</button><button class="btn mini" data-ws-all="0" data-ws-key="${esc(f.key)}">Unwatched</button>`,
-        (f, d) => wsCell(f, d, !!readOf[d.id]?.readUtc))}` : ""}${pager}</div>`;
+      ${phoneCards(rows, devs, wsActs, wsLine)}` : ""}${pager}</div>`;
   }
   if (html !== wsCache) { $("#ws-list").innerHTML = html; wsCache = html; }
 }

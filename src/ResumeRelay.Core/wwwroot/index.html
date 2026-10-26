@@ -1218,7 +1218,8 @@ function renderPlex(force = false) {
     let maps = plexUi.mappings ?? p.mappings.map(m => ({ ...m }));
     let suggestedNote = "";
     if (!maps.length && plexUi.suggested === null && plexUi.busy !== "suggest") plexSuggest();
-    if (!maps.length && plexUi.suggested?.length) { maps = plexUi.suggested.map(m => ({ ...m })); plexUi.mappings = maps; suggestedNote = `<p>Suggested from a file your Zidoos have played that Plex also has. Check it, then press <b>Save folders</b>.</p>`; }
+    if (!maps.length && plexUi.suggested?.length) { maps = plexUi.suggested.map(m => ({ ...m })); plexUi.mappings = maps; plexUi.unsaved = true; }
+    if (plexUi.unsaved) suggestedNote = `<p><b>Not saved yet.</b> These were suggested from a file your Zidoos have played that Plex also has. Check them, then press <b>Save folders</b>.</p>`;
     if (!maps.length && plexUi.suggested) {
       const libs = (plexUi.folders || []).flatMap(f => f.locations).filter(Boolean);
       suggestedNote = `<p>${libs.length ? `Plex's library folders are <b>${libs.map(esc).join("</b>, <b>")}</b>. ` : ""}Play anything on a Zidoo for a few seconds and stop it, then reload this page: Resume Relay then fills these in for you from that file.</p>`;
@@ -1248,7 +1249,7 @@ function renderPlex(force = false) {
       <h4>Plex users</h4>
       <p>Each user you add becomes a player on this tab, with their own resume points and watched marks.</p>
       ${users === null ? `<p>Loading users…</p>` : `<ul class="plex-users">${users.map(u => `<li><span class="who">${esc(u.title)}<small>${u.admin ? "Owner" : u.protected ? "Has a PIN" : "Plex Home user"}</small></span>
-        ${u.added ? `<span class="on">✓ Syncing</span>` : `${u.protected ? `<input class="pin" data-pin="${esc(u.uuid)}" inputmode="numeric" maxlength="8" placeholder="PIN" aria-label="${esc(u.title)}'s PIN">` : ""}
+        ${u.added ? `<span class="on">✓ Syncing</span>` : `${u.protected && !u.admin ? `<input class="pin" data-pin="${esc(u.uuid)}" inputmode="numeric" maxlength="8" placeholder="PIN" aria-label="${esc(u.title)}'s PIN">` : ""}
           <button class="btn" data-plex="adduser" data-uuid="${esc(u.uuid)}" ${busy("add:" + u.uuid)}>Add</button>`}</li>`).join("")}</ul>`}
       <div class="plex-foot"><button class="btn quiet danger" data-plex="signout">Sign out of Plex</button></div>`;
   }
@@ -1320,7 +1321,7 @@ $("#plex-card").addEventListener("click", async e => {
     else if (what === "savemaps") {
       plexUi.busy = "save"; renderPlex(true);
       await api("POST", "/api/plex/mapping", { mappings: plexReadMaps() });
-      plexUi.busy = ""; plexUi.mappings = null; plexUi.test = null; await refresh(); plexSay("Folders saved.", "ok");
+      plexUi.busy = ""; plexUi.mappings = null; plexUi.unsaved = false; plexUi.test = null; await refresh(); plexSay("Folders saved.", "ok");
     } else if (what === "test") {
       plexUi.busy = "test"; plexUi.test = null; renderPlex(true);
       try { plexUi.test = await api("POST", "/api/plex/test"); } catch (err) { plexUi.test = { error: err.message }; }

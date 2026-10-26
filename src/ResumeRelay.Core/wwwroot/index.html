@@ -1214,6 +1214,10 @@ function renderPlex(force = false) {
           <button class="btn" data-plex="server" data-id="${esc(x.clientId)}" ${busy("server")}>${x.selected ? "In use" : "Use this server"}</button></li>`).join("")}</ul>`}
       <div class="plex-foot"><button class="btn quiet danger" data-plex="signout">Sign out of Plex</button></div>`;
   } else {
+    // The list's "Syncing" marks come from the server; when a Plex user card is added or removed anywhere, ask again.
+    const usersSig = (p.users || []).map(u => u.id).sort().join("|");
+    if (plexUi.usersSig !== undefined && plexUi.usersSig !== usersSig) plexUi.users = null;
+    plexUi.usersSig = usersSig;
     if (plexUi.users === null && plexUi.busy !== "users") plexLoadUsers();
     let maps = plexUi.mappings ?? p.mappings.map(m => ({ ...m }));
     let suggestedNote = "";

@@ -525,6 +525,15 @@ check("a custom badge icon is saved and served", http("GET", RELAY + "/api/state
 http("DELETE", RELAY + "/api/icon/plex")
 check("...and can be removed", http("GET", RELAY + "/api/state")["icons"]["plex"] is False)
 
+# ---------------------------------------------------------------- 36. Plex sessions that list the owner differently
+plexmock("play", user="1001", key=P_ARR, pos=1500000, uid="98765", utitle="chet", nofile=1)
+check("the owner is recognised by name, and the file is read from the item when the session leaves it out",
+      wait_for(lambda: (lambda d: d["playing"] and d["playing"]["title"] == "Arrival")(next(d for d in http("GET", RELAY + "/api/state")["devices"] if d["id"] == PO)), 15))
+with urllib.request.urlopen(RELAY + "/api/plex/sessions", timeout=20) as r:
+    ptxt = r.read().decode()
+check("the Plex troubleshooting page names the session's user and match", 'name "chet" -> matches chet on Plex' in ptxt and "srv-owner" not in ptxt, ptxt[:600])
+plexmock("stop", user="1001")
+
 passed = sum(1 for _, ok in results if ok)
 print(f"\n{passed}/{len(results)} passed")
 sys.exit(0 if passed == len(results) else 1)

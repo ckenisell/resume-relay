@@ -99,10 +99,26 @@ public sealed partial class RelayEngine
 
     // ===================================================================== polling
 
-    private static bool IsUser(Device d, PlexSession s) =>
+    /// <summary>Is this session the user's? By account id; the owner also as user "1" (how a server lists its owner);
+    /// and by name, as Plex shows it (the owner's can be the account's username rather than their display name).</summary>
+    public static bool IsUser(Device d, PlexSession s, PlexConfig cfg) =>
         (s.UserId.Length > 0 && s.UserId == d.PlexUserId)
-        || (d.PlexOwner && s.UserId == "1") // the server's owner shows as user 1 in its own sessions
-        || (s.UserId.Length == 0 && string.Equals(s.UserTitle, d.PlexUserTitle, StringComparison.OrdinalIgnoreCase));
+        || (d.PlexOwner && s.UserId == "1")
+        || (s.UserTitle.Length > 0 && string.Equals(s.UserTitle, d.PlexUserTitle, StringComparison.OrdinalIgnoreCase))
+        || (d.PlexOwner && s.UserTitle.Length > 0 && string.Equals(s.UserTitle, cfg.Username, StringComparison.OrdinalIgnoreCase));
+
+    private readonly ConcurrentDictionary<int, List<string>> _plexFiles = new();
+
+    /// <summary>The file of a playing item. Sessions normally list it; if not, it is read from the item once.</summary>
+    private async Task<List<string>> PlexSessionFilesAsync(Device d, PlexItem it, CancellationToken ct)
+    {
+        if (it.Files.Count > 0 || it.Key <= 0) return it.Files;
+        if (_plexFiles.TryGetValue(it.Key, out var known)) return known;
+        var full = await PlexFor(d).ItemAsync(it.Key, ct);
+        if (full == null || full.Files.Count == 0) return it.Files;
+        if (_plexFiles.Count > 200) _plexFiles.Clear();
+        return _plexFiles[it.Key] = full.Files;
+    }
 
     private async Task PollPlexAsync(Device d, CancellationToken ct)
     {
@@ -141,10 +157,11 @@ public sealed partial class RelayEngine
         }
 
         var prev = live.Playing;
-        var s = sessions.FirstOrDefault(x => IsUser(d, x) && x.Item.Type is "movie" or "episode" && x.Item.Files.Count > 0);
-        if (s != null)
+        var s = sessions.FirstOrDefault(x => IsUser(d, x, cfg) && (x.Item.Type is "movie" or "episode"));
+        var files = s == null ? new List<string>() : await PlexSessionFilesAsync(d, s.Item, ct);
+        if (s != null && files.Count > 0)
         {
-            string file = s.Item.Files[0];
+            string file = files[0];
             bool sameFile = prev != null && string.Equals(prev.Path, file, StringComparison.Ordinal);
             if (prev != null && !sameFile) OnStopped(d, prev, now, "switched to another file", canAskPlayer: true);
             var np = new NowPlaying

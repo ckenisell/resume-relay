@@ -214,6 +214,13 @@ public sealed class PlexClient
         }).ToList();
     }
 
+    /// <summary>The server's raw answer for what's playing, for the troubleshooting page (null when it doesn't answer).</summary>
+    public async Task<string?> SessionsTextAsync(CancellationToken ct = default)
+    {
+        using var d = await GetAsync("/status/sessions", Normal, ct);
+        return d == null ? null : JsonSerializer.Serialize(d.RootElement, new JsonSerializerOptions { WriteIndented = true });
+    }
+
     public async Task<List<PlexSection>?> SectionsAsync(CancellationToken ct = default)
     {
         using var d = await GetAsync("/library/sections", Normal, ct);

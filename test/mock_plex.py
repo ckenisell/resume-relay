@@ -116,7 +116,11 @@ class Server(Base):
                 for uid, s in SESSIONS.items():
                     m = meta(uid, s["key"])
                     m["viewOffset"] = s["pos"]
-                    m["User"] = dict(id="1" if uid == "1001" else uid, title=ACCOUNTS[uid][2])
+                    m["User"] = dict(id=s.get("uid") or ("1" if uid == "1001" else uid), title=s.get("utitle") or ACCOUNTS[uid][2])
+                    if s.get("nofile"):
+                        for med in m["Media"]:
+                            for part in med["Part"]:
+                                part.pop("file", None)
                     m["Player"] = dict(state=s["state"], title="Plex for Android (TV)")
                     md.append(m)
                 return self.send(dict(MediaContainer=dict(size=len(md), Metadata=md)))
@@ -171,7 +175,8 @@ class Server(Base):
     def test(self, path, q):
         with lock:
             if path == "/_test/play":
-                SESSIONS[q["user"]] = dict(key=int(q["key"]), pos=int(q["pos"]), state=q.get("state", "playing"))
+                SESSIONS[q["user"]] = dict(key=int(q["key"]), pos=int(q["pos"]), state=q.get("state", "playing"),
+                                           uid=q.get("uid"), utitle=q.get("utitle"), nofile=q.get("nofile"))
                 return self.send({"ok": True})
             if path == "/_test/stop":
                 s = SESSIONS.pop(q["user"], None)

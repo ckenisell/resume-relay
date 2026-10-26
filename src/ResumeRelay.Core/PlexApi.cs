@@ -24,6 +24,35 @@ public static class PlexApi
     {
         app.MapGet("/api/plex", () => Results.Ok(Summary(store)));
 
+        // Troubleshooting: what the Plex server says is playing, and which Plex user card each session matched.
+        app.MapGet("/api/plex/sessions", async (CancellationToken ct) =>
+        {
+            var c = store.Plex();
+            if (!c.Ready) return Results.Text("Choose the Plex server first.");
+            var api = new PlexClient(c.ServerUrl, c.ServerToken, c.ClientId);
+            var sessions = await api.SessionsAsync(TimeSpan.FromSeconds(8), ct);
+            var raw = await api.SessionsTextAsync(ct);
+            var users = store.Devices().Where(d => d.IsPlex).ToList();
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"Plex server {c.ServerName} at {c.ServerUrl}; signed in as {c.Username} (account {c.AccountId}).");
+            sb.AppendLine("Plex users syncing: " + string.Join("; ", users.Select(d => $"{d.Name} (account {d.PlexUserId}{(d.PlexOwner ? ", owner" : "")}, name \"{d.PlexUserTitle}\")")));
+            sb.AppendLine();
+            if (sessions == null) sb.AppendLine("The server didn't answer the request for what's playing.");
+            else if (sessions.Count == 0) sb.AppendLine("Nothing is playing on the server right now (as far as it reports).");
+            foreach (var x in sessions ?? new())
+            {
+                var who = users.FirstOrDefault(d => RelayEngine.IsUser(d, x, c));
+                sb.AppendLine($"Playing: {x.Item.Type} \"{(x.Item.IsEpisode ? x.Item.Show + " " + x.Item.Title : x.Item.Title)}\" (item {x.Item.Key}) at {RelayEngine.Clock(x.Item.ViewOffsetMs)}, {x.State}");
+                sb.AppendLine($"  user id \"{x.UserId}\", name \"{x.UserTitle}\" -> {(who == null ? "matches NO Plex user card" : "matches " + who.Name)}");
+                sb.AppendLine($"  file: {(x.Item.Files.Count > 0 ? string.Join(" | ", x.Item.Files) : "(not listed in the session)")}");
+            }
+            sb.AppendLine();
+            sb.AppendLine("== What the server sent (addresses and tokens removed):");
+            sb.AppendLine(System.Text.RegularExpressions.Regex.Replace(raw ?? "(no answer)",
+                @"(""(address|remotePublicAddress|machineIdentifier|token|accessToken|uuid)""\s*:\s*)""[^""]*""", "$1\"…\"", System.Text.RegularExpressions.RegexOptions.IgnoreCase));
+            return Results.Text(sb.ToString(), "text/plain; charset=utf-8");
+        });
+
         // 1. Sign in: a 4-character code to enter at plex.tv/link. The page then asks GET /api/plex/signin every few seconds.
         app.MapPost("/api/plex/signin", async (CancellationToken ct) =>
         {

@@ -557,6 +557,21 @@ wait_for(lambda: not http("GET", RELAY + "/api/progress")["reading"], 60)
 af = next((f for f in http("GET", RELAY + "/api/progress")["files"] if f["key"] == ka), None)
 check("a busy collection is asked again and its movie is read", af and af["cells"].get(ids[BR], {}).get("playPointMs") == 1234000, str(af))
 
+# ---------------------------------------------------------------- 39. Watch Sync: Watched All / Unwatched All on a TV show
+http("POST", RELAY + "/api/progress/read", {"deviceIds": [ids[LR], ids[BR], PO]})
+wait_for(lambda: not http("GET", RELAY + "/api/progress")["reading"], 60)
+three = [ids[LR], ids[BR], PO]
+dry = http("POST", RELAY + "/api/watched/set-show", {"show": "Andor", "deviceIds": three, "watched": True, "dryRun": True})
+check("Watched All counts the show's episodes first, without changing anything", dry["episodes"] == 2 and dry["changes"] > 0
+      and not bookmark(LR, E04).get("watched"), str(dry))
+http("POST", RELAY + "/api/watched/set-show", {"show": "Andor", "deviceIds": three, "watched": True, "dryRun": False})
+def andor_cells():
+    fs = {f["key"]: f for f in http("GET", RELAY + "/api/watched?show=all&players=" + urllib.parse.quote(",".join(three)))["files"]}
+    return [fs[k]["cells"].get(d, {}).get("watched") for k in (k3, k4) for d in three if k in fs and d in fs[k]["cells"]]
+check("Watched All marks every episode watched on every ticked player", wait_for(lambda: (lambda c: len(c) == 6 and all(c))(andor_cells()), 60), str(andor_cells()))
+http("POST", RELAY + "/api/watched/set-show", {"show": "Andor", "deviceIds": three, "watched": False, "dryRun": False})
+check("Unwatched All clears them again", wait_for(lambda: (lambda c: len(c) == 6 and not any(c))(andor_cells()), 60), str(andor_cells()))
+
 passed = sum(1 for _, ok in results if ok)
 print(f"\n{passed}/{len(results)} passed")
 sys.exit(0 if passed == len(results) else 1)

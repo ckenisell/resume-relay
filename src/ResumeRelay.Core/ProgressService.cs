@@ -466,6 +466,7 @@ public sealed class ProgressService
                 Reading,
                 Status = _status.Values.OrderBy(s => s).ToList(),
                 Devices = _devices.Values.Select(d => new { d.DeviceId, d.Name, d.ReadUtc, d.Error, d.Titles, Unread = d.Unread.Count }),
+                ShowBusy,
                 Total = rows.Count,
                 Page = page,
                 Pages = pages,
@@ -572,6 +573,56 @@ public sealed class ProgressService
             ? $"Marked {file.FileName} {(watched ? "watched" : "unwatched")} on {d.Name} (Watch Sync)."
             : $"Could not mark {file.FileName} {(watched ? "watched" : "unwatched")} on {d.Name}: Plex still shows it {(after?.Watched == true ? "played" : "unplayed")}.");
         return new WatchResult(d.Id, d.Name, ok, ok ? "" : "Plex didn't take the change");
+    }
+
+    private int _showBusy;
+    private string _showTitle = "";
+    public string ShowBusy => Volatile.Read(ref _showBusy) == 1 ? _showTitle : "";
+
+    /// <summary>
+    /// "Watched All" / "Unwatched All" on a TV show's heading (Watch Sync): every episode of the show that the last read
+    /// found, on the given players, each one marked like the per-file buttons do (and read back). Only cells that need
+    /// the change are touched. With dryRun, only says what it would do. Runs in the background; the tab shows progress.
+    /// </summary>
+    public (string? Error, int Episodes, int Changes, int LosingResume) SetShowWatched(string show, IReadOnlyCollection<string> deviceIds, bool watched, bool dryRun)
+    {
+        List<(string Key, List<string> Devices, int Losing)> work;
+        lock (_lock)
+        {
+            var eps = _files.Values.Where(f => f.IsEpisode && string.Equals(f.Title, show, StringComparison.OrdinalIgnoreCase)).ToList();
+            work = eps.Select(f =>
+            {
+                var devs = deviceIds.Where(id => _devices.TryGetValue(id, out var d) && d.Cells.TryGetValue(f.Key, out var c) && c.FileId > 0 && c.Watched != watched).ToList();
+                int losing = watched ? devs.Count(id => _devices[id].Cells[f.Key].PlayPointMs > 0) : 0;
+                return (f.Key, devs, losing);
+            }).ToList();
+            if (eps.Count == 0) return ("That show is no longer in the list. Read the players again.", 0, 0, 0);
+        }
+        int changes = work.Sum(w => w.Devices.Count), lose = work.Sum(w => w.Losing), episodes = work.Count;
+        if (dryRun || changes == 0) return (null, episodes, changes, lose);
+        if (Interlocked.Exchange(ref _showBusy, 1) == 1) return ($"Still marking {_showTitle}. Wait for it to finish.", episodes, changes, lose);
+        _showTitle = show;
+        _ = Task.Run(async () =>
+        {
+            int done = 0, failed = 0;
+            try
+            {
+                foreach (var w in work.Where(w => w.Devices.Count > 0))
+                {
+                    _status["show"] = $"Marking {show} {(watched ? "watched" : "unwatched")}… {done:N0} of {changes:N0}";
+                    Changed();
+                    var r = await SetWatchedAsync(w.Key, w.Devices, watched);
+                    done += w.Devices.Count;
+                    failed += r.Count(x => !x.Ok);
+                }
+                _store.Log(failed == 0 ? ActivityLevel.Ok : ActivityLevel.Warn,
+                    $"Watch Sync: marked {show} {(watched ? "watched" : "unwatched")} ({changes:N0} change{(changes == 1 ? "" : "s")} across {episodes:N0} episodes)" +
+                    (failed > 0 ? $"; {failed} didn't take. See the Watch Sync tab." : "."));
+            }
+            catch (Exception ex) { _store.Log(ActivityLevel.Error, $"Watch Sync: marking {show} stopped: {ex.Message}"); }
+            finally { _status.TryRemove("show", out _); Interlocked.Exchange(ref _showBusy, 0); Changed(); }
+        });
+        return (null, episodes, changes, lose);
     }
 
     /// <summary>Plain-text report of the last read of each player, for troubleshooting a "not in library".</summary>

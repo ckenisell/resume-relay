@@ -305,6 +305,12 @@ public static class RelayHost
             var r = await progress.SetWatchedAsync(req.Key ?? "", req.DeviceIds ?? new List<string>(), req.Watched);
             return r.Count == 0 ? Results.BadRequest(new { Error = "That file is no longer in the list. Read the players again." }) : Results.Ok(r);
         });
+        // "Watched All" / "Unwatched All" on a TV show (Watch Sync). dryRun=true only counts.
+        app.MapPost("/api/watched/set-show", (WatchShowRequest req) =>
+        {
+            var (err, episodes, changes, losing) = progress.SetShowWatched(req.Show ?? "", req.DeviceIds ?? new List<string>(), req.Watched, req.DryRun);
+            return err != null ? Results.BadRequest(new { Error = err }) : Results.Ok(new { Episodes = episodes, Changes = changes, LosingResume = losing });
+        });
         // e.g. /api/progress/diagnostics?q=mario : what each player's library listing held, for troubleshooting.
         app.MapGet("/api/progress/diagnostics", (string? q) => Results.Text(progress.DiagnosticsText(q ?? ""), "text/plain; charset=utf-8"));
         app.MapPost("/api/progress/read", (ProgressReadRequest req) =>
@@ -334,6 +340,7 @@ public static class RelayHost
     private sealed record ProgressKeyRequest(string? Key);
     private sealed record ProgressCopyItem(string? Key, string? From, List<string>? To);
     private sealed record WatchSetRequest(string? Key, List<string>? DeviceIds, bool Watched);
+    private sealed record WatchShowRequest(string? Show, List<string>? DeviceIds, bool Watched, bool DryRun);
     private sealed record AddDeviceRequest(string? Ip, int? Port);
     private sealed record UpdateDeviceRequest(string? Name, bool? Enabled);
     private sealed record AutostartRequest(bool Enabled);

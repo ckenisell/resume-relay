@@ -1096,7 +1096,7 @@ function groupShows(rows) {
 function tableRows(rows, devs, acts, line, showActs) {
   const row = (f, ep) => `<tr${ep ? ' class="ep"' : ""}><td class="t">${esc(f.display)}</td><td class="r">${acts(f)}</td>${devs.map(d => `<td class="p" data-label="${esc(d.name)}"><div class="pv">${line(f, d)}</div></td>`).join("")}</tr>`;
   return groupShows(rows).map(g => g.show
-    ? `<tr class="show"><td colspan="${devs.length + 2}"><div class="show-h"><span>${esc(g.show)}</span>${showActs ? showActs(g.files[0]) : ""}</div></td></tr>${g.files.map(f => row(f, true)).join("")}`
+    ? `<tr class="show"><td class="t"><div class="show-h">${esc(g.show)}</div></td><td class="r">${showActs ? showActs(g.files[0]) : ""}</td>${devs.length ? `<td colspan="${devs.length}"></td>` : ""}</tr>${g.files.map(f => row(f, true)).join("")}`
     : row(g.files[0], false)).join("");
 }
 
@@ -1264,7 +1264,11 @@ function renderWatch() {
     }).join("");
     const wsActs = f => `<button class="btn mini" data-ws-all="1" data-ws-key="${esc(f.key)}">Watched</button><button class="btn mini" data-ws-all="0" data-ws-key="${esc(f.key)}">Unwatched</button>`;
     const wsLine = (f, d) => wsCell(f, d, !!readOf[d.id]?.readUtc);
-    const body = tableRows(rows, devs, wsActs, wsLine);
+    const busyShow = watch.showBusy || "";
+    const wsShowActs = f => busyShow && busyShow.toLowerCase() === f.title.toLowerCase()
+      ? `<button class="btn mini" disabled>Marking…</button>`
+      : `<button class="btn mini" data-ws-show="1" data-ws-title="${esc(f.title)}">Watched All</button><button class="btn mini" data-ws-show="0" data-ws-title="${esc(f.title)}">Unwatched All</button>`;
+    const body = tableRows(rows, devs, wsActs, wsLine, wsShowActs);
     const first = (watch.page - 1) * watch.pageSize + 1, last = first + rows.length - 1;
     const pager = watch.pages > 1 ? `<nav class="pager" aria-label="Pages">
         <button class="btn" data-ws-page="1" ${watch.page === 1 ? "disabled" : ""} aria-label="First page">«</button>
@@ -1274,9 +1278,23 @@ function renderWatch() {
         <button class="btn" data-ws-page="${watch.pages}" ${watch.page === watch.pages ? "disabled" : ""} aria-label="Last page">»</button></nav>` : "";
     html = `<div class="pr-box"><p class="pr-count">${watch.total.toLocaleString()} file(s)${label ? " " + label : ""}</p>${pager}
       ${rows.length ? `${phoneHeads(head)}<div class="pr-wrap"><table class="pr"><thead><tr><th>Title</th><th>Set on all</th>${head}</tr></thead><tbody>${body}</tbody></table></div>
-      ${phoneCards(rows, devs, wsActs, wsLine)}` : ""}${pager}</div>`;
+      ${phoneCards(rows, devs, wsActs, wsLine, wsShowActs)}` : ""}${pager}</div>`;
   }
   if (html !== wsCache) { $("#ws-list").innerHTML = html; wsCache = html; }
+}
+
+// Every episode of a show, on every ticked player: counted first, then confirmed, then done in the background.
+async function wsShowAll(show, watched) {
+  const deviceIds = wsTicked(), what = watched ? "watched" : "unwatched";
+  try {
+    const n = await api("POST", "/api/watched/set-show", { show, deviceIds, watched, dryRun: true });
+    if (!n.changes) { toast(`Every episode of ${show} is already ${what} on the ticked players.`); return; }
+    const names = (state?.devices || []).filter(d => deviceIds.includes(d.id)).map(d => `<b>${esc(d.name)}</b>`).join(", ");
+    confirmReset(watched ? "Mark all watched" : "Mark all unwatched",
+      `This will mark all ${n.episodes} episodes of <b>${esc(show)}</b> ${what} on ${names} (${n.changes} change${n.changes === 1 ? "" : "s"}).` +
+      (watched ? (n.losingResume ? ` It removes the resume point on ${n.losingResume} of them.` : "") : " Resume points are kept."),
+      async () => { await api("POST", "/api/watched/set-show", { show, deviceIds, watched, dryRun: false }); loadWatch(true); });
+  } catch (err) { say($("#ws-msg"), err.message, "err"); }
 }
 
 async function setWatched(f, devIds, watched) {
@@ -1299,6 +1317,8 @@ $("#ws-list").addEventListener("click", e => {
     wsPage = +pg.dataset.wsPage; loadWatch(true).then(() => $("#ws-list").scrollIntoView({ block: "start" }));
     return;
   }
+  const sb = e.target.closest("[data-ws-show]");
+  if (sb && !sb.disabled) { wsShowAll(sb.dataset.wsTitle, sb.dataset.wsShow === "1"); return; }
   const b = e.target.closest("[data-ws-key]"); if (!b || b.disabled) return;
   const f = (watch?.files || []).find(x => x.key === b.dataset.wsKey); if (!f) return;
   const ticked = wsTicked();

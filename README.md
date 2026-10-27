@@ -21,7 +21,7 @@ Resume Relay per home, on a computer that stays on while you watch.
 
 ## What it does
 
-- **Works with Plex too.** Sign in with Plex on the Players tab and add your Plex users: resume points and watched
+- **Works with Plex too.** Sign in with Plex in Settings and add your Plex users: resume points and watched
   marks then sync between the Zidoos and Plex, in both directions.
 - **Copies resume points between rooms automatically.** Within seconds of stopping, the same file
   on every other player resumes where you left off, to the exact second. Movies, TV episodes and
@@ -79,14 +79,15 @@ Resume Relay per home, on a computer that stays on while you watch.
 
 ## Plex
 
-The **Plex** card at the bottom of the Players tab sets it up:
+The **Plex** card in **Settings** (the gear tab) sets it up:
 
 1. **Sign in with Plex.** Enter the code it shows at [plex.tv/link](https://plex.tv/link) on any device signed in to
    Plex. Your Plex server is found by itself.
 2. **Folders.** Plex and the Zidoos reach the same files by different paths (for example `/shares/Entertainment` on
    the Plex server and `smb://10.0.0.56/Entertainment` on the Zidoos). Once a Zidoo has played something Plex also
    has, the card fills these in for you. Press **Test** to check them.
-3. **Add users.** The server's owner and any Plex Home users (with their PIN if they have one). Each becomes a player.
+3. **Add users.** The server's owner and any Plex Home users (with their PIN if they have one). Each becomes a player
+   card on the Players tab.
 
 Plex counts a file as finished at about 90% (its default), so finishing in Plex marks it watched on the Zidoos. If
 Plex doesn't keep a very early resume point (a stop in the first minute), the Activity chip says so.

@@ -48,6 +48,8 @@ button, input { font: inherit; color: inherit; }
 [hidden] { display: none !important; }
 
 /* ---------- header and tabs ---------- */
+/* The title, the copying switch and the tabs stay at the top; the page scrolls underneath. */
+.topbar { position: sticky; top: 0; z-index: 40; background: var(--bg); }
 header {
   display: flex; flex-wrap: wrap; align-items: center; gap: 16px 24px;
   padding: 22px clamp(16px, 4vw, 40px) 0;
@@ -55,18 +57,20 @@ header {
 h1 { margin: 0; font-size: 26px; font-weight: 750; letter-spacing: -0.02em; }
 h1 small { display: block; font-size: 13px; font-weight: 400; color: var(--muted); letter-spacing: 0; }
 .mode {
-  margin-left: auto; display: flex; align-items: center; gap: 12px;
-  background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 6px 6px 6px 16px;
+  margin-left: auto; display: flex; align-items: center; gap: 12px; cursor: pointer; user-select: none;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 7px 10px 7px 16px;
 }
-.mode-text strong { display: block; font-size: 15px; }
-.mode-text span { color: var(--muted); font-size: 12.5px; }
+.mode-text { text-align: right; line-height: 1.25; }
+.mode-text strong { display: block; font-size: 14.5px; }
+.mode-text span { color: var(--muted); font-size: 12px; }
 .mode.copying { border-color: color-mix(in srgb, var(--ok) 60%, transparent); }
 .mode.watching { border-color: color-mix(in srgb, var(--amber) 70%, transparent); }
-.mode button {
-  border: 0; border-radius: 999px; padding: 9px 16px; cursor: pointer; font-weight: 650;
-  background: var(--amber); color: #1B1406;
-}
-.mode.copying button { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); }
+.mode.watching strong { color: var(--amber); }
+.mode input { appearance: none; flex: none; width: 46px; height: 26px; border-radius: 13px; margin: 0; position: relative; cursor: pointer;
+  background: color-mix(in srgb, var(--amber) 22%, var(--panel-2)); border: 1px solid var(--amber); }
+.mode input::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: var(--amber); transition: transform .15s; }
+.mode input:checked { background: color-mix(in srgb, var(--ok) 35%, var(--panel-2)); border-color: var(--ok); }
+.mode input:checked::after { transform: translateX(20px); background: var(--ok); }
 
 .tabs {
   display: flex; gap: 4px; padding: 18px clamp(16px, 4vw, 40px) 0;
@@ -258,10 +262,14 @@ body.pr-dragging, body.pr-dragging * { cursor: grabbing !important; }
 .kb.plex svg { color: var(--amber); }
 .kb.icon { padding: 0; border: 0; background: none; gap: 0; }
 .chip .kb.icon svg, .chip .kb.icon img { width: 14px; height: 14px; }
+table.pr th .kb.icon, .pr-head .kb.icon { margin-right: 6px; }
+table.pr th .kb.icon svg, table.pr th .kb.icon img, .pr-head .kb.icon svg, .pr-head .kb.icon img { width: 17px; height: 17px; }
 .chead .kb.icon svg, .chead .kb.icon img { width: 26px; height: 26px; }
 .chead .kb.icon { width: 38px; height: 38px; justify-content: center; border: 1px solid var(--line); border-radius: 50%; background: var(--btn-bg); flex: none; }
 /* ---------- Plex card ---------- */
-.plex-card { margin-top: 22px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 16px 18px; max-width: 900px; }
+.plex-hint { margin-top: 18px; color: var(--muted); font-size: 13.5px; }
+.plex-hint .btn { color: var(--amber); padding-left: 2px; }
+.plex-card { margin-top: 26px; scroll-margin-top: 170px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 16px 18px; max-width: 900px; }
 .plex-card h3 { margin: 0 0 4px; font-size: 17px; display: flex; align-items: center; gap: 10px; }
 .plex-card h4 { margin: 18px 0 6px; font-size: 14px; }
 .plex-card p { margin: 4px 0 10px; color: var(--muted); font-size: 13px; }
@@ -282,7 +290,7 @@ body.pr-dragging, body.pr-dragging * { cursor: grabbing !important; }
 .plex-test ul { margin: 6px 0 0; padding-left: 18px; color: var(--muted); overflow-wrap: anywhere; }
 .plex-foot { display: flex; justify-content: flex-end; margin-top: 12px; }
 @media (max-width: 600px) {
-  .plex-card { padding: 14px; }
+  .plex-card { padding: 14px; scroll-margin-top: 110px; }
   .plex-row input { flex-basis: 100%; }
   .plex-row .arrow { display: none; }
   #plex-maps .plex-row { padding-bottom: 8px; border-bottom: 1px solid var(--line); }
@@ -362,7 +370,17 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
   .pw.busy::after, .ht.busy::after { animation-duration: 2.4s; }
 }
 @media (max-width: 600px) {
-  .mode { margin-left: 0; width: 100%; justify-content: space-between; }
+  /* A compact top bar on phones: the title, and the copying switch at the top right. */
+  header { padding-top: 12px; gap: 10px; flex-wrap: nowrap; }
+  h1 { font-size: 20px; }
+  h1 small { display: none; }
+  .mode { padding: 5px 8px 5px 12px; gap: 8px; }
+  .mode-text span { display: none; }
+  .mode-text strong { font-size: 13px; }
+  .mode input { width: 40px; height: 22px; }
+  .mode input::after { width: 14px; height: 14px; }
+  .mode input:checked::after { transform: translateX(18px); }
+  .tabs { padding-top: 10px; }
   /* Five tabs must fit a phone's width: tighter padding and type. */
   .tabs { gap: 0; padding-left: 4px; padding-right: 4px; }
   .tab { padding: 9px 7px; font-size: 13px; gap: 4px; letter-spacing: -0.01em; }
@@ -381,9 +399,10 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
 </style>
 </head>
 <body>
+<div class="topbar">
 <header>
   <h1>Resume Relay<small>Stop in one room, resume in another.</small></h1>
-  <div class="mode" id="mode" aria-live="polite"></div>
+  <label class="mode" id="mode" aria-live="polite"></label>
 </header>
 
 <nav class="tabs" role="tablist" aria-label="Sections">
@@ -395,6 +414,7 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
   </button>
 </nav>
+</div>
 
 <main>
   <section id="players" role="tabpanel" aria-labelledby="tab-players">
@@ -410,7 +430,7 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
     </form>
     <p class="msg" id="rooms-msg" role="status"></p>
     <div class="grid" id="rooms"></div>
-    <section class="plex-card" id="plex-card" aria-labelledby="plex-h"></section>
+    <p class="plex-hint" id="plex-hint" hidden>Use Plex too? <button class="btn quiet" id="plex-go">Set it up in Settings → Plex</button></p>
   </section>
 
   <section id="activity" role="tabpanel" aria-labelledby="tab-activity" hidden>
@@ -479,6 +499,7 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
         <input type="number" name="pendingMaxDays" min="1" max="365" required> days</label>
     </form>
     <p class="msg" id="set-msg" role="status"></p>
+    <section class="plex-card" id="plex-card" aria-labelledby="plex-h"></section>
     <div class="icons-set">
       <h3>Activity badges</h3>
       <p>Each Activity card shows whether the stop happened on a Zidoo or on Plex, and each player chip shows which kind it is. You can use your own small image for either badge; it's kept in Resume Relay's data folder on this computer.</p>
@@ -578,18 +599,24 @@ document.querySelector(".tabs").addEventListener("keydown", e => {
 });
 
 // ---------------- mode switch ----------------
+// On: stops are copied. Off: watch-only (logged, nothing written). Turning it off asks first; it's one tap.
 function renderMode(s) {
   const el = $("#mode"), cls = s.watchOnly ? "mode watching" : "mode copying";
   if (el.className === cls) return;
   el.className = cls;
-  el.innerHTML = s.watchOnly
-    ? `<div class="mode-text"><strong>Watch-only</strong><span>Logging what it would copy. Nothing is written.</span></div><button id="mode-btn">Start copying</button>`
-    : `<div class="mode-text"><strong>Copying bookmarks</strong><span>Stops are copied to the other players.</span></div><button id="mode-btn">Switch to watch-only</button>`;
-  $("#mode-btn").onclick = async () => {
-    await api("POST", "/api/settings", { ...state.settings, watchOnly: !state.settings.watchOnly });
-    refresh();
-  };
+  el.innerHTML = `<span class="mode-text"><strong>${s.watchOnly ? "Watch-only" : "Copying"}</strong><span>${s.watchOnly ? "Logging what it would copy. Nothing is written." : "Stops are copied to the other players."}</span></span>
+    <input type="checkbox" id="mode-toggle" role="switch" ${s.watchOnly ? "" : "checked"} aria-label="Copy bookmarks between players">`;
 }
+async function setCopying(on) {
+  await api("POST", "/api/settings", { ...state.settings, watchOnly: !on });
+  $("#mode").className = ""; refresh();
+}
+$("#mode").addEventListener("click", e => {
+  e.preventDefault(); // the switch only moves once the change is made
+  if (!state) return;
+  if (state.settings.watchOnly) { setCopying(true); return; }
+  confirmReset("Switch to watch-only", "Stops won't be copied to the other players until you turn copying back on. Resume Relay will only log what it would have copied.", () => setCopying(false));
+});
 
 // ---------------- players ----------------
 function powerButton(d) {
@@ -1107,7 +1134,7 @@ function renderProgress() {
     const head = devs.map(d => {
       const r = readOf[d.id];
       const sub = r?.readUtc ? `read ${timeOf(r.readUtc)}` : "not read";
-      return `<th>${esc(d.name)}<small>${esc(sub)}</small>${r?.error ? `<small class="err">${esc(r.error)}</small>` : ""}${r?.unread ? `<small class="err" title="The player didn't answer for these, even when asked again. Their last known state is shown. Read again, or see the diagnostics page.">${r.unread} title${r.unread === 1 ? "" : "s"} couldn't be read</small>` : ""}</th>`;
+      return `<th>${kindBadge(d.kind, true)}${esc(d.name)}<small>${esc(sub)}</small>${r?.error ? `<small class="err">${esc(r.error)}</small>` : ""}${r?.unread ? `<small class="err" title="The player didn't answer for these, even when asked again. Their last known state is shown. Read again, or see the diagnostics page.">${r.unread} title${r.unread === 1 ? "" : "s"} couldn't be read</small>` : ""}</th>`;
     }).join("");
     const prActs = f => prBusy.has(f.key) ? `<button class="btn" disabled>Resetting…</button>` : `<button class="btn" data-pr-reset="${esc(f.key)}">Reset</button>`;
     const prLine = (f, d) => prNode(f, d, !!readOf[d.id]?.readUtc);
@@ -1219,7 +1246,7 @@ function renderWatch() {
     const label = { different: "watched on some players but not others", watched: "watched on at least one player", unwatched: "not watched on any player", missing: "missing on at least one player", all: "" }[$("#ws-show").value];
     const head = devs.map(d => {
       const r = readOf[d.id];
-      return `<th>${esc(d.name)}<small>${esc(r?.readUtc ? "read " + timeOf(r.readUtc) : "not read")}</small>${r?.error ? `<small class="err">${esc(r.error)}</small>` : ""}${r?.unread ? `<small class="err" title="The player didn't answer for these, even when asked again. Their last known state is shown. Read again, or see the diagnostics page.">${r.unread} title${r.unread === 1 ? "" : "s"} couldn't be read</small>` : ""}</th>`;
+      return `<th>${kindBadge(d.kind, true)}${esc(d.name)}<small>${esc(r?.readUtc ? "read " + timeOf(r.readUtc) : "not read")}</small>${r?.error ? `<small class="err">${esc(r.error)}</small>` : ""}${r?.unread ? `<small class="err" title="The player didn't answer for these, even when asked again. Their last known state is shown. Read again, or see the diagnostics page.">${r.unread} title${r.unread === 1 ? "" : "s"} couldn't be read</small>` : ""}</th>`;
     }).join("");
     const wsActs = f => `<button class="btn mini" data-ws-all="1" data-ws-key="${esc(f.key)}">Watched</button><button class="btn mini" data-ws-all="0" data-ws-key="${esc(f.key)}">Unwatched</button>`;
     const wsLine = (f, d) => wsCell(f, d, !!readOf[d.id]?.readUtc);
@@ -1297,8 +1324,11 @@ const plexUi = { folders: null, servers: null, users: null, test: null, mappings
 let plexSig = "", plexPolling = false;
 function plexSay(msg, kind = "") { plexUi.msg = msg; plexUi.kind = kind; renderPlex(true); }
 
+$("#plex-go").onclick = () => { showTab("settings"); $("#plex-card").scrollIntoView({ behavior: "smooth", block: "start" }); };
+
 function renderPlex(force = false) {
   const box = $("#plex-card"), p = state?.plex; if (!box || !p) return;
+  $("#plex-hint").hidden = !!(p.server && p.users?.length);
   if (!force && box.contains(document.activeElement) && document.activeElement.matches("input")) return; // don't redraw under typing
   const sig = JSON.stringify([p, plexUi, state.icons]);
   if (!force && sig === plexSig) return;
@@ -1360,7 +1390,7 @@ function renderPlex(force = false) {
         <button class="btn" data-plex="test" ${busy("test")}>${plexUi.busy === "test" ? "Testing…" : "Test"}</button></div>
       ${test}
       <h4>Plex users</h4>
-      <p>Each user you add becomes a player on this tab, with their own resume points and watched marks.</p>
+      <p>Each user you add becomes a player on the Players tab, with their own resume points and watched marks.</p>
       ${users === null ? `<p>Loading users…</p>` : `<ul class="plex-users">${users.map(u => `<li><span class="who">${esc(u.title)}<small>${u.admin ? "Owner" : u.protected ? "Has a PIN" : "Plex Home user"}</small></span>
         ${u.added ? `<span class="on">✓ Syncing</span>` : `${u.protected && !u.admin ? `<input class="pin" data-pin="${esc(u.uuid)}" inputmode="numeric" maxlength="8" placeholder="PIN" aria-label="${esc(u.title)}'s PIN">` : ""}
           <button class="btn" data-plex="adduser" data-uuid="${esc(u.uuid)}" ${busy("add:" + u.uuid)}>Add</button>`}</li>`).join("")}</ul>`}
@@ -1444,7 +1474,7 @@ $("#plex-card").addEventListener("click", async e => {
       plexUi.busy = "add:" + uuid; renderPlex(true);
       try {
         const r = await api("POST", "/api/plex/users", { uuid, pin });
-        plexUi.busy = ""; plexUi.users = null; await refresh(); plexSay(`Added ${r.name}. Their card is above with the other players.`, "ok");
+        plexUi.busy = ""; plexUi.users = null; await refresh(); plexSay(`Added ${r.name}. Their card is on the Players tab with the other players.`, "ok");
       } catch (err) { plexUi.busy = ""; plexSay(err.message, "err"); }
     } else if (what === "signout") {
       if (!confirm("Sign out of Plex? The Plex users are removed from the players and stop syncing.")) return;

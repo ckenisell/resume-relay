@@ -534,6 +534,21 @@ with urllib.request.urlopen(RELAY + "/api/plex/sessions", timeout=20) as r:
 check("the Plex troubleshooting page names the session's user and match", 'name "chet" -> matches chet on Plex' in ptxt and "srv-owner" not in ptxt, ptxt[:600])
 plexmock("stop", user="1001")
 
+# ---------------------------------------------------------------- 37. Progress Reset: copy one player's progress to others (drag + Apply)
+now = int(time.time() * 1000)
+mock(LR, "setlwt", url=E03, lwt=now, pp=777000)
+mock(BR, "setlwt", url=E03, lwt=now, pp=0)
+http("POST", RELAY + "/api/progress/read", {"deviceIds": [ids[LR], ids[BR], PO]})
+wait_for(lambda: not http("GET", RELAY + "/api/progress")["reading"], 60)
+r = http("POST", RELAY + "/api/progress/copy", [{"key": k3, "from": ids[LR], "to": [ids[BR], PO]}])
+check("Apply queues one copy per player it was dragged to", r["copies"] == 2, str(r))
+check("the dragged progress lands on a Zidoo", wait_for(lambda: bookmark(BR, E03)["playPoint"] == 777000, 30), str(bookmark(BR, E03)["playPoint"]))
+check("...and on Plex", wait_for(lambda: plexitem("1001", P_E03)["viewOffset"] == 777000, 30), str(plexitem("1001", P_E03)))
+cc = wait_for(lambda: next((e for e in events() if e.get("copied") and e["fromName"] == "Living Room" and e["positionMs"] == 777000), None), 10)
+check("the copy gets an Activity card from the source player", cc and {t["name"] for t in cc["targets"]} == {"Bedroom", "chet on Plex"}, str(cc))
+check("the copied cells update without reading again",
+      wait_for(lambda: (lambda f: f and f["cells"].get(ids[BR], {}).get("playPointMs") == 777000)(next((f for f in http("GET", RELAY + "/api/progress")["files"] if f["key"] == k3), None)), 20))
+
 passed = sum(1 for _, ok in results if ok)
 print(f"\n{passed}/{len(results)} passed")
 sys.exit(0 if passed == len(results) else 1)

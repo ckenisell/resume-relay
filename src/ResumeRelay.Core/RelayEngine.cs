@@ -547,6 +547,57 @@ public sealed partial class RelayEngine : BackgroundService
         return (ev, "");
     }
 
+    /// <summary>
+    /// A copy made on the Progress Reset tab: one player's progress for a file (dragged onto other players' columns)
+    /// goes to those players through the same queue as a stop, so each write is read back, and a player that's off
+    /// gets it when it's back. 0 resets the file there; the file's length marks it watched.
+    /// </summary>
+    public (StopEvent? Card, string Error) CopyFile(string title, string subtitle, string fileName, string sourceUrl, string poster,
+        int durationMs, Device source, int positionMs, List<Device> targets)
+    {
+        if (targets.Count == 0) return (null, "Nothing to copy to.");
+        bool reset = positionMs <= 0;
+        var ev = new StopEvent
+        {
+            TimeUtc = DateTime.UtcNow,
+            Title = title,
+            Subtitle = subtitle,
+            FileName = fileName,
+            SourceUrl = sourceUrl,
+            FromName = source.Name,
+            FromKind = KindOf(source),
+            PositionMs = Math.Max(0, positionMs),
+            DurationMs = durationMs,
+            Finished = !reset && NearEnd(positionMs, durationMs),
+            Reset = reset,
+            Copied = true,
+            Poster = poster,
+            Targets = targets.Select(t => new StopTarget { DeviceId = t.Id, Name = t.Name, Kind = KindOf(t) }).ToList(),
+        };
+        _store.AddEvent(ev);
+        string label = subtitle.Length > 0 && subtitle.StartsWith('S') ? $"{title} {subtitle}" : title;
+        _store.LogCopy(ActivityLevel.Info, $"Progress Reset: copying {fileName} ({(reset ? "not started" : Clock(positionMs))}) from {source.Name} to {string.Join(", ", targets.Select(t => t.Name))}…");
+        long now = new DateTimeOffset(ev.TimeUtc).ToUnixTimeMilliseconds();
+        foreach (var t in targets)
+        {
+            var replaced = _store.Enqueue(new PendingCopy
+            {
+                TargetId = t.Id,
+                SourceUrl = sourceUrl,
+                Title = label,
+                FromName = source.Name,
+                PositionMs = Math.Max(0, positionMs),
+                DurationMs = durationMs,
+                LastWatchTimeMs = now,
+                CreatedUtc = ev.TimeUtc,
+                EventId = ev.Id,
+            });
+            if (replaced != null) _store.UpdateEventTarget(replaced.EventId, t.Id, TargetState.Skipped, "replaced by a later copy");
+        }
+        NudgeQueue();
+        return (ev, "");
+    }
+
     private StopEvent NewResetCard(string title, string subtitle, string fileName, string sourceUrl, string poster, int durationMs, bool series, List<Device> targets)
     {
         var ev = new StopEvent

@@ -326,7 +326,16 @@ public sealed class PlexTv
     private readonly string _clientId;
     public PlexTv(string clientId) => _clientId = clientId;
 
+    /// <summary>One retry when the request didn't get through at all (a dropped connection is not an answer).</summary>
     private async Task<(int Status, JsonDocument? Doc)> SendAsync(HttpMethod method, string path, string token, CancellationToken ct)
+    {
+        var r = await SendOnceAsync(method, path, token, ct);
+        if (r.Status != 0) return r;
+        await Task.Delay(800, ct);
+        return await SendOnceAsync(method, path, token, ct);
+    }
+
+    private async Task<(int Status, JsonDocument? Doc)> SendOnceAsync(HttpMethod method, string path, string token, CancellationToken ct)
     {
         try
         {

@@ -103,6 +103,8 @@ public sealed class StopEvent
     public bool Reset { get; set; }
     /// <summary>The reset was requested with "Reset Progress" on the Activity tab (FromName is "Resume Relay").</summary>
     public bool Manual { get; set; }
+    /// <summary>Copied by dragging a player's progress to other players on the Progress Reset tab (FromName is the source).</summary>
+    public bool Copied { get; set; }
     /// <summary>"Reset TV Show": every episode of the series (Title) was reset.</summary>
     public bool Series { get; set; }
     /// <summary>The file's network path (smb://...), used to find it on every player. Empty on cards made before 0.3.2.</summary>

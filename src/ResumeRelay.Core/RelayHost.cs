@@ -157,7 +157,7 @@ public static class RelayHost
 
         app.MapGet("/api/events", (int? n) => Results.Ok(store.Events(Math.Clamp(n ?? 100, 1, 300)).Select(e => new
         {
-            e.Id, e.TimeUtc, e.Title, e.Subtitle, e.FileName, e.Manual, e.Series, CanReset = e.SourceUrl.Length > 0, e.FromName,
+            e.Id, e.TimeUtc, e.Title, e.Subtitle, e.FileName, e.Manual, e.Series, e.Copied, CanReset = e.SourceUrl.Length > 0, e.FromName,
             FromKind = e.FromKind.Length > 0 ? e.FromKind : e.Manual ? "" : "zidoo", e.PositionMs, e.DurationMs, e.Finished, e.Reset,
             Poster = e.Poster.Length > 0 ? "/api/poster/" + e.Poster : null,
             e.Targets,
@@ -311,12 +311,25 @@ public static class RelayHost
             progress.StartRead(req.DeviceIds ?? new List<string>(), stopping) is { } err ? Results.BadRequest(new { Error = err }) : Results.Ok());
         app.MapPost("/api/progress/reset", async (ProgressKeyRequest req) =>
             await progress.ResetFileAsync(req.Key ?? "") is { } err ? Results.BadRequest(new { Error = err }) : Results.Ok());
+        // Progress dragged between players on the tab, applied together: [{ key, from, to: [ids] }].
+        app.MapPost("/api/progress/copy", async (List<ProgressCopyItem> items) =>
+        {
+            var errors = new List<string>();
+            int n = 0;
+            foreach (var it in items ?? new())
+            {
+                if (await progress.CopyAsync(it.Key ?? "", it.From ?? "", it.To ?? new List<string>()) is { } err) errors.Add(err);
+                else n += (it.To ?? new()).Count;
+            }
+            return errors.Count > 0 && n == 0 ? Results.BadRequest(new { Error = errors[0] }) : Results.Ok(new { Copies = n, Errors = errors });
+        });
         app.MapPost("/api/progress/reset-series", async (ProgressKeyRequest req) =>
             await progress.ResetSeriesAsync(req.Key ?? "") is { } err ? Results.BadRequest(new { Error = err }) : Results.Ok());
     }
 
     private sealed record ProgressReadRequest(List<string>? DeviceIds);
     private sealed record ProgressKeyRequest(string? Key);
+    private sealed record ProgressCopyItem(string? Key, string? From, List<string>? To);
     private sealed record WatchSetRequest(string? Key, List<string>? DeviceIds, bool Watched);
     private sealed record AddDeviceRequest(string? Ip, int? Port);
     private sealed record UpdateDeviceRequest(string? Name, bool? Enabled);

@@ -384,6 +384,9 @@ public sealed class ProgressService
             if (p.Value.ValueKind is JsonValueKind.Object or JsonValueKind.Array) Walk(p.Value, ctx, found);
     }
 
+    /// <summary>"The Matrix" sorts under M, "A Beautiful Mind" under B.</summary>
+    public static string SortTitle(string title) => Regex.Replace(title, @"^(the|a|an)\s+", "", RegexOptions.IgnoreCase);
+
     private static string TileKind(int type) => type switch
     {
         0 => "Unmatched file", 1 => "Movie", 2 => "Collection", 3 => "Show", 4 => "Season", 6 => "My collection", _ => $"Type {type}",
@@ -442,8 +445,8 @@ public sealed class ProgressService
             }).ToList();
             long LastWatched(ProgressFile f) => devs.Select(d => d.Cells.GetValueOrDefault(f.Key)?.LastWatchMs ?? -1).DefaultIfEmpty(-1).Max();
             var ordered = sort == "watched"
-                ? rows.OrderByDescending(LastWatched).ThenBy(f => f.Display, NaturalOrder.Instance)
-                : rows.OrderBy(f => f.Display, NaturalOrder.Instance);
+                ? rows.OrderByDescending(LastWatched).ThenBy(f => SortTitle(f.Display), NaturalOrder.Instance)
+                : rows.OrderBy(f => SortTitle(f.Display), NaturalOrder.Instance);
             pageSize = Math.Clamp(pageSize, 1, 2000);
             int pages = Math.Max(1, (rows.Count + pageSize - 1) / pageSize);
             page = Math.Clamp(page, 1, pages);
@@ -635,6 +638,25 @@ public sealed class ProgressService
         if (file == null) return url; // url holds the error
         string subtitle = file.IsEpisode ? (file.Season > 0 ? $"S{file.Season:00}E{file.Episode:00}" : "") : (file.Year > 0 ? file.Year.ToString() : "");
         return _engine.ResetFile(file.Title, subtitle, file.FileName, url, poster, 0).Error is { Length: > 0 } e ? e : null;
+    }
+
+    /// <summary>
+    /// Copies one player's progress for a file to other players (dragged on the Progress Reset tab). A file marked
+    /// watched with no resume point (how Plex keeps a played file) is copied as its full length, which marks it watched.
+    /// </summary>
+    public async Task<string?> CopyAsync(string key, string fromId, IReadOnlyCollection<string> toIds)
+    {
+        ProgressCell? cell;
+        lock (_lock) cell = _devices.GetValueOrDefault(fromId)?.Cells.GetValueOrDefault(key);
+        var source = _store.Device(fromId);
+        if (cell == null || source == null) return "That player's progress for this file is no longer in the list. Read the players again.";
+        var targets = toIds.Distinct().Where(id => id != fromId).Select(id => _store.Device(id)).Where(d => d != null).Select(d => d!).ToList();
+        if (targets.Count == 0) return "Nothing to copy to.";
+        var (file, url, poster) = await ResolveAsync(key);
+        if (file == null) return url;
+        int pos = cell.PlayPointMs > 0 ? cell.PlayPointMs : cell.Watched && cell.DurationMs > 0 ? cell.DurationMs : 0;
+        string subtitle = file.IsEpisode ? (file.Season > 0 ? $"S{file.Season:00}E{file.Episode:00}" : "") : (file.Year > 0 ? file.Year.ToString() : "");
+        return _engine.CopyFile(file.Title, subtitle, file.FileName, url, poster, cell.DurationMs, source, pos, targets).Error is { Length: > 0 } e ? e : null;
     }
 
     /// <summary>"Reset TV Show": every episode of every season of the row's series, on every player.</summary>

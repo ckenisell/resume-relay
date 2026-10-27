@@ -201,6 +201,23 @@ table.pr tr.ep + tr:not(.ep):not(.show) td { border-top: 2px solid var(--muted);
 .pr-bar .ok { color: var(--ok); }
 .pr-sub { color: var(--muted); font-size: 11.5px; margin-top: 2px; }
 .pr-heads { display: none; }
+/* Drag one player's progress onto another player's column; changes wait for Apply. */
+.pr-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin: 0 0 10px; min-height: 36px; }
+.pr-top .pr-count { margin: 0; }
+.pr-apply { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.btn.go { background: var(--amber); border-color: var(--amber); color: #1A1A26; }
+.btn.go:hover { background: color-mix(in srgb, var(--amber) 85%, white); }
+.pr-node { position: relative; display: inline-block; padding: 4px 6px; margin: -5px -7px; border: 1px solid transparent; border-radius: 8px; cursor: grab; user-select: none; -webkit-user-select: none; touch-action: none; }
+.pr-node:hover { border-color: color-mix(in srgb, var(--amber) 35%, transparent); }
+.pr-node.drag-src, .pr-node.queued { border-color: var(--amber); }
+.pr-node.queued { background: color-mix(in srgb, var(--amber) 8%, transparent); padding-right: 22px; }
+.pr-node.copying { border-color: var(--amber); border-style: dashed; cursor: default; }
+.pr-node.drop-ok { border-color: var(--amber); border-style: dashed; background: color-mix(in srgb, var(--amber) 12%, transparent); }
+.pr-from { color: var(--amber); font-size: 11px; margin-top: 1px; }
+.pr-x { position: absolute; top: 1px; right: 2px; width: 18px; height: 18px; display: grid; place-items: center; border: 0; border-radius: 50%; background: transparent; color: var(--muted); font-size: 15px; line-height: 1; cursor: pointer; padding: 0; }
+.pr-x:hover { color: var(--text); background: var(--panel-2); }
+.pr-ghost { position: fixed; z-index: 60; pointer-events: none; border: 1px solid var(--amber); border-radius: 8px; background: var(--panel-2); padding: 4px 6px; box-shadow: 0 8px 24px rgba(0,0,0,.35); opacity: .95; }
+body.pr-dragging, body.pr-dragging * { cursor: grabbing !important; }
 /* Phones and narrow windows: the controls stack, and each table row becomes a card with one line per player. */
 @media (max-width: 760px) {
   .pr-controls { flex-direction: column; align-items: stretch; gap: 12px; padding: 14px; }
@@ -797,7 +814,9 @@ const CHIP = {
 const SYS_ICON = { Error: "✕", Warn: "!", Ok: "✓", Skip: "–", Info: "●" };
 
 function eventHtml(e) {
-  const what = e.series
+  const what = e.copied
+    ? `Copied from ${kindBadge(e.fromKind)} ${esc(e.fromName)} on Progress Reset: <b class="tnum">${e.reset ? "not started (progress reset)" : e.finished ? "watched" : clock(e.positionMs)}</b>`
+    : e.series
     ? `Reset from <b>Resume Relay</b>: <b>all episodes reset on all players</b>`
     : e.manual
     ? `Reset from <b>Resume Relay</b>: <b>progress reset on all players</b>`
@@ -945,12 +964,79 @@ $("#pr-read").onclick = async () => {
 function prCell(c, read) {
   if (!read) return `<span class="pr-none">—</span>`;
   if (!c) return `<span class="pr-none">not in library</span>`;
+  if (!(c.playPointMs > 0) && c.watched) return `<div class="pr-bar"><span class="track" aria-hidden="true"><i style="width:100%"></i></span>
+    <span class="tnum">100%</span><span class="ok" title="Watched">✓</span></div><div class="pr-sub tnum">watched${c.lastWatchMs > 0 ? " · " + prDate(c.lastWatchMs) : ""}</div>`;
   if (!(c.playPointMs > 0)) return `<span class="pr-none">not started</span>`;
   const pct = c.durationMs > 0 ? Math.min(100, Math.round(100 * c.playPointMs / c.durationMs)) : null;
   return `<div class="pr-bar"><span class="track" aria-hidden="true"><i style="width:${pct ?? 0}%"></i></span>
     <span class="tnum">${pct === null ? "" : pct + "%"}</span>${c.watched ? `<span class="ok" title="Watched">✓</span>` : ""}</div>
     <div class="pr-sub tnum">${clock(c.playPointMs)}${c.durationMs > 0 ? " of " + clock(c.durationMs) : ""}${c.lastWatchMs > 0 ? " · " + prDate(c.lastWatchMs) : ""}</div>`;
 }
+
+// "The Matrix" sorts under M and "A Beautiful Mind" under B, as on the players.
+const sortTitle = t => String(t || "").replace(/^(the|a|an)\s+/i, "");
+
+// ---- drag one player's progress onto another's column (Progress Reset). Nothing is written until Apply.
+const prQueue = new Map();   // "fileKey|toDeviceId" -> { key, from, to }
+const prCopying = new Map(); // "fileKey|toDeviceId" -> { from, until } after Apply, until the copy shows up
+let prDragging = false;
+const devName = id => state?.devices.find(d => d.id === id)?.name || "another player";
+// A file watched with no resume point counts as its full length (for comparing and copying).
+const effPos = c => c ? (c.playPointMs > 0 ? c.playPointMs : c.watched && c.durationMs > 0 ? c.durationMs : 0) : 0;
+
+function prNode(f, d, read) {
+  const c = f.cells[d.id], k = f.key + "|" + d.id;
+  if (!read || !c) return prCell(c, read);
+  const attrs = `data-pr-node data-key="${esc(f.key)}" data-dev="${esc(d.id)}"`;
+  const q = prQueue.get(k);
+  if (q) return `<div class="pr-node queued" ${attrs} title="Will copy ${esc(devName(q.from))}'s progress here when you press Apply">${prCell(f.cells[q.from], true)}
+    <div class="pr-from">from ${esc(devName(q.from))}</div><button class="pr-x" data-pr-unq="${esc(k)}" aria-label="Don't copy ${esc(devName(q.from))}'s progress to ${esc(d.name)}">×</button></div>`;
+  const cp = prCopying.get(k);
+  if (cp && Date.now() < cp.until && Math.abs(effPos(c) - effPos(f.cells[cp.from])) > 2000)
+    return `<div class="pr-node copying">${prCell(f.cells[cp.from], true)}<div class="pr-from">copying from ${esc(devName(cp.from))}…</div></div>`;
+  prCopying.delete(k);
+  return `<div class="pr-node" ${attrs} title="Drag onto another player's column to copy this progress there">${prCell(c, read)}</div>`;
+}
+
+let prDrag = null;
+$("#pr-list").addEventListener("pointerdown", e => {
+  if (e.button !== 0 || e.target.closest(".pr-x")) return;
+  const node = e.target.closest("[data-pr-node]"); if (!node) return;
+  prDrag = { node, id: e.pointerId, x: e.clientX, y: e.clientY, ghost: null, over: null };
+});
+addEventListener("pointermove", e => {
+  if (!prDrag || e.pointerId !== prDrag.id) return;
+  if (!prDrag.ghost) {
+    if (Math.hypot(e.clientX - prDrag.x, e.clientY - prDrag.y) < 6) return;
+    const r = prDrag.node.getBoundingClientRect();
+    const g = prDrag.node.cloneNode(true); g.className = "pr-ghost"; g.querySelector(".pr-x")?.remove();
+    g.style.width = r.width + "px"; document.body.appendChild(g);
+    prDrag.ghost = g; prDrag.dx = e.clientX - r.left; prDrag.dy = e.clientY - r.top;
+    prDrag.node.classList.add("drag-src"); document.body.classList.add("pr-dragging"); prDragging = true;
+  }
+  e.preventDefault();
+  prDrag.ghost.style.left = (e.clientX - prDrag.dx) + "px"; prDrag.ghost.style.top = (e.clientY - prDrag.dy) + "px";
+  const t = document.elementFromPoint(e.clientX, e.clientY)?.closest("[data-pr-node]");
+  const ok = t && t !== prDrag.node && t.dataset.key === prDrag.node.dataset.key && t.dataset.dev !== prDrag.node.dataset.dev ? t : null;
+  if (prDrag.over !== ok) { prDrag.over?.classList.remove("drop-ok"); ok?.classList.add("drop-ok"); prDrag.over = ok; }
+}, { passive: false });
+function prEndDrag(e) {
+  if (!prDrag || (e && e.pointerId !== prDrag.id)) return;
+  const d = prDrag; prDrag = null;
+  if (!d.ghost) return; // a click, not a drag
+  d.ghost.remove(); d.node.classList.remove("drag-src"); d.over?.classList.remove("drop-ok");
+  document.body.classList.remove("pr-dragging"); prDragging = false;
+  if (e?.type === "pointerup" && d.over) {
+    const key = d.node.dataset.key, to = d.over.dataset.dev;
+    // Dragging a waiting copy passes on where it came from.
+    const from = prQueue.get(key + "|" + d.node.dataset.dev)?.from || d.node.dataset.dev;
+    if (from !== to) prQueue.set(key + "|" + to, { key, from, to }); else prQueue.delete(key + "|" + to);
+  }
+  prCache = ""; renderProgress();
+}
+addEventListener("pointerup", prEndDrag);
+addEventListener("pointercancel", prEndDrag);
+addEventListener("keydown", e => { if (e.key === "Escape" && prDrag) { prDrag.over = null; prEndDrag({ type: "cancel", pointerId: prDrag.id }); } });
 
 // On a phone the table's header row is hidden; its per-player lines (read time, warnings) show as a list instead.
 const phoneHeads = head => `<div class="pr-heads">${head.replaceAll("<th>", '<div class="pr-head">').replaceAll("</th>", "</div>")}</div>`;
@@ -1004,15 +1090,15 @@ function renderProgress() {
   // Same progress: every ticked, read player that has the file is within 2 s of the others ("not started" = 0:00).
   const show = $("#pr-show").value;
   const same = f => {
-    const pts = devs.filter(d => readOf[d.id]?.readUtc && f.cells[d.id]).map(d => Math.max(0, f.cells[d.id].playPointMs || 0));
+    const pts = devs.filter(d => readOf[d.id]?.readUtc && f.cells[d.id]).map(d => effPos(f.cells[d.id]));
     return pts.length > 0 && Math.max(...pts) - Math.min(...pts) <= 2000;
   };
   if (show === "different") rows = rows.filter(f => !same(f));
   else if (show === "same") rows = rows.filter(same);
   const lastOf = f => Math.max(-1, ...devs.map(d => f.cells[d.id]?.lastWatchMs ?? -1));
   rows.sort($("#pr-sort").value === "watched"
-    ? (a, b) => lastOf(b) - lastOf(a) || a.display.localeCompare(b.display, undefined, { numeric: true })
-    : (a, b) => a.display.localeCompare(b.display, undefined, { numeric: true, sensitivity: "base" }));
+    ? (a, b) => lastOf(b) - lastOf(a) || sortTitle(a.display).localeCompare(sortTitle(b.display), undefined, { numeric: true })
+    : (a, b) => sortTitle(a.display).localeCompare(sortTitle(b.display), undefined, { numeric: true, sensitivity: "base" }));
 
   let html;
   if (!devs.length) html = `<div class="empty"><strong>No players ticked</strong>Tick the players to read, then press Read players.</div>`;
@@ -1024,18 +1110,41 @@ function renderProgress() {
       return `<th>${esc(d.name)}<small>${esc(sub)}</small>${r?.error ? `<small class="err">${esc(r.error)}</small>` : ""}${r?.unread ? `<small class="err" title="The player didn't answer for these, even when asked again. Their last known state is shown. Read again, or see the diagnostics page.">${r.unread} title${r.unread === 1 ? "" : "s"} couldn't be read</small>` : ""}</th>`;
     }).join("");
     const prActs = f => prBusy.has(f.key) ? `<button class="btn" disabled>Resetting…</button>` : `<button class="btn" data-pr-reset="${esc(f.key)}">Reset</button>`;
-    const prLine = (f, d) => prCell(f.cells[d.id], !!readOf[d.id]?.readUtc);
+    const prLine = (f, d) => prNode(f, d, !!readOf[d.id]?.readUtc);
     const prShowActs = f => `<button class="btn" data-pr-show="${esc(f.key)}">Reset TV Show</button>`;
     const body = tableRows(rows, devs, prActs, prLine, prShowActs);
     const label = { different: " with different progress between players", same: " with the same progress on all players" }[show] || "";
-    html = `<div class="pr-box"><p class="pr-count">${rows.length.toLocaleString()} file(s) in progress${label}</p>
+    const nq = prQueue.size;
+    html = `<div class="pr-box"><div class="pr-top"><p class="pr-count">${rows.length.toLocaleString()} file(s) in progress${label}</p>
+      ${nq ? `<div class="pr-apply"><button class="btn quiet" data-pr-clear>Clear all</button><button class="btn go" data-pr-apply>Apply ${nq} change${nq === 1 ? "" : "s"}</button></div>` : ""}</div>
       ${phoneHeads(head)}<div class="pr-wrap"><table class="pr"><thead><tr><th>Title</th><th>Reset</th>${head}</tr></thead><tbody>${body}</tbody></table></div>
       ${phoneCards(rows, devs, prActs, prLine, prShowActs)}</div>`;
   }
+  if (prDragging) return; // don't redraw under a drag
   if (html !== prCache) { $("#pr-list").innerHTML = html; prCache = html; }
 }
 
-$("#pr-list").addEventListener("click", e => {
+$("#pr-list").addEventListener("click", async e => {
+  const x = e.target.closest("[data-pr-unq]");
+  if (x) { prQueue.delete(x.dataset.prUnq); prCache = ""; renderProgress(); return; }
+  if (e.target.closest("[data-pr-clear]")) { prQueue.clear(); prCache = ""; renderProgress(); return; }
+  const ap = e.target.closest("[data-pr-apply]");
+  if (ap) {
+    // One request per file and source player, with every player it was dragged to.
+    const groups = new Map();
+    for (const q of prQueue.values()) {
+      const g = groups.get(q.key + "|" + q.from) || { key: q.key, from: q.from, to: [] };
+      g.to.push(q.to); groups.set(q.key + "|" + q.from, g);
+    }
+    ap.disabled = true; ap.textContent = "Applying…";
+    try {
+      const r = await api("POST", "/api/progress/copy", [...groups.values()]);
+      for (const [k, q] of prQueue) prCopying.set(k, { from: q.from, until: Date.now() + 120000 });
+      prQueue.clear();
+      toast(`Copying ${r.copies} resume point${r.copies === 1 ? "" : "s"}. Each file gets a card on the Activity tab.` + (r.errors?.length ? " " + r.errors[0] : ""), !!r.errors?.length);
+    } catch (err) { toast(err.message, true); }
+    prCache = ""; loadProgress(); return;
+  }
   const b = e.target.closest("[data-pr-reset], [data-pr-show]"); if (!b) return;
   const key = b.dataset.prReset || b.dataset.prShow;
   const f = (progress?.files || []).find(x => x.key === key); if (!f) return;

@@ -549,6 +549,14 @@ check("the copy gets an Activity card from the source player", cc and {t["name"]
 check("the copied cells update without reading again",
       wait_for(lambda: (lambda f: f and f["cells"].get(ids[BR], {}).get("playPointMs") == 777000)(next((f for f in http("GET", RELAY + "/api/progress")["files"] if f["key"] == k3), None)), 20))
 
+# ---------------------------------------------------------------- 38. a collection that answers "busy" is asked again
+mock(BR, "setlwt", url=ARRIVAL, lwt=int(time.time() * 1000), pp=1234000)
+mock(BR, "flaky", every=0, collfail=3)
+http("POST", RELAY + "/api/progress/read", {"deviceIds": [ids[BR]]})
+wait_for(lambda: not http("GET", RELAY + "/api/progress")["reading"], 60)
+af = next((f for f in http("GET", RELAY + "/api/progress")["files"] if f["key"] == ka), None)
+check("a busy collection is asked again and its movie is read", af and af["cells"].get(ids[BR], {}).get("playPointMs") == 1234000, str(af))
+
 passed = sum(1 for _, ok in results if ok)
 print(f"\n{passed}/{len(results)} passed")
 sys.exit(0 if passed == len(results) else 1)

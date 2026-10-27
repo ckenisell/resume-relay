@@ -124,7 +124,7 @@ public sealed class ProgressService
                 var rows = await api.GetVideoListPageAsync(page, 500, ct);
                 for (int retry = 1; rows == null && retry <= 3; retry++) // no answer is not the end of the list
                 {
-                    await Task.Delay(1500 * retry, ct);
+                    await Task.Delay(1000 * retry, ct);
                     rows = await api.GetVideoListPageAsync(page, 500, ct);
                 }
                 if (rows == null) throw new InvalidOperationException($"the library list stopped answering at page {page}");
@@ -153,17 +153,27 @@ public sealed class ProgressService
                             : new[] { r.Id, r.CollectionId };
                         var members = new List<LibraryRow>();
                         string via = "";
-                        for (int attempt = 0; attempt < 3 && members.Count == 0; attempt++) // an empty answer may just be a busy player
+                        // Asked again only when the player didn't answer properly (no reply, an error, busy). A
+                        // collection that answered and really is empty is not waited on.
+                        bool allAnswered = true;
+                        for (int attempt = 0; attempt < 3 && members.Count == 0; attempt++)
                         {
-                            if (attempt > 0) await Task.Delay(1500 * attempt, ct);
+                            if (attempt > 0) { if (allAnswered) break; await Task.Delay(1000 * attempt, ct); }
+                            allAnswered = true;
                             foreach (int cid in tries.Where(x => x > 0).Distinct())
                             {
-                                members = await api.GetCollectionAsync(cid, ct);
+                                var (got, ok) = await api.GetCollectionCheckedAsync(cid, ct);
+                                allAnswered &= ok;
                                 // A collection must hold movies (or other collections); a series must hold seasons or episodes.
-                                members = members.Where(m => r.Type == 3 ? m.Type is 4 or 5 : m.Type is 0 or 1 or 2 or 3 or 4 or 6).ToList();
+                                members = got.Where(m => r.Type == 3 ? m.Type is 4 or 5 : m.Type is 0 or 1 or 2 or 3 or 4 or 6).ToList();
                                 if (members.Count > 0) { via = $"getCollection?id={cid}"; break; }
                             }
-                            if (members.Count == 0) { members = await api.GetChildrenAsync(r.Id, ct); via = $"getEntry children of {r.Id}"; }
+                            if (members.Count == 0)
+                            {
+                                var (kids, ok) = await api.GetChildrenCheckedAsync(r.Id, ct);
+                                allAnswered &= ok;
+                                members = kids; via = $"getEntry children of {r.Id}";
+                            }
                         }
                         if (members.Count == 0) lock (unopened) unopened.Add(r.Name);
                         lock (diag) diag.Add($"{(r.Type == 3 ? "Series" : r.Type == 6 ? "My collection" : "Collection")} \"{r.Name}\" (id {r.Id}, collectionId {r.CollectionId}): "
@@ -185,7 +195,7 @@ public sealed class ProgressService
             work = work.DistinctBy(w => w.Id).ToList();
             result.Titles = work.Count;
 
-            // 3. Each movie and season, three at a time. A title the player didn't answer for is not an empty title:
+            // 3. Each movie and season, four at a time. A title the player didn't answer for is not an empty title:
             //    it is set aside and asked again, slowly, after the first pass.
             int done = 0;
             var failed = new ConcurrentBag<(int Id, bool Season, string Series, string Name)>();
@@ -198,7 +208,7 @@ public sealed class ProgressService
                         result.Cells[file.Key] = cell;
                     }
             }
-            await Parallel.ForEachAsync(work, new ParallelOptions { MaxDegreeOfParallelism = 3, CancellationToken = ct }, async (w, token) =>
+            await Parallel.ForEachAsync(work, new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = ct }, async (w, token) =>
             {
                 var (read, answered) = await ReadTitleCheckedAsync(api, w.Id, w.Season, w.Series, token);
                 if (answered) Keep(read); else failed.Add(w);
@@ -209,7 +219,7 @@ public sealed class ProgressService
             for (int round = 1; round <= 3 && left.Count > 0; round++)
             {
                 _status[d.Id] = $"Reading {d.Name}… asking again for {left.Count:N0} title(s) it didn't answer";
-                await Task.Delay(2000 * round, ct);
+                await Task.Delay(1000 * round, ct);
                 var still = new List<(int, bool, string, string)>();
                 foreach (var w in left) // one at a time
                 {

@@ -158,6 +158,24 @@ public sealed class ZidooClient
         return doc == null ? new() : Rows(doc.RootElement, "data");
     }
 
+    /// <summary>getCollection, saying whether the player gave a proper answer (an empty collection is an answer; no reply,
+    /// an error or "busy" is not).</summary>
+    public async Task<(List<LibraryRow> Rows, bool Answered)> GetCollectionCheckedAsync(int id, CancellationToken ct = default)
+    {
+        using var doc = await GetLibraryJsonAsync($"/ZidooPoster/getCollection?id={id}", ct);
+        return (doc == null ? new() : Rows(doc.RootElement, "data"), Answered(doc));
+    }
+
+    public async Task<(List<LibraryRow> Rows, bool Answered)> GetChildrenCheckedAsync(int id, CancellationToken ct = default)
+    {
+        using var doc = await GetLibraryJsonAsync($"/ZidooPoster/v2/getEntry?id={id}&start=0&count=500", ct);
+        return (doc == null ? new() : Rows(doc.RootElement, "children"), Answered(doc));
+    }
+
+    private static bool Answered(JsonDocument? d) =>
+        d != null && d.RootElement.ValueKind == JsonValueKind.Object
+        && (!d.RootElement.TryGetProperty("status", out _) || Int(d.RootElement, "status") == 200);
+
     /// <summary>An entry's direct children (a series' seasons, a season's episodes...). HT 5.1.03+.</summary>
     public async Task<List<LibraryRow>> GetChildrenAsync(int id, CancellationToken ct = default)
     {

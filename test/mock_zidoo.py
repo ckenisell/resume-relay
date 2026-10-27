@@ -55,6 +55,7 @@ class Player:
         self.ht_closed = False
         self.ht_version, self.ht_code = "5.1.11", 5111
         self.flaky_every, self.detail_calls, self.fail_ids = 0, 0, set()
+        self.coll_fail = 0   # the next N getCollection calls answer "busy"
         self.playing = None
         self.lock = threading.Lock()
         self.entries = {}   # file entry id -> record
@@ -206,6 +207,9 @@ def make_handler():
                     page, size = int(q.get("page", 1)), int(q.get("pagesize", 50))
                     rows = p.top_tiles()[(page - 1) * size: page * size]
                     return self.send(dict(status=200, page=page, pagesize=size, size=len(rows), data=rows))
+                if path == "/ZidooPoster/getCollection" and p.coll_fail > 0:
+                    p.coll_fail -= 1
+                    return self.send(dict(status=500, msg="busy"))
                 if path == "/ZidooPoster/getCollection":
                     cid = int(q.get("id", 0))
                     if cid in p.collections:
@@ -312,6 +316,7 @@ def make_handler():
                 if path == "/_test/flaky":
                     p.flaky_every = int(q.get("every", 0)); p.detail_calls = 0
                     p.fail_ids = {int(x) for x in q.get("fail", "").split(",") if x}
+                    p.coll_fail = int(q.get("collfail", 0))
                     return self.send(dict(ok=True))
                 if path == "/_test/htclosed":
                     p.ht_closed = q.get("on") == "1"

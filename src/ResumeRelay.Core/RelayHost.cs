@@ -315,13 +315,16 @@ public static class RelayHost
         app.MapPost("/api/progress/copy", async (List<ProgressCopyItem> items) =>
         {
             var errors = new List<string>();
+            var cards = new List<object>();
             int n = 0;
             foreach (var it in items ?? new())
             {
-                if (await progress.CopyAsync(it.Key ?? "", it.From ?? "", it.To ?? new List<string>()) is { } err) errors.Add(err);
-                else n += (it.To ?? new()).Count;
+                var (err, cardId) = await progress.CopyAsync(it.Key ?? "", it.From ?? "", it.To ?? new List<string>());
+                if (err != null) { errors.Add(err); continue; }
+                n += (it.To ?? new()).Count;
+                cards.Add(new { it.Key, it.From, CardId = cardId }); // the page follows each copy by its Activity card
             }
-            return errors.Count > 0 && n == 0 ? Results.BadRequest(new { Error = errors[0] }) : Results.Ok(new { Copies = n, Errors = errors });
+            return errors.Count > 0 && n == 0 ? Results.BadRequest(new { Error = errors[0] }) : Results.Ok(new { Copies = n, Errors = errors, Cards = cards });
         });
         app.MapPost("/api/progress/reset-series", async (ProgressKeyRequest req) =>
             await progress.ResetSeriesAsync(req.Key ?? "") is { } err ? Results.BadRequest(new { Error = err }) : Results.Ok());

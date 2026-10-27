@@ -1005,7 +1005,10 @@ const sortTitle = t => String(t || "").replace(/^(the|a|an)\s+/i, "");
 
 // ---- drag one player's progress onto another's column (Progress Reset). Nothing is written until Apply.
 const prQueue = new Map();   // "fileKey|toDeviceId" -> { key, from, to }
-const prCopying = new Map(); // "fileKey|toDeviceId" -> { from, until } after Apply, until the copy shows up
+// After Apply, each copy shows "copying…" until its chip on the Activity card says how it went (copied, skipped,
+// failed). The chip, not the numbers, decides: a copy can land a second or two off, or be skipped, and then the
+// two values never match.
+const prCopying = new Map(); // "fileKey|toDeviceId" -> { from, cardId, until }
 let prDragging = false;
 const devName = id => state?.devices.find(d => d.id === id)?.name || "another player";
 // A file watched with no resume point counts as its full length (for comparing and copying).
@@ -1019,9 +1022,16 @@ function prNode(f, d, read) {
   if (q) return `<div class="pr-node queued" ${attrs} title="Will copy ${esc(devName(q.from))}'s progress here when you press Apply">${prCell(f.cells[q.from], true)}
     <div class="pr-from">from ${esc(devName(q.from))}</div><button class="pr-x" data-pr-unq="${esc(k)}" aria-label="Don't copy ${esc(devName(q.from))}'s progress to ${esc(d.name)}">×</button></div>`;
   const cp = prCopying.get(k);
-  if (cp && Date.now() < cp.until && Math.abs(effPos(c) - effPos(f.cells[cp.from])) > 2000)
-    return `<div class="pr-node copying">${prCell(f.cells[cp.from], true)}<div class="pr-from">copying from ${esc(devName(cp.from))}…</div></div>`;
-  prCopying.delete(k);
+  if (cp) {
+    const chip = events.find(e => e.id === cp.cardId)?.targets.find(t => t.deviceId === d.id);
+    const going = Date.now() < cp.until && (!chip || chip.state === "Pending" || chip.state === "Waiting");
+    if (going)
+      return `<div class="pr-node copying">${prCell(f.cells[cp.from], true)}<div class="pr-from">${chip?.state === "Waiting"
+        ? esc(chip.note || "waiting for the player") : `copying from ${esc(devName(cp.from))}…`}</div></div>`;
+    prCopying.delete(k);
+    if (chip && (chip.state === "Failed" || chip.state === "Skipped"))
+      toast(`Didn't copy ${f.fileName} to ${d.name}: ${chip.note || chip.state.toLowerCase()}.`, true);
+  }
   return `<div class="pr-node" ${attrs} title="Drag onto another player's column to copy this progress there">${prCell(c, read)}</div>`;
 }
 
@@ -1166,11 +1176,15 @@ $("#pr-list").addEventListener("click", async e => {
     ap.disabled = true; ap.textContent = "Applying…";
     try {
       const r = await api("POST", "/api/progress/copy", [...groups.values()]);
-      for (const [k, q] of prQueue) prCopying.set(k, { from: q.from, until: Date.now() + 120000 });
+      const cardOf = new Map((r.cards || []).map(c => [c.key + "|" + c.from, c.cardId]));
+      for (const [k, q] of prQueue) {
+        const cardId = cardOf.get(q.key + "|" + q.from);
+        if (cardId) prCopying.set(k, { from: q.from, cardId, until: Date.now() + 15 * 60000 });
+      }
       prQueue.clear();
       toast(`Copying ${r.copies} resume point${r.copies === 1 ? "" : "s"}. Each file gets a card on the Activity tab.` + (r.errors?.length ? " " + r.errors[0] : ""), !!r.errors?.length);
     } catch (err) { toast(err.message, true); }
-    prCache = ""; loadProgress(); return;
+    prCache = ""; await refresh(); return;
   }
   const b = e.target.closest("[data-pr-reset], [data-pr-show]"); if (!b) return;
   const key = b.dataset.prReset || b.dataset.prShow;

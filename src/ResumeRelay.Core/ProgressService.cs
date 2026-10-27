@@ -644,19 +644,20 @@ public sealed class ProgressService
     /// Copies one player's progress for a file to other players (dragged on the Progress Reset tab). A file marked
     /// watched with no resume point (how Plex keeps a played file) is copied as its full length, which marks it watched.
     /// </summary>
-    public async Task<string?> CopyAsync(string key, string fromId, IReadOnlyCollection<string> toIds)
+    public async Task<(string? Error, string? CardId)> CopyAsync(string key, string fromId, IReadOnlyCollection<string> toIds)
     {
         ProgressCell? cell;
         lock (_lock) cell = _devices.GetValueOrDefault(fromId)?.Cells.GetValueOrDefault(key);
         var source = _store.Device(fromId);
-        if (cell == null || source == null) return "That player's progress for this file is no longer in the list. Read the players again.";
+        if (cell == null || source == null) return ("That player's progress for this file is no longer in the list. Read the players again.", null);
         var targets = toIds.Distinct().Where(id => id != fromId).Select(id => _store.Device(id)).Where(d => d != null).Select(d => d!).ToList();
-        if (targets.Count == 0) return "Nothing to copy to.";
+        if (targets.Count == 0) return ("Nothing to copy to.", null);
         var (file, url, poster) = await ResolveAsync(key);
-        if (file == null) return url;
+        if (file == null) return (url, null);
         int pos = cell.PlayPointMs > 0 ? cell.PlayPointMs : cell.Watched && cell.DurationMs > 0 ? cell.DurationMs : 0;
         string subtitle = file.IsEpisode ? (file.Season > 0 ? $"S{file.Season:00}E{file.Episode:00}" : "") : (file.Year > 0 ? file.Year.ToString() : "");
-        return _engine.CopyFile(file.Title, subtitle, file.FileName, url, poster, cell.DurationMs, source, pos, targets).Error is { Length: > 0 } e ? e : null;
+        var (card, err) = _engine.CopyFile(file.Title, subtitle, file.FileName, url, poster, cell.DurationMs, source, pos, targets);
+        return card == null ? (err, null) : (null, card.Id);
     }
 
     /// <summary>"Reset TV Show": every episode of every season of the row's series, on every player.</summary>

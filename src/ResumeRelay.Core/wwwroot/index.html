@@ -1152,8 +1152,13 @@ function renderProgress() {
     const body = tableRows(rows, devs, prActs, prLine, prShowActs);
     const label = { different: " with different progress between players", same: " with the same progress on all players" }[show] || "";
     const nq = prQueue.size;
+    // Watched files a Zidoo still holds a resume point for (a stop near the end keeps it): the one-time cleanup.
+    const zdevs = devs.filter(d => d.kind !== "plex" && readOf[d.id]?.readUtc);
+    const leftovers = (progress.files || []).reduce((n, f) => n + zdevs.filter(d => f.cells[d.id]?.watched && f.cells[d.id].playPointMs > 0).length, 0);
+    const tidy = progress.showBusy === "leftover resume points" ? `<button class="btn quiet" disabled>Clearing…</button>`
+      : leftovers ? `<button class="btn quiet" data-pr-tidy title="Watched files that kept their resume point at the end">Clear ${leftovers.toLocaleString()} leftover resume point${leftovers === 1 ? "" : "s"}</button>` : "";
     html = `<div class="pr-box"><div class="pr-top"><p class="pr-count">${rows.length.toLocaleString()} file(s) in progress${label}</p>
-      ${nq ? `<div class="pr-apply"><button class="btn quiet" data-pr-clear>Clear all</button><button class="btn go" data-pr-apply>Apply ${nq} change${nq === 1 ? "" : "s"}</button></div>` : ""}</div>
+      <div class="pr-apply">${tidy}${nq ? `<button class="btn quiet" data-pr-clear>Clear all</button><button class="btn go" data-pr-apply>Apply ${nq} change${nq === 1 ? "" : "s"}</button>` : ""}</div></div>
       ${phoneHeads(head)}<div class="pr-wrap"><table class="pr"><thead><tr><th>Title</th><th>Reset</th>${head}</tr></thead><tbody>${body}</tbody></table></div>
       ${phoneCards(rows, devs, prActs, prLine, prShowActs)}</div>`;
   }
@@ -1165,6 +1170,18 @@ $("#pr-list").addEventListener("click", async e => {
   const x = e.target.closest("[data-pr-unq]");
   if (x) { prQueue.delete(x.dataset.prUnq); prCache = ""; renderProgress(); return; }
   if (e.target.closest("[data-pr-clear]")) { prQueue.clear(); prCache = ""; renderProgress(); return; }
+  if (e.target.closest("[data-pr-tidy]")) {
+    const deviceIds = prTicked();
+    try {
+      const n = await api("POST", "/api/progress/tidy", { deviceIds, dryRun: true });
+      if (!n.changes) { toast("No leftover resume points on the ticked players."); return; }
+      confirmReset("Clear leftover resume points",
+        `${n.files.toLocaleString()} watched file${n.files === 1 ? "" : "s"} still ${n.files === 1 ? "has" : "have"} a resume point near the end on a Zidoo (${n.changes.toLocaleString()} in all). ` +
+        `This clears those resume points; every file stays <b>watched</b>. Files you're partway through aren't touched.`,
+        async () => { await api("POST", "/api/progress/tidy", { deviceIds, dryRun: false }); prCache = ""; loadProgress(); });
+    } catch (err) { toast(err.message, true); }
+    return;
+  }
   const ap = e.target.closest("[data-pr-apply]");
   if (ap) {
     // One request per file and source player, with every player it was dragged to.

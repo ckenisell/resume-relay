@@ -305,6 +305,12 @@ public static class RelayHost
             var r = await progress.SetWatchedAsync(req.Key ?? "", req.DeviceIds ?? new List<string>(), req.Watched);
             return r.Count == 0 ? Results.BadRequest(new { Error = "That file is no longer in the list. Read the players again." }) : Results.Ok(r);
         });
+        // The one-time cleanup on Progress Reset: watched files that kept a resume point. dryRun=true only counts.
+        app.MapPost("/api/progress/tidy", (TidyRequest req) =>
+        {
+            var (err, changes, files) = progress.TidyWatched(req.DeviceIds ?? new List<string>(), req.DryRun);
+            return err != null ? Results.BadRequest(new { Error = err }) : Results.Ok(new { Changes = changes, Files = files });
+        });
         // "Watched All" / "Unwatched All" on a TV show (Watch Sync). dryRun=true only counts.
         app.MapPost("/api/watched/set-show", (WatchShowRequest req) =>
         {
@@ -340,6 +346,7 @@ public static class RelayHost
     private sealed record ProgressKeyRequest(string? Key);
     private sealed record ProgressCopyItem(string? Key, string? From, List<string>? To);
     private sealed record WatchSetRequest(string? Key, List<string>? DeviceIds, bool Watched);
+    private sealed record TidyRequest(List<string>? DeviceIds, bool DryRun);
     private sealed record WatchShowRequest(string? Show, List<string>? DeviceIds, bool Watched, bool DryRun);
     private sealed record AddDeviceRequest(string? Ip, int? Port);
     private sealed record UpdateDeviceRequest(string? Name, bool? Enabled);

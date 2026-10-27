@@ -501,12 +501,20 @@ public sealed partial class RelayEngine : BackgroundService
             if (replaced != null)
                 _store.UpdateEventTarget(replaced.EventId, t.Id, TargetState.Skipped, "replaced by a later stop");
         }
+        // Finished on a Zidoo: the HT app keeps the stop position on a watched file. Clear it there too, so every player
+        // stores "finished" the same way (watched, no resume point). Not shown as a chip on the card.
+        if (finished && !source.IsPlex)
+            _store.Enqueue(new PendingCopy
+            {
+                TargetId = source.Id, SourceUrl = last.SourceUrl, Title = label, FromName = source.Name,
+                PositionMs = position, DurationMs = last.DurationMs, LastWatchTimeMs = lastWatch, CreatedUtc = stoppedUtc,
+            });
         NudgeQueue();
     }
 
     /// <summary>Raised when a copy or reset lands on a player (device id, that player's file id, position, last-watched
     /// unix ms; 0 and -1 for a reset), so the Progress Reset tab can update its list without reading the players again.</summary>
-    public event Action<string, int, int, long>? FileWritten;
+    public event Action<string, int, int, long, bool>? FileWritten;
 
     /// <summary>"Reset Progress" on an Activity card: resets that card's file everywhere.</summary>
     public (StopEvent? Card, string Error) ResetEverywhere(string eventId)
@@ -829,6 +837,9 @@ public sealed partial class RelayEngine : BackgroundService
         }
         live.HomeTheaterRunning = true;
 
+        // A finished file is stored as watched with no resume point (as Plex does), not as a point at the end.
+        if (!reset && NearEnd(job.PositionMs, job.DurationMs)) { await ProcessFinishedAsync(job, target, api, entry, what, ct); return; }
+
         // 3. Already there? (Not for a reset: a file can show 0:00 and still carry a watched mark to clear.)
         if (!reset && Math.Abs(entry.PlayPointMs - job.PositionMs) <= 2_000)
         {
@@ -862,7 +873,7 @@ public sealed partial class RelayEngine : BackgroundService
         if (readBack.HasValue && Landed(readBack.Value, job))
         {
             bool watched = !reset && NearEnd(job.PositionMs, job.DurationMs);
-            FileWritten?.Invoke(target.Id, entry.Id, reset ? 0 : readBack.Value, reset ? -1 : job.LastWatchTimeMs);
+            FileWritten?.Invoke(target.Id, entry.Id, reset ? 0 : readBack.Value, reset ? -1 : job.LastWatchTimeMs, watched);
             _store.LogCopy(ActivityLevel.Ok, reset
                 ? $"Reset {job.Title} on {target.Name} ({why})."
                 : $"Copied {what}" + (watched ? " (marked watched)." : "."));
@@ -877,6 +888,79 @@ public sealed partial class RelayEngine : BackgroundService
         {
             Retry(job, what, readBack.HasValue ? $"the player still shows {Clock(readBack.Value)} after the write" : "could not read the bookmark back");
         }
+    }
+
+    /// <summary>
+    /// A finished file on a Zidoo: watched, with no resume point left at the end. The HT app's "mark as watched" only
+    /// does that for a file that isn't watched yet (on a watched one it leaves the old point), so the file is reset
+    /// first, then marked watched, then read back. On the player the stop happened on, this tidies its own leftover.
+    /// </summary>
+    private async Task ProcessFinishedAsync(PendingCopy job, Device target, ZidooClient api, EntryInfo entry, string what, CancellationToken ct)
+    {
+        bool self = job.FromName == target.Name && job.EventId.Length == 0;
+        var before = await ReadFileCellAsync(api, entry, ct);
+        if (before != null && before.Watched && before.PlayPointMs <= 0)
+        {
+            if (!self) _store.LogCopy(ActivityLevel.Skip, $"{target.Name} already has {job.Title} watched.");
+            Finish(job, TargetState.Ok, "already there");
+            return;
+        }
+        if (_store.Settings().WatchOnly)
+        {
+            _store.LogCopy(ActivityLevel.Info, self ? $"[watch-only] Would clear the leftover resume point of {job.Title} on {target.Name} (it was finished there)."
+                                                    : $"[watch-only] Would mark {job.Title} watched on {target.Name} (from {job.FromName}).");
+            Finish(job, TargetState.WatchOnly, "watch-only: would mark watched");
+            return;
+        }
+        var (clean, after) = await MarkWatchedCleanAsync(api, entry, ct);
+        if (after?.Watched == true)
+        {
+            FileWritten?.Invoke(target.Id, entry.Id, after.PlayPointMs, after.LastWatchMs, true);
+            _store.LogCopy(ActivityLevel.Ok, self
+                ? $"Cleared the leftover resume point of {job.Title} on {target.Name} (finished there; it stays watched)."
+                : $"Copied {what} (marked watched{(clean ? "" : "; the player kept a resume point at the end")}).");
+            string note = string.Join(", ", new[]
+            {
+                "watched",
+                job.WaitedFor == WaitOff ? "after it woke up" : job.WaitedFor == WaitHomeTheater ? "after Home Theater opened" : "",
+            }.Where(s => s.Length > 0));
+            Finish(job, TargetState.Ok, note);
+        }
+        else Retry(job, what, after == null ? "could not read it back" : "the player doesn't show it watched after the write");
+    }
+
+    /// <summary>Marks a Zidoo file watched with no resume point: reset, then "mark as watched", then read back. If the
+    /// player won't take "mark as watched", it's put at its full length instead, which the player also counts as watched.
+    /// Clean is true when it ended watched with no resume point.</summary>
+    public static async Task<(bool Clean, ProgressCell? After)> MarkWatchedCleanAsync(ZidooClient api, EntryInfo file, CancellationToken ct = default)
+    {
+        await api.ResetPlayPointAsync(file.Id, ct);
+        await api.MarkAsWatchedAsync(file.Id, ct);
+        ProgressCell? after = null;
+        for (int i = 0; i < 3; i++)
+        {
+            await Task.Delay(600 + 600 * i, ct);
+            after = await ReadFileCellAsync(api, file, ct);
+            if (after?.Watched == true && after.PlayPointMs <= 0) return (true, after);
+        }
+        int dur = after?.DurationMs ?? 0;
+        if (after?.Watched != true && dur > 0)
+        {
+            await api.SetPlayPointAsync(file.Id, dur, dur, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), ct);
+            await Task.Delay(800, ct);
+            after = await ReadFileCellAsync(api, file, ct);
+        }
+        return (false, after);
+    }
+
+    /// <summary>One file's state on a Zidoo (resume point, length, watched), read from the movie or season that holds it.</summary>
+    public static async Task<ProgressCell?> ReadFileCellAsync(ZidooClient api, EntryInfo file, CancellationToken ct = default)
+    {
+        var p = await api.GetEntryAsync(file.ParentId, ct);
+        if (p == null) return null;
+        (int title, bool season) = p.Type switch { 5 => (p.ParentId, true), 4 => (p.Id, true), _ => (p.Id, false) };
+        var read = await ProgressService.ReadTitleAsync(api, title, season, "", ct);
+        return read.FirstOrDefault(x => x.Cell.FileId == file.Id).Cell;
     }
 
     /// <summary>
@@ -940,7 +1024,7 @@ public sealed partial class RelayEngine : BackgroundService
         foreach (int id in ids) await api.ResetPlayPointAsync(id, ct);
 
         var left = ids.Count == 0 ? new List<int>() : (await ReadAll()).Where(HasProgress).Select(c => c.FileId).Intersect(ids).ToList();
-        foreach (int id in ids.Except(left)) FileWritten?.Invoke(target.Id, id, 0, -1);
+        foreach (int id in ids.Except(left)) FileWritten?.Invoke(target.Id, id, 0, -1, false);
         if (left.Count > 0)
         {
             Retry(job, what, $"{left.Count} episode(s) still show progress after the reset");

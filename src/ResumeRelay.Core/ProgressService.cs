@@ -418,6 +418,7 @@ public sealed class ProgressService
                 Reading,
                 Status = _status.Values.OrderBy(s => s).ToList(),
                 Devices = _devices.Values.Select(d => new { d.DeviceId, d.Name, d.ReadUtc, d.Error, d.Titles, Unread = d.Unread.Count }),
+                ShowBusy,
                 Files = shown.Select(f => new
                 {
                     f.Key, f.Display, f.IsEpisode, f.Title, f.FileName,
@@ -513,13 +514,11 @@ public sealed class ProgressService
             ProgressCell? after;
             if (watched)
             {
-                await api.MarkAsWatchedAsync(cell.FileId);
-                after = await ReadBack();
-                if (after?.Watched != true && cell.DurationMs > 0)
-                {
-                    await api.SetPlayPointAsync(cell.FileId, cell.DurationMs, cell.DurationMs, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-                    after = await ReadBack();
-                }
+                // Watched, with no resume point left (reset first: "mark as watched" leaves the point of a file that's
+                // already watched).
+                var entry = await api.GetEntryAsync(cell.FileId);
+                after = entry != null ? (await RelayEngine.MarkWatchedCleanAsync(api, entry)).After : null;
+                if (after == null) after = await ReadBack();
             }
             else
             {
@@ -575,14 +574,15 @@ public sealed class ProgressService
         return new WatchResult(d.Id, d.Name, ok, ok ? "" : "Plex didn't take the change");
     }
 
-    private int _showBusy;
-    private string _showTitle = "";
-    public string ShowBusy => Volatile.Read(ref _showBusy) == 1 ? _showTitle : "";
+    private int _bulkBusy;
+    private string _bulkLabel = "";
+    /// <summary>What a Watched All / cleanup in progress is working on ("" when none).</summary>
+    public string ShowBusy => Volatile.Read(ref _bulkBusy) == 1 ? _bulkLabel : "";
 
     /// <summary>
     /// "Watched All" / "Unwatched All" on a TV show's heading (Watch Sync): every episode of the show that the last read
     /// found, on the given players, each one marked like the per-file buttons do (and read back). Only cells that need
-    /// the change are touched. With dryRun, only says what it would do. Runs in the background; the tab shows progress.
+    /// it are touched (marking watched also tidies a watched episode that kept a resume point). dryRun only counts.
     /// </summary>
     public (string? Error, int Episodes, int Changes, int LosingResume) SetShowWatched(string show, IReadOnlyCollection<string> deviceIds, bool watched, bool dryRun)
     {
@@ -590,18 +590,49 @@ public sealed class ProgressService
         lock (_lock)
         {
             var eps = _files.Values.Where(f => f.IsEpisode && string.Equals(f.Title, show, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (eps.Count == 0) return ("That show is no longer in the list. Read the players again.", 0, 0, 0);
             work = eps.Select(f =>
             {
-                var devs = deviceIds.Where(id => _devices.TryGetValue(id, out var d) && d.Cells.TryGetValue(f.Key, out var c) && c.FileId > 0 && c.Watched != watched).ToList();
-                int losing = watched ? devs.Count(id => _devices[id].Cells[f.Key].PlayPointMs > 0) : 0;
+                var devs = deviceIds.Where(id => _devices.TryGetValue(id, out var d) && d.Cells.TryGetValue(f.Key, out var c) && c.FileId > 0
+                                                 && (watched ? !c.Watched || c.PlayPointMs > 0 : c.Watched)).ToList();
+                int losing = watched ? devs.Count(id => !_devices[id].Cells[f.Key].Watched && _devices[id].Cells[f.Key].PlayPointMs > 0) : 0;
                 return (f.Key, devs, losing);
             }).ToList();
-            if (eps.Count == 0) return ("That show is no longer in the list. Read the players again.", 0, 0, 0);
         }
         int changes = work.Sum(w => w.Devices.Count), lose = work.Sum(w => w.Losing), episodes = work.Count;
         if (dryRun || changes == 0) return (null, episodes, changes, lose);
-        if (Interlocked.Exchange(ref _showBusy, 1) == 1) return ($"Still marking {_showTitle}. Wait for it to finish.", episodes, changes, lose);
-        _showTitle = show;
+        string? err = RunBulk(show, $"Marking {show} {(watched ? "watched" : "unwatched")}", work.Select(w => (w.Key, w.Devices)).ToList(), watched,
+            (n, failed) => $"Watch Sync: marked {show} {(watched ? "watched" : "unwatched")} ({n:N0} change{(n == 1 ? "" : "s")} across {episodes:N0} episodes)"
+                           + (failed > 0 ? $"; {failed} didn't take. See the Watch Sync tab." : "."));
+        return (err, episodes, changes, lose);
+    }
+
+    /// <summary>
+    /// The one-time cleanup (Progress Reset): every file a Zidoo has marked watched that still holds a resume point (a
+    /// stop near the end keeps it) is set to watched with no resume point, like Plex stores it. dryRun only counts.
+    /// </summary>
+    public (string? Error, int Changes, int Files) TidyWatched(IReadOnlyCollection<string> deviceIds, bool dryRun)
+    {
+        List<(string Key, List<string> Devices)> work;
+        lock (_lock)
+        {
+            work = _files.Values.Select(f => (f.Key, deviceIds.Where(id => _store.Device(id) is { IsPlex: false }
+                    && _devices.TryGetValue(id, out var d) && d.Cells.TryGetValue(f.Key, out var c) && c.FileId > 0 && c.Watched && c.PlayPointMs > 0).ToList()))
+                .Where(w => w.Item2.Count > 0).ToList();
+        }
+        int changes = work.Sum(w => w.Devices.Count);
+        if (dryRun || changes == 0) return (null, changes, work.Count);
+        return (RunBulk("leftover resume points", "Clearing leftover resume points", work, true,
+            (n, failed) => $"Progress Reset: cleared {n:N0} leftover resume point{(n == 1 ? "" : "s")} on watched files" + (failed > 0 ? $"; {failed} didn't take." : ".")), changes, work.Count);
+    }
+
+    /// <summary>Marks files watched or unwatched on players, one file at a time, in the background; the tab shows
+    /// "label… n of N" and the cells update as each one is read back.</summary>
+    private string? RunBulk(string busyLabel, string label, List<(string Key, List<string> Devices)> work, bool watched, Func<int, int, string> summary)
+    {
+        if (Interlocked.Exchange(ref _bulkBusy, 1) == 1) return $"Still working on {_bulkLabel}. Wait for it to finish.";
+        _bulkLabel = busyLabel;
+        int total = work.Sum(w => w.Devices.Count);
         _ = Task.Run(async () =>
         {
             int done = 0, failed = 0;
@@ -609,20 +640,18 @@ public sealed class ProgressService
             {
                 foreach (var w in work.Where(w => w.Devices.Count > 0))
                 {
-                    _status["show"] = $"Marking {show} {(watched ? "watched" : "unwatched")}… {done:N0} of {changes:N0}";
+                    _status["bulk"] = $"{label}… {done:N0} of {total:N0}";
                     Changed();
                     var r = await SetWatchedAsync(w.Key, w.Devices, watched);
                     done += w.Devices.Count;
                     failed += r.Count(x => !x.Ok);
                 }
-                _store.Log(failed == 0 ? ActivityLevel.Ok : ActivityLevel.Warn,
-                    $"Watch Sync: marked {show} {(watched ? "watched" : "unwatched")} ({changes:N0} change{(changes == 1 ? "" : "s")} across {episodes:N0} episodes)" +
-                    (failed > 0 ? $"; {failed} didn't take. See the Watch Sync tab." : "."));
+                _store.Log(failed == 0 ? ActivityLevel.Ok : ActivityLevel.Warn, summary(total, failed));
             }
-            catch (Exception ex) { _store.Log(ActivityLevel.Error, $"Watch Sync: marking {show} stopped: {ex.Message}"); }
-            finally { _status.TryRemove("show", out _); Interlocked.Exchange(ref _showBusy, 0); Changed(); }
+            catch (Exception ex) { _store.Log(ActivityLevel.Error, $"{label} stopped: {ex.Message}"); }
+            finally { _status.TryRemove("bulk", out _); Interlocked.Exchange(ref _bulkBusy, 0); Changed(); }
         });
-        return (null, episodes, changes, lose);
+        return null;
     }
 
     /// <summary>Plain-text report of the last read of each player, for troubleshooting a "not in library".</summary>
@@ -672,7 +701,7 @@ public sealed class ProgressService
         }
     }
 
-    private void OnFileWritten(string deviceId, int fileId, int positionMs, long lastWatchMs)
+    private void OnFileWritten(string deviceId, int fileId, int positionMs, long lastWatchMs, bool watched)
     {
         lock (_lock)
         {
@@ -681,7 +710,7 @@ public sealed class ProgressService
             {
                 c.PlayPointMs = positionMs;
                 c.LastWatchMs = lastWatchMs;
-                c.Watched = positionMs > 0 && NearEnd(positionMs, c.DurationMs);
+                c.Watched = watched;
             }
             Changed();
         }

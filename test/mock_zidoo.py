@@ -260,9 +260,11 @@ def make_handler():
                 if path == "/Poster/v2/markAsWatched":
                     rec = p.entries.get(int(q.get("aggregationId", 0)))
                     p.writes.append(dict(q, call="markAsWatched"))
-                    if rec and q.get("watched") == "1":
+                    # As on a real player: an unwatched file becomes watched and its resume point is parked (negative);
+                    # a file that's already watched is left as it is, resume point included.
+                    if rec and q.get("watched") == "1" and not rec.get("watched"):
                         rec["watched"] = True
-                        rec["playPoint"] = -max(1, rec["playPoint"])   # parks the resume point as a negative value
+                        rec["playPoint"] = -max(1, rec["playPoint"])
                         rec["lastWatchTime"] = now_ms()
                     return self.send(dict(status=200, msg="success"))
                 if path == "/ZidooPoster/v2/setPlayPoint":

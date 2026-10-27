@@ -572,6 +572,31 @@ check("Watched All marks every episode watched on every ticked player", wait_for
 http("POST", RELAY + "/api/watched/set-show", {"show": "Andor", "deviceIds": three, "watched": False, "dryRun": False})
 check("Unwatched All clears them again", wait_for(lambda: (lambda c: len(c) == 6 and not any(c))(andor_cells()), 60), str(andor_cells()))
 
+# ---------------------------------------------------------------- 40. finished = watched with no resume point, everywhere
+def clean_watched(ip, url):
+    b = bookmark(ip, url)
+    return b.get("watched") and b["playPoint"] <= 0
+for ip in (LR, BR, HT):
+    mock(ip, "setlwt", url=E04, lwt=-1, pp=0)
+play_then_stop(LR, E04, 2800000)   # 48:20 long: stopped in the last minutes, so it counts as finished
+check("finishing on a Zidoo marks the other Zidoos watched with no resume point",
+      wait_for(lambda: clean_watched(BR, E04) and clean_watched(HT, E04), 30), str((bookmark(BR, E04), bookmark(HT, E04))))
+check("...and clears the leftover point on the player it was finished on", wait_for(lambda: clean_watched(LR, E04), 30), str(bookmark(LR, E04)))
+mock(BR, "setlwt", url=E03, lwt=int(time.time() * 1000), pp=2350000, watched=1)   # an old near-the-end stop
+http("POST", RELAY + "/api/progress/read", {"deviceIds": [ids[LR], ids[BR], PO]})
+wait_for(lambda: not http("GET", RELAY + "/api/progress")["reading"], 60)
+td = http("POST", RELAY + "/api/progress/tidy", {"deviceIds": [ids[LR], ids[BR], PO], "dryRun": True})
+check("the cleanup counts watched files that kept a resume point", td["changes"] >= 1 and not clean_watched(BR, E03), str(td))
+http("POST", RELAY + "/api/progress/tidy", {"deviceIds": [ids[LR], ids[BR], PO], "dryRun": False})
+check("the cleanup leaves them watched with no resume point", wait_for(lambda: clean_watched(BR, E03), 30), str(bookmark(BR, E03)))
+check("...and they leave the Progress Reset list", wait_for(lambda: not any(f["key"] == k3 and f["cells"].get(ids[BR], {}).get("playPointMs", 0) > 0
+                                                                          for f in http("GET", RELAY + "/api/progress")["files"]), 20))
+mock(BR, "setlwt", url=E03, lwt=int(time.time() * 1000), pp=2350000, watched=1)
+http("POST", RELAY + "/api/progress/read", {"deviceIds": [ids[BR]]})
+wait_for(lambda: not http("GET", RELAY + "/api/progress")["reading"], 60)
+r = http("POST", RELAY + "/api/watched/set", {"key": k3, "deviceIds": [ids[BR]], "watched": True})
+check("Watch Sync's Watched also clears a leftover point on an already watched file", r[0]["ok"] and clean_watched(BR, E03), str((r, bookmark(BR, E03))))
+
 passed = sum(1 for _, ok in results if ok)
 print(f"\n{passed}/{len(results)} passed")
 sys.exit(0 if passed == len(results) else 1)

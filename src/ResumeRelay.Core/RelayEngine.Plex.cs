@@ -317,7 +317,7 @@ public sealed partial class RelayEngine
 
         if (landed)
         {
-            FileWritten?.Invoke(target.Id, item.Key, reset ? 0 : finished ? duration : after!.ViewOffsetMs, reset ? -1 : DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            FileWritten?.Invoke(target.Id, item.Key, reset || finished ? 0 : after!.ViewOffsetMs, reset ? -1 : DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), finished);
             _store.LogCopy(ActivityLevel.Ok, reset ? $"Reset {job.Title} on {target.Name} ({why})." : $"Copied {what}" + (finished ? " (marked played)." : "."));
             Finish(job, TargetState.Ok, reset ? "reset" : finished ? "watched" : "");
         }
@@ -351,7 +351,7 @@ public sealed partial class RelayEngine
         var after = with.Count == 0 ? new List<PlexItem>() : await api.ShowEpisodesAsync(episode.ShowKey, ct);
         if (after == null) { Retry(job, what, "could not read the show back from Plex"); return; }
         var left = after.Where(e => e.ViewOffsetMs > 0 || e.ViewCount > 0).ToList();
-        foreach (var e in with.Where(w => !left.Any(l => l.Key == w.Key))) FileWritten?.Invoke(target.Id, e.Key, 0, -1);
+        foreach (var e in with.Where(w => !left.Any(l => l.Key == w.Key))) FileWritten?.Invoke(target.Id, e.Key, 0, -1, false);
         if (left.Count > 0) { Retry(job, what, $"{left.Count} episode(s) still show progress on Plex after the reset"); return; }
         _store.LogCopy(ActivityLevel.Ok, $"Reset every episode of {job.Title} on {target.Name} ({with.Count} had progress).");
         Finish(job, TargetState.Ok, with.Count == 0 ? "nothing to reset" : $"{with.Count} episode{(with.Count == 1 ? "" : "s")} reset");

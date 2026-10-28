@@ -446,7 +446,7 @@ sug = http("GET", RELAY + "/api/plex/suggest")
 check("folder mapping suggested from a file a Zidoo played", sug["suggested"] and sug["suggested"][0] == {"plexFolder": "/shares/Entertainment", "zidooFolder": SHARE}, str(sug))
 http("POST", RELAY + "/api/plex/mapping", {"mappings": sug["suggested"][:1]})
 t = http("POST", RELAY + "/api/plex/test")
-check("mapping test: every Plex file is covered and a Zidoo finds them", t["mapped"] == t["total"] == 4 and t["asked"] > 0 and t["found"] == t["asked"], str(t))
+check("mapping test: every Plex file is covered (extras included) and a Zidoo finds them", t["mapped"] == t["total"] == 5 and t["asked"] > 0 and t["found"] == t["asked"], str(t))
 users = http("GET", RELAY + "/api/plex/users")
 check("Plex Home users are listed", [u["title"] for u in users] == ["chet", "Kid"], str(users))
 http("POST", RELAY + "/api/plex/users", {"uuid": "uuid-chet"})
@@ -624,6 +624,24 @@ q = http("GET", RELAY + "/api/progress")["jobs"]
 http("DELETE", RELAY + "/api/progress/jobs/" + q[-1]["id"])
 check("a waiting job can be removed", wait_for(lambda: not http("GET", RELAY + "/api/progress")["jobs"], 90)
       and all(bookmark(ip, u).get("watched") for ip in (LR, BR) for u in (E03, E04)), str(q))
+
+# ---------------------------------------------------------------- 42. Plex extras (Behind The Scenes, Featurettes…)
+P_FEAT = plexmock("keys")["Braveheart (1995).(7#A Writer's Journal).mkv"]
+play_then_stop(LR, FEAT, 400000)
+check("a Zidoo stop in a special feature reaches the movie's extra on Plex", wait_for(lambda: plexitem("1001", P_FEAT)["viewOffset"] == 400000, 30), str(plexitem("1001", P_FEAT)))
+plexmock("play", user="1001", key=P_FEAT, pos=600000)
+time.sleep(4)
+plexmock("stop", user="1001", final=610000)
+check("a Plex stop in an extra reaches the Zidoos", wait_for(lambda: bookmark(LR, FEAT)["playPoint"] == 610000 and bookmark(BR, FEAT)["playPoint"] == 610000, 30),
+      str((bookmark(LR, FEAT)["playPoint"], bookmark(BR, FEAT)["playPoint"])))
+http("POST", RELAY + "/api/progress/read", {"deviceIds": [ids[LR], PO]})
+wait_for(lambda: not http("GET", RELAY + "/api/progress")["reading"], 60)
+kf = "/movies/braveheart/featurettes/braveheart (1995).(7#a writer's journal).mkv"
+ff = next((f for f in http("GET", RELAY + "/api/progress")["files"] if f["key"] == kf), None)
+check("extras get a Plex column on Progress Reset", ff and ff["cells"].get(PO, {}).get("playPointMs") == 610000, str(ff))
+mv = {f["key"] for f in http("GET", RELAY + "/api/watched?show=movies&players=" + urllib.parse.quote(ids[LR]))["files"]}
+tv = {f["key"] for f in http("GET", RELAY + "/api/watched?show=tv&players=" + urllib.parse.quote(ids[LR]))["files"]}
+check("Watch Sync: All Movie files / All TV Show files", kf in mv and k3 in tv and k3 not in mv and kf not in tv, str((mv, tv)))
 
 passed = sum(1 for _, ok in results if ok)
 print(f"\n{passed}/{len(results)} passed")

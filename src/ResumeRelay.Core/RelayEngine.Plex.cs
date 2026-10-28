@@ -157,7 +157,7 @@ public sealed partial class RelayEngine
         }
 
         var prev = live.Playing;
-        var s = sessions.FirstOrDefault(x => IsUser(d, x, cfg) && (x.Item.Type is "movie" or "episode"));
+        var s = sessions.FirstOrDefault(x => IsUser(d, x, cfg) && (x.Item.Type is "movie" or "episode" or "clip"));
         var files = s == null ? new List<string>() : await PlexSessionFilesAsync(d, s.Item, ct);
         if (s != null && files.Count > 0)
         {

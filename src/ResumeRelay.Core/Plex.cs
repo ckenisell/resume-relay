@@ -249,8 +249,28 @@ public sealed class PlexClient
             var items = await SectionItemsAsync(s.Key, s.Type == "movie" ? 1 : 4, ct);
             if (items == null) return null;
             all.AddRange(items);
+            if (s.Type == "movie") all.AddRange(await ExtrasOfAsync(items, ct));
         }
         return all;
+    }
+
+    /// <summary>
+    /// A movie's extras (Behind The Scenes, Featurettes, Deleted Scenes… subfolders) aren't in the library listing: Plex
+    /// keeps them under their movie. Each is its own item with its own resume point, so each movie is asked for its
+    /// extras, a few at a time. Only extras that are local files count (online trailers have no file to match).
+    /// A movie that doesn't answer just contributes none.
+    /// </summary>
+    public async Task<List<PlexItem>> ExtrasOfAsync(List<PlexItem> movies, CancellationToken ct = default)
+    {
+        var found = new System.Collections.Concurrent.ConcurrentBag<PlexItem>();
+        await Parallel.ForEachAsync(movies.Where(m => m.Key > 0), new ParallelOptions { MaxDegreeOfParallelism = 6, CancellationToken = ct }, async (m, token) =>
+        {
+            using var d = await GetAsync($"/library/metadata/{m.Key}/extras", Normal, token);
+            if (d == null) return;
+            foreach (var x in Arr(Container(d), "Metadata").Select(ParseItem).Where(x => x.Files.Count > 0 && x.Key > 0))
+                found.Add(x with { Type = "clip", Year = x.Year > 0 ? x.Year : m.Year });
+        });
+        return found.ToList();
     }
 
     public async Task<PlexItem?> ItemAsync(int key, CancellationToken ct = default)

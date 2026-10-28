@@ -444,13 +444,14 @@ public sealed class ProgressService
                 if (q.Length > 0 && !f.Display.Contains(q, StringComparison.OrdinalIgnoreCase) && !f.FileName.Contains(q, StringComparison.OrdinalIgnoreCase)) return false;
                 var cells = devs.Select(d => d.Cells.GetValueOrDefault(f.Key)).Where(c => c != null).ToList();
                 if (cells.Count == 0) return false;
+                if (show == "movies" && f.IsEpisode || show == "tv" && !f.IsEpisode) return false;
                 int w = cells.Count(c => c!.Watched);
                 return show switch
                 {
                     "missing" => cells.Count < devs.Count,
                     "watched" => w > 0,
                     "unwatched" => w == 0,
-                    "all" => true,
+                    "all" or "movies" or "tv" => true,
                     _ => w > 0 && w < cells.Count,
                 };
             }).ToList();

@@ -36,16 +36,21 @@ def setup(files):
     import re
     show_keys = {}
     k = 100
+    movie_key = {}
     for rel, dur, title in files:
-        if "/Featurettes/" in rel:
-            continue  # Plex keeps extras out of the library listing
         k += 1
+        if "/Featurettes/" in rel:
+            # An extra: its own item with its own resume point, but listed under its movie, not in the library.
+            ITEMS[k] = dict(type="clip", title=rel.rsplit("/", 1)[1], show="", season=0, episode=0, year=1995,
+                            file=PLEX_ROOT + rel, duration=dur, showKey=0, parent=movie_key.get(title, 0))
+            continue
         m = re.search(r"S(\d+)E(\d+)", rel)
         if m:
             sk = show_keys.setdefault(title, 900 + len(show_keys))
             ITEMS[k] = dict(type="episode", title=f"Episode {int(m.group(2))}", show=title, season=int(m.group(1)),
                             episode=int(m.group(2)), year=2022, file=PLEX_ROOT + rel, duration=dur, showKey=sk)
         else:
+            movie_key[title] = k
             ITEMS[k] = dict(type="movie", title=title, show="", season=0, episode=0, year=2016,
                             file=PLEX_ROOT + rel, duration=dur, showKey=0)
 
@@ -136,6 +141,9 @@ class Server(Base):
             if path.startswith("/library/metadata/"):
                 bits = path.split("/")
                 key = int(bits[3])
+                if len(bits) > 4 and bits[4] == "extras":
+                    return self.send(dict(MediaContainer=dict(Metadata=[dict(meta(user, k), extraType=5, subtype="behindTheScenes")
+                                                                        for k, it in sorted(ITEMS.items()) if it.get("parent") == key])))
                 if len(bits) > 4 and bits[4] == "allLeaves":
                     return self.send(dict(MediaContainer=dict(Metadata=[meta(user, k) for k, it in sorted(ITEMS.items()) if it["showKey"] == key])))
                 if len(bits) > 4 and bits[4] == "thumb":

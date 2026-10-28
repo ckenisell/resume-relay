@@ -179,6 +179,13 @@ p.hint { margin: 0 0 14px; color: var(--muted); font-size: 13.5px; max-width: 75
 .pr-sort select { font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 6px 8px; }
 .pr-status { color: var(--muted); font-size: 13px; margin: 0 0 10px; }
 .pr-status:empty { display: none; }
+/* Watched All / Unwatched All / cleanup jobs: one runs, the rest wait their turn. */
+.jobs { display: flex; flex-direction: column; gap: 6px; margin: 0 0 12px; }
+.job { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; font-size: 13px; color: var(--muted); }
+.job b { color: var(--text); font-weight: 600; }
+.job .bar { flex: 0 0 120px; height: 5px; border-radius: 3px; background: var(--panel-2); overflow: hidden; }
+.job .bar i { display: block; height: 100%; background: var(--amber); }
+.job .btn { padding: 2px 10px; font-size: 12.5px; }
 .pr-box { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 14px 16px 6px; }
 .pr-count { color: var(--amber); font-weight: 600; margin: 0 0 10px; }
 .pr-wrap { overflow-x: auto; }
@@ -879,7 +886,7 @@ $("#reset-dialog").addEventListener("close", () => { onContinue = null; });
 $("#reset-go").onclick = async () => {
   const action = onContinue; $("#reset-dialog").close();
   if (!action) return;
-  try { await action(); } catch (err) { alert(err.message); }
+  try { await action(); } catch (err) { toast(err.message, true); }
   refresh();
 };
 
@@ -1000,6 +1007,22 @@ function prCell(c, read) {
     <div class="pr-sub tnum">${clock(c.playPointMs)}${c.durationMs > 0 ? " of " + clock(c.durationMs) : ""}${c.lastWatchMs > 0 ? " · " + prDate(c.lastWatchMs) : ""}</div>`;
 }
 
+// The Watched All / Unwatched All / cleanup queue, shown on both tabs with Stop / Remove.
+function jobsHtml(jobs) {
+  if (!jobs || !jobs.length) return "";
+  return `<div class="jobs">${jobs.map(j => j.running
+    ? `<div class="job"><b>${esc(j.label)}…</b><span class="bar" aria-hidden="true"><i style="width:${j.total ? Math.round(100 * j.done / j.total) : 0}%"></i></span>
+        <span class="tnum">${j.done.toLocaleString()} of ${j.total.toLocaleString()}</span><button class="btn quiet danger" data-job-cancel="${esc(j.id)}" title="Stops after the file it's on">Stop</button></div>`
+    : `<div class="job">Next: <b>${esc(j.label)}</b> <span class="tnum">(${j.total.toLocaleString()})</span><button class="btn quiet danger" data-job-cancel="${esc(j.id)}">Remove</button></div>`).join("")}</div>`;
+}
+const jobFor = (jobs, key) => (jobs || []).find(j => j.key.toLowerCase() === String(key).toLowerCase());
+document.addEventListener("click", async e => {
+  const b = e.target.closest("[data-job-cancel]"); if (!b) return;
+  b.disabled = true;
+  try { await api("DELETE", "/api/progress/jobs/" + encodeURIComponent(b.dataset.jobCancel)); } catch (err) { toast(err.message, true); }
+  prCache = ""; refresh();
+});
+
 // "The Matrix" sorts under M and "A Beautiful Mind" under B, as on the players.
 const sortTitle = t => String(t || "").replace(/^(the|a|an)\s+/i, "");
 
@@ -1117,7 +1140,7 @@ function renderProgress() {
   renderProgressControls();
   const read = $("#pr-read");
   read.disabled = !!progress?.reading; read.textContent = progress?.reading ? "Reading…" : "Read players";
-  $("#pr-status").innerHTML = (progress?.status || []).map(esc).join("<br>");
+  $("#pr-status").innerHTML = (progress?.status || []).map(esc).join("<br>") + jobsHtml(progress?.jobs);
   if (!progress) return;
   const ticked = prTicked();
   const devs = (state?.devices || []).filter(d => ticked.includes(d.id));
@@ -1155,7 +1178,8 @@ function renderProgress() {
     // Watched files a Zidoo still holds a resume point for (a stop near the end keeps it): the one-time cleanup.
     const zdevs = devs.filter(d => d.kind !== "plex" && readOf[d.id]?.readUtc);
     const leftovers = (progress.files || []).reduce((n, f) => n + zdevs.filter(d => f.cells[d.id]?.watched && f.cells[d.id].playPointMs > 0).length, 0);
-    const tidy = progress.showBusy === "leftover resume points" ? `<button class="btn quiet" disabled>Clearing…</button>`
+    const tidyJob = jobFor(progress.jobs, "tidy");
+    const tidy = tidyJob ? `<button class="btn quiet" disabled>${tidyJob.running ? "Clearing…" : "Queued…"}</button>`
       : leftovers ? `<button class="btn quiet" data-pr-tidy title="Watched files that kept their resume point at the end">Clear ${leftovers.toLocaleString()} leftover resume point${leftovers === 1 ? "" : "s"}</button>` : "";
     html = `<div class="pr-box"><div class="pr-top"><p class="pr-count">${rows.length.toLocaleString()} file(s) in progress${label}</p>
       <div class="pr-apply">${tidy}${nq ? `<button class="btn quiet" data-pr-clear>Clear all</button><button class="btn go" data-pr-apply>Apply ${nq} change${nq === 1 ? "" : "s"}</button>` : ""}</div></div>
@@ -1264,7 +1288,7 @@ function renderWatch() {
   renderWatchControls();
   const read = $("#ws-read");
   read.disabled = !!watch?.reading; read.textContent = watch?.reading ? "Reading…" : "Read players";
-  $("#ws-status").innerHTML = (watch?.status || []).map(esc).join("<br>");
+  $("#ws-status").innerHTML = (watch?.status || []).map(esc).join("<br>") + jobsHtml(watch?.jobs);
   if (!watch) return;
   const ticked = wsTicked();
   const devs = (state?.devices || []).filter(d => ticked.includes(d.id));
@@ -1281,9 +1305,8 @@ function renderWatch() {
     }).join("");
     const wsActs = f => `<button class="btn mini" data-ws-all="1" data-ws-key="${esc(f.key)}">Watched</button><button class="btn mini" data-ws-all="0" data-ws-key="${esc(f.key)}">Unwatched</button>`;
     const wsLine = (f, d) => wsCell(f, d, !!readOf[d.id]?.readUtc);
-    const busyShow = watch.showBusy || "";
-    const wsShowActs = f => busyShow && busyShow.toLowerCase() === f.title.toLowerCase()
-      ? `<button class="btn mini" disabled>Marking…</button>`
+    const wsShowActs = f => jobFor(watch.jobs, f.title)
+      ? `<button class="btn mini" disabled>${jobFor(watch.jobs, f.title).running ? "Marking…" : "Queued…"}</button>`
       : `<button class="btn mini" data-ws-show="1" data-ws-title="${esc(f.title)}">Watched All</button><button class="btn mini" data-ws-show="0" data-ws-title="${esc(f.title)}">Unwatched All</button>`;
     const body = tableRows(rows, devs, wsActs, wsLine, wsShowActs);
     const first = (watch.page - 1) * watch.pageSize + 1, last = first + rows.length - 1;
@@ -1305,12 +1328,17 @@ async function wsShowAll(show, watched) {
   const deviceIds = wsTicked(), what = watched ? "watched" : "unwatched";
   try {
     const n = await api("POST", "/api/watched/set-show", { show, deviceIds, watched, dryRun: true });
-    if (!n.changes) { toast(`Every episode of ${show} is already ${what} on the ticked players.`); return; }
+    if (!n.changes && !(watch?.jobs || []).length) { toast(`Every episode of ${show} is already ${what} on the ticked players.`); return; }
     const names = (state?.devices || []).filter(d => deviceIds.includes(d.id)).map(d => `<b>${esc(d.name)}</b>`).join(", ");
     confirmReset(watched ? "Mark all watched" : "Mark all unwatched",
-      `This will mark all ${n.episodes} episodes of <b>${esc(show)}</b> ${what} on ${names} (${n.changes} change${n.changes === 1 ? "" : "s"}).` +
+      `This will mark all ${n.episodes} episodes of <b>${esc(show)}</b> ${what} on ${names}` + (n.changes ? ` (${n.changes} change${n.changes === 1 ? "" : "s"} right now).` : ".") +
       (watched ? (n.losingResume ? ` It removes the resume point on ${n.losingResume} of them.` : "") : " Resume points are kept."),
-      async () => { await api("POST", "/api/watched/set-show", { show, deviceIds, watched, dryRun: false }); loadWatch(true); });
+      async () => {
+        const ahead = (watch?.jobs || []).length;
+        await api("POST", "/api/watched/set-show", { show, deviceIds, watched, dryRun: false });
+        if (ahead) toast(`Queued: ${show} starts when the ${ahead === 1 ? "job" : ahead + " jobs"} ahead of it finish${ahead === 1 ? "es" : ""}.`);
+        loadWatch(true);
+      });
   } catch (err) { say($("#ws-msg"), err.message, "err"); }
 }
 

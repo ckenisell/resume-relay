@@ -295,7 +295,7 @@ public static class RelayHost
     {
         // The page passes the version it already has; an unchanged list isn't sent again.
         app.MapGet("/api/progress", (long? v) =>
-            v == progress.Version ? Results.Ok(new { Unchanged = true, progress.Version, progress.Reading, Status = progress.StatusLines }) : Results.Ok(progress.Snapshot()));
+            v == progress.Version ? Results.Ok(new { Unchanged = true, progress.Version, progress.Reading, Status = progress.StatusLines, Jobs = progress.Jobs() }) : Results.Ok(progress.Snapshot()));
         app.MapGet("/api/watched", (string? show, string? players, string? q, string? sort, int? page, int? pageSize) =>
             Results.Ok(progress.WatchSnapshot(show ?? "different",
                 (players ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries), q ?? "",
@@ -305,6 +305,8 @@ public static class RelayHost
             var r = await progress.SetWatchedAsync(req.Key ?? "", req.DeviceIds ?? new List<string>(), req.Watched);
             return r.Count == 0 ? Results.BadRequest(new { Error = "That file is no longer in the list. Read the players again." }) : Results.Ok(r);
         });
+        // Remove a waiting Watched All / cleanup job, or stop the running one after its current file.
+        app.MapDelete("/api/progress/jobs/{id}", (string id) => progress.CancelJob(id) ? Results.Ok() : Results.NotFound());
         // The one-time cleanup on Progress Reset: watched files that kept a resume point. dryRun=true only counts.
         app.MapPost("/api/progress/tidy", (TidyRequest req) =>
         {

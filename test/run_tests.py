@@ -597,6 +597,34 @@ wait_for(lambda: not http("GET", RELAY + "/api/progress")["reading"], 60)
 r = http("POST", RELAY + "/api/watched/set", {"key": k3, "deviceIds": [ids[BR]], "watched": True})
 check("Watch Sync's Watched also clears a leftover point on an already watched file", r[0]["ok"] and clean_watched(BR, E03), str((r, bookmark(BR, E03))))
 
+# ---------------------------------------------------------------- 41. Watched All jobs queue up, no duplicates, can be removed
+http("POST", RELAY + "/api/progress/read", {"deviceIds": [ids[LR], ids[BR], PO]})
+wait_for(lambda: not http("GET", RELAY + "/api/progress")["reading"], 60)
+for ip in (LR, BR):
+    for u in (E03, E04):
+        mock(ip, "setlwt", url=u, lwt=-1, pp=0)
+http("POST", RELAY + "/api/progress/read", {"deviceIds": [ids[LR], ids[BR], PO]})
+wait_for(lambda: not http("GET", RELAY + "/api/progress")["reading"], 60)
+two = [ids[LR], ids[BR]]
+http("POST", RELAY + "/api/watched/set-show", {"show": "Andor", "deviceIds": two, "watched": True, "dryRun": False})
+try:
+    http("POST", RELAY + "/api/watched/set-show", {"show": "Andor", "deviceIds": two, "watched": True, "dryRun": False}); dup = None
+except urllib.error.HTTPError as e:
+    dup = json.loads(e.read().decode())
+check("the same Watched All twice is refused, not queued twice", dup and "already" in dup["error"], str(dup))
+http("POST", RELAY + "/api/watched/set-show", {"show": "Andor", "deviceIds": two, "watched": False, "dryRun": False})
+jobs = http("GET", RELAY + "/api/progress")["jobs"]
+check("a second job waits its turn behind the first", len(jobs) == 2 and jobs[0]["running"] and not jobs[1]["running"], str(jobs))
+check("the queued job then runs: Unwatched All wins, in the order pressed",
+      wait_for(lambda: not http("GET", RELAY + "/api/progress")["jobs"] and not any(bookmark(ip, u).get("watched") for ip in (LR, BR) for u in (E03, E04)), 90),
+      str([(ip, u[-8:], bookmark(ip, u)) for ip in (LR, BR) for u in (E03, E04)]))
+http("POST", RELAY + "/api/watched/set-show", {"show": "Andor", "deviceIds": two, "watched": True, "dryRun": False})
+http("POST", RELAY + "/api/watched/set-show", {"show": "Andor", "deviceIds": two, "watched": False, "dryRun": False})
+q = http("GET", RELAY + "/api/progress")["jobs"]
+http("DELETE", RELAY + "/api/progress/jobs/" + q[-1]["id"])
+check("a waiting job can be removed", wait_for(lambda: not http("GET", RELAY + "/api/progress")["jobs"], 90)
+      and all(bookmark(ip, u).get("watched") for ip in (LR, BR) for u in (E03, E04)), str(q))
+
 passed = sum(1 for _, ok in results if ok)
 print(f"\n{passed}/{len(results)} passed")
 sys.exit(0 if passed == len(results) else 1)

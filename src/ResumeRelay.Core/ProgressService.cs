@@ -93,12 +93,12 @@ public sealed class ProgressService
         var devices = _store.Devices().Where(d => deviceIds.Contains(d.Id)).ToList();
         if (devices.Count == 0) return "Tick at least one player to read.";
         if (Interlocked.Exchange(ref _reading, 1) == 1) return "Already reading the players.";
-        _status.Clear();
+        foreach (var k in _status.Keys.Where(k => k != "bulk").ToList()) _status.TryRemove(k, out _);
         foreach (var d in devices) _status[d.Id] = $"Waiting to read {d.Name}…";
         _ = Task.Run(async () =>
         {
             try { await Task.WhenAll(devices.Select(d => ReadDeviceAsync(d, stopping))); }
-            finally { _status.Clear(); Interlocked.Exchange(ref _reading, 0); }
+            finally { foreach (var k in _status.Keys.Where(k => k != "bulk").ToList()) _status.TryRemove(k, out _); Interlocked.Exchange(ref _reading, 0); }
         }, stopping);
         return null;
     }
@@ -418,7 +418,7 @@ public sealed class ProgressService
                 Reading,
                 Status = _status.Values.OrderBy(s => s).ToList(),
                 Devices = _devices.Values.Select(d => new { d.DeviceId, d.Name, d.ReadUtc, d.Error, d.Titles, Unread = d.Unread.Count }),
-                ShowBusy,
+                Jobs = Jobs(),
                 Files = shown.Select(f => new
                 {
                     f.Key, f.Display, f.IsEpisode, f.Title, f.FileName,
@@ -467,7 +467,7 @@ public sealed class ProgressService
                 Reading,
                 Status = _status.Values.OrderBy(s => s).ToList(),
                 Devices = _devices.Values.Select(d => new { d.DeviceId, d.Name, d.ReadUtc, d.Error, d.Titles, Unread = d.Unread.Count }),
-                ShowBusy,
+                Jobs = Jobs(),
                 Total = rows.Count,
                 Page = page,
                 Pages = pages,
@@ -574,10 +574,43 @@ public sealed class ProgressService
         return new WatchResult(d.Id, d.Name, ok, ok ? "" : "Plex didn't take the change");
     }
 
-    private int _bulkBusy;
-    private string _bulkLabel = "";
-    /// <summary>What a Watched All / cleanup in progress is working on ("" when none).</summary>
-    public string ShowBusy => Volatile.Read(ref _bulkBusy) == 1 ? _bulkLabel : "";
+    /// <summary>A Watched All / Unwatched All / cleanup job. They run one at a time, in the order pressed.</summary>
+    private sealed class BulkJob
+    {
+        public string Id = Guid.NewGuid().ToString("N")[..8];
+        public string Key = "";         // the show's title, or "tidy"
+        public bool Watched;
+        public string Label = "";       // "Marking The Big Bang Theory watched"
+        /// <summary>Works out the changes when the job starts (not when it was queued), so it acts on what earlier jobs left.</summary>
+        public Func<List<(string Key, List<string> Devices)>> Plan = () => new();
+        public Func<int, int, string> Summary = (_, _) => "";
+        public int Total, Done;
+        public bool Running, Cancel;
+    }
+    private readonly List<BulkJob> _jobs = new();
+    private bool _worker;
+
+    /// <summary>The queue as the tabs show it: what's running (with its count) and what's waiting.</summary>
+    public object Jobs()
+    {
+        lock (_jobs) return _jobs.Select(j => new { j.Id, j.Key, j.Watched, j.Label, j.Running, j.Done, j.Total }).ToList();
+    }
+
+    /// <summary>The show being marked (kept for older pages).</summary>
+    public string ShowBusy { get { lock (_jobs) return _jobs.FirstOrDefault(j => j.Running)?.Key ?? ""; } }
+
+    /// <summary>Removes a waiting job, or stops the running one after the file it's on.</summary>
+    public bool CancelJob(string id)
+    {
+        lock (_jobs)
+        {
+            var j = _jobs.FirstOrDefault(x => x.Id == id);
+            if (j == null) return false;
+            if (j.Running) j.Cancel = true; else _jobs.Remove(j);
+        }
+        UpdateJobStatus(); Changed();
+        return true;
+    }
 
     /// <summary>
     /// "Watched All" / "Unwatched All" on a TV show's heading (Watch Sync): every episode of the show that the last read
@@ -586,22 +619,28 @@ public sealed class ProgressService
     /// </summary>
     public (string? Error, int Episodes, int Changes, int LosingResume) SetShowWatched(string show, IReadOnlyCollection<string> deviceIds, bool watched, bool dryRun)
     {
-        List<(string Key, List<string> Devices, int Losing)> work;
-        lock (_lock)
+        List<(string Key, List<string> Devices, int Losing)>? Plan()
         {
-            var eps = _files.Values.Where(f => f.IsEpisode && string.Equals(f.Title, show, StringComparison.OrdinalIgnoreCase)).ToList();
-            if (eps.Count == 0) return ("That show is no longer in the list. Read the players again.", 0, 0, 0);
-            work = eps.Select(f =>
+            lock (_lock)
             {
-                var devs = deviceIds.Where(id => _devices.TryGetValue(id, out var d) && d.Cells.TryGetValue(f.Key, out var c) && c.FileId > 0
-                                                 && (watched ? !c.Watched || c.PlayPointMs > 0 : c.Watched)).ToList();
-                int losing = watched ? devs.Count(id => !_devices[id].Cells[f.Key].Watched && _devices[id].Cells[f.Key].PlayPointMs > 0) : 0;
-                return (f.Key, devs, losing);
-            }).ToList();
+                var eps = _files.Values.Where(f => f.IsEpisode && string.Equals(f.Title, show, StringComparison.OrdinalIgnoreCase)).ToList();
+                if (eps.Count == 0) return null;
+                return eps.Select(f =>
+                {
+                    var devs = deviceIds.Where(id => _devices.TryGetValue(id, out var d) && d.Cells.TryGetValue(f.Key, out var c) && c.FileId > 0
+                                                     && (watched ? !c.Watched || c.PlayPointMs > 0 : c.Watched)).ToList();
+                    int losing = watched ? devs.Count(id => !_devices[id].Cells[f.Key].Watched && _devices[id].Cells[f.Key].PlayPointMs > 0) : 0;
+                    return (f.Key, devs, losing);
+                }).ToList();
+            }
         }
+        var work = Plan();
+        if (work == null) return ("That show is no longer in the list. Read the players again.", 0, 0, 0);
         int changes = work.Sum(w => w.Devices.Count), lose = work.Sum(w => w.Losing), episodes = work.Count;
-        if (dryRun || changes == 0) return (null, episodes, changes, lose);
-        string? err = RunBulk(show, $"Marking {show} {(watched ? "watched" : "unwatched")}", work.Select(w => (w.Key, w.Devices)).ToList(), watched,
+        // Queued even when nothing needs changing right now: a job ahead of it may change that.
+        bool ahead; lock (_jobs) ahead = _jobs.Count > 0;
+        if (dryRun || (changes == 0 && !ahead)) return (null, episodes, changes, lose);
+        string? err = Enqueue(show, $"Marking {show} {(watched ? "watched" : "unwatched")}", () => (Plan() ?? new()).Select(w => (w.Key, w.Devices)).ToList(), watched,
             (n, failed) => $"Watch Sync: marked {show} {(watched ? "watched" : "unwatched")} ({n:N0} change{(n == 1 ? "" : "s")} across {episodes:N0} episodes)"
                            + (failed > 0 ? $"; {failed} didn't take. See the Watch Sync tab." : "."));
         return (err, episodes, changes, lose);
@@ -613,46 +652,73 @@ public sealed class ProgressService
     /// </summary>
     public (string? Error, int Changes, int Files) TidyWatched(IReadOnlyCollection<string> deviceIds, bool dryRun)
     {
-        List<(string Key, List<string> Devices)> work;
-        lock (_lock)
+        List<(string Key, List<string> Devices)> Plan()
         {
-            work = _files.Values.Select(f => (f.Key, deviceIds.Where(id => _store.Device(id) is { IsPlex: false }
-                    && _devices.TryGetValue(id, out var d) && d.Cells.TryGetValue(f.Key, out var c) && c.FileId > 0 && c.Watched && c.PlayPointMs > 0).ToList()))
-                .Where(w => w.Item2.Count > 0).ToList();
+            lock (_lock)
+                return _files.Values.Select(f => (f.Key, deviceIds.Where(id => _store.Device(id) is { IsPlex: false }
+                        && _devices.TryGetValue(id, out var d) && d.Cells.TryGetValue(f.Key, out var c) && c.FileId > 0 && c.Watched && c.PlayPointMs > 0).ToList()))
+                    .Where(w => w.Item2.Count > 0).ToList();
         }
+        var work = Plan();
         int changes = work.Sum(w => w.Devices.Count);
         if (dryRun || changes == 0) return (null, changes, work.Count);
-        return (RunBulk("leftover resume points", "Clearing leftover resume points", work, true,
+        return (Enqueue("tidy", "Clearing leftover resume points", Plan, true,
             (n, failed) => $"Progress Reset: cleared {n:N0} leftover resume point{(n == 1 ? "" : "s")} on watched files" + (failed > 0 ? $"; {failed} didn't take." : ".")), changes, work.Count);
     }
 
-    /// <summary>Marks files watched or unwatched on players, one file at a time, in the background; the tab shows
-    /// "label… n of N" and the cells update as each one is read back.</summary>
-    private string? RunBulk(string busyLabel, string label, List<(string Key, List<string> Devices)> work, bool watched, Func<int, int, string> summary)
+    /// <summary>Queues a job (refused when the same one is already running or waiting). Jobs run one at a time in the
+    /// background, one file at a time; the tabs show "label… n of N · next: …" and cells update as each is read back.</summary>
+    private string? Enqueue(string key, string label, Func<List<(string Key, List<string> Devices)>> plan, bool watched, Func<int, int, string> summary)
     {
-        if (Interlocked.Exchange(ref _bulkBusy, 1) == 1) return $"Still working on {_bulkLabel}. Wait for it to finish.";
-        _bulkLabel = busyLabel;
-        int total = work.Sum(w => w.Devices.Count);
-        _ = Task.Run(async () =>
+        lock (_jobs)
         {
-            int done = 0, failed = 0;
-            try
-            {
-                foreach (var w in work.Where(w => w.Devices.Count > 0))
-                {
-                    _status["bulk"] = $"{label}… {done:N0} of {total:N0}";
-                    Changed();
-                    var r = await SetWatchedAsync(w.Key, w.Devices, watched);
-                    done += w.Devices.Count;
-                    failed += r.Count(x => !x.Ok);
-                }
-                _store.Log(failed == 0 ? ActivityLevel.Ok : ActivityLevel.Warn, summary(total, failed));
-            }
-            catch (Exception ex) { _store.Log(ActivityLevel.Error, $"{label} stopped: {ex.Message}"); }
-            finally { _status.TryRemove("bulk", out _); Interlocked.Exchange(ref _bulkBusy, 0); Changed(); }
-        });
+            var same = _jobs.FirstOrDefault(j => j.Key == key && j.Watched == watched && !j.Cancel);
+            if (same != null) return same.Running ? $"{same.Label} is already running." : $"{same.Label} is already queued.";
+            _jobs.Add(new BulkJob { Key = key, Watched = watched, Label = label, Plan = plan, Summary = summary, Total = plan().Sum(w => w.Devices.Count) });
+            if (!_worker) { _worker = true; _ = Task.Run(WorkAsync); }
+        }
+        UpdateJobStatus(); Changed();
         return null;
     }
+
+    private async Task WorkAsync()
+    {
+        while (true)
+        {
+            BulkJob? job;
+            lock (_jobs)
+            {
+                job = _jobs.FirstOrDefault();
+                if (job == null) { _worker = false; return; }
+                job.Running = true;
+            }
+            int failed = 0;
+            try
+            {
+                var work = job.Plan();
+                job.Total = work.Sum(w => w.Devices.Count);
+                foreach (var w in work.Where(w => w.Devices.Count > 0))
+                {
+                    if (job.Cancel) break;
+                    UpdateJobStatus(); Changed();
+                    var r = await SetWatchedAsync(w.Key, w.Devices, job.Watched);
+                    job.Done += w.Devices.Count;
+                    failed += r.Count(x => !x.Ok);
+                }
+                _store.Log(failed == 0 && !job.Cancel ? ActivityLevel.Ok : ActivityLevel.Warn,
+                    job.Cancel ? $"{job.Label}: stopped after {job.Done:N0} of {job.Total:N0}." : job.Summary(job.Total, failed));
+            }
+            catch (Exception ex) { _store.Log(ActivityLevel.Error, $"{job.Label} stopped: {ex.Message}"); }
+            finally
+            {
+                lock (_jobs) _jobs.Remove(job);
+                UpdateJobStatus(); Changed();
+            }
+        }
+    }
+
+    /// <summary>The queue is shown from Jobs(); nothing goes in the status lines.</summary>
+    private void UpdateJobStatus() { }
 
     /// <summary>Plain-text report of the last read of each player, for troubleshooting a "not in library".</summary>
     public string DiagnosticsText(string search)

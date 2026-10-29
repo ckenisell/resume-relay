@@ -719,6 +719,24 @@ http("POST", RELAY + "/api/catchup")
 wait_for(lambda: not http("GET", RELAY + "/api/state")["catchUp"]["running"], 90)
 check("a second Catch Up finds everything in sync", "already in sync" in http("GET", RELAY + "/api/state")["catchUp"]["lastResult"],
       http("GET", RELAY + "/api/state")["catchUp"]["lastResult"])
+fl = http("GET", RELAY + f"/api/events/{cu['id']}/files")["files"]
+e4 = next((f for f in fl if f["title"].startswith("Andor - S01E04")), None)
+check("Show files lists each file: newest player, and each player's before → after",
+      e4 and e4["from"] == "Home Theater Room" and any(t["name"] == "Living Room" and t["before"] == {"watched": False, "positionMs": 0}
+          and t["after"] == {"watched": False, "positionMs": 987000} and t["result"] == "Ok" for t in e4["targets"]), str(e4))
+# Watched everywhere, but Plex reports the file 7 s longer and holds the newest time: nothing to copy.
+now = int(time.time() * 1000)
+for ip in (LR, BR, HT):
+    mock(ip, "setlwt", url=E03, lwt=now - 600000, pp=0, watched=1)
+for u in ("1001", "1002"):
+    plexmock("set", user=u, key=P_E03, pos=0, count=1, at=int(now / 1000) - 60, dur=2400000 + 7000)
+last_run = http("GET", RELAY + "/api/state")["catchUp"]["lastRunUtc"]
+http("POST", RELAY + "/api/catchup")
+wait_for(lambda: (lambda c: not c["running"] and c["lastRunUtc"] != last_run)(http("GET", RELAY + "/api/state")["catchUp"]), 90)
+check("watched on every player is the same, even when Plex reports a different length",
+      "already in sync" in http("GET", RELAY + "/api/state")["catchUp"]["lastResult"], http("GET", RELAY + "/api/state")["catchUp"]["lastResult"])
+for u in ("1001", "1002"):
+    plexmock("set", user=u, key=P_E03, pos=0, count=1, at=int(now / 1000) - 60, dur=2400000)
 
 # ---------------------------------------------------------------- 47. health notes on the Players tab
 mock(HT, "setlwt", url=E04, lwt=now + 3 * 86400000, pp=987000)

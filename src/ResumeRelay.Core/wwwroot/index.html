@@ -276,7 +276,19 @@ body.pr-dragging, body.pr-dragging * { cursor: grabbing !important; }
 .feed-filters input[type=search] { width: 15em; max-width: 100%; }
 .feed-filters label { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; color: var(--muted); }
 .ev .undone { color: var(--muted); font-size: 12.5px; margin-top: 10px; }
-.ev .acts { display: flex; flex-wrap: wrap; gap: 8px; }
+.ev .acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ev-files { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; font-size: 13px; max-height: 420px; overflow: auto; }
+.ev-files .ef { padding: 6px 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
+.ev-files .ef:last-child { border-bottom: 0; }
+.ev-files .ef > b { font-weight: 600; }
+.ev-files .ef .from { color: var(--muted); font-size: 12px; margin-left: 6px; }
+.ev-files ul { list-style: none; margin: 3px 0 0; padding: 0; }
+.ev-files li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; color: var(--muted); padding: 1px 0; }
+.ev-files li b { color: var(--text); font-weight: 600; }
+.ev-files li .same { font-style: italic; font-size: 12px; }
+.ev-files li i { font-style: normal; width: 14px; text-align: center; }
+.ev-files li i.ok { color: var(--ok); } .ev-files li i.bad { color: var(--bad); }
+.ev-files .more { color: var(--muted); padding-top: 6px; }
 /* Health notes (Players tab) */
 .health { display: flex; flex-direction: column; gap: 8px; margin: 0 0 16px; }
 .health .hn { display: flex; align-items: flex-start; gap: 10px; padding: 9px 12px; border-radius: var(--radius-sm); font-size: 13.5px;
@@ -955,6 +967,26 @@ const CHIP = {
 };
 const SYS_ICON = { Error: "✕", Warn: "!", Ok: "✓", Skip: "–", Info: "●" };
 
+// "Show files" on a batch card: each file, and on each player what it held before → what it was set to.
+const filesOpen = new Set(), filesData = new Map(), filesAt = new Map();
+const stateText = s => !s ? "?" : s.watched ? (s.positionMs > 0 ? `watched, at ${clock(s.positionMs)}` : "watched") : s.positionMs > 0 ? clock(s.positionMs) : "not started";
+const sameState = (a, b) => a && b && a.watched === b.watched && Math.abs(a.positionMs - b.positionMs) <= 2000;
+function filesHtml(id) {
+  const d = filesData.get(id);
+  if (!d) return `<div class="ev-files"><div class="more">Loading…</div></div>`;
+  const RES = { Ok: ["ok", "✓"], Failed: ["bad", "✕"], Skipped: ["", "–"], Pending: ["", "…"], Waiting: ["", "◷"], WatchOnly: ["", "◌"] };
+  const shown = d.files.slice(0, 300);
+  return `<div class="ev-files">${shown.map(f => `<div class="ef"><b>${esc(f.title)}</b>${f.from ? `<span class="from">newest on ${esc(f.from)}</span>` : ""}
+    <ul>${f.targets.map(t => { const [c, ic] = RES[t.result] || RES.Pending;
+      return `<li><i class="${c}" aria-label="${esc(t.result)}">${ic}</i>${kindBadge(t.kind, true)}<b>${esc(t.name)}</b>
+        <span>${t.after ? `${t.before ? esc(stateText(t.before)) : "?"} → ${esc(stateText(t.after))}` : `was ${t.before ? esc(stateText(t.before)) : "?"}`}${sameState(t.before, t.after) ? ` <span class="same">(no change)</span>` : ""}</span></li>`; }).join("")}</ul></div>`).join("")}
+    ${d.files.length > shown.length ? `<div class="more">…and ${(d.files.length - shown.length).toLocaleString()} more.</div>` : ""}</div>`;
+}
+async function loadFiles(id) {
+  try { filesData.set(id, await api("GET", `/api/events/${encodeURIComponent(id)}/files`)); } catch (err) { toast(err.message, true); filesOpen.delete(id); }
+  feedCache = ""; renderFeed();
+}
+
 function eventHtml(e) {
   const what = e.batch
     ? `${e.fromKind ? kindBadge(e.fromKind) + " " : ""}${esc(e.summary)}: <b class="tnum">${e.files.toLocaleString()} file${e.files === 1 ? "" : "s"}</b>`
@@ -981,7 +1013,9 @@ function eventHtml(e) {
       <div class="acts">${!e.reset && e.canReset ? `<button class="btn reset-btn" data-reset="${esc(e.id)}" data-file="${esc(e.fileName || e.title)}">Reset Progress</button>` : ""}
       ${e.canUndo ? (e.targets.some(t => t.state === "Pending" || t.state === "Waiting")
         ? `<button class="btn reset-btn" disabled title="Undo is available once every copy on this card is done">Undo</button>`
-        : `<button class="btn reset-btn" data-undo="${esc(e.id)}" data-files="${e.batch ? e.files : 1}">Undo</button>`) : ""}</div>
+        : `<button class="btn reset-btn" data-undo="${esc(e.id)}" data-files="${e.batch ? e.files : 1}">Undo</button>`) : ""}
+      ${e.batch ? `<button class="btn quiet" data-showfiles="${esc(e.id)}" aria-expanded="${filesOpen.has(e.id)}">${filesOpen.has(e.id) ? "Hide files" : "Show files"}</button>` : ""}</div>
+      ${e.batch && filesOpen.has(e.id) ? filesHtml(e.id) : ""}
       ${e.undone ? `<div class="undone">Undone</div>` : ""}</div>
     <time class="tnum" datetime="${esc(e.timeUtc)}">${timeOf(e.timeUtc)}</time></article>`;
 }
@@ -1006,6 +1040,13 @@ $("#reset-go").onclick = async () => {
 
 // "Reset Progress" on an Activity card: reset that file on every player. The result appears as a new card.
 $("#feed").addEventListener("click", e => {
+  const sf = e.target.closest("[data-showfiles]");
+  if (sf) {
+    const id = sf.dataset.showfiles;
+    if (filesOpen.has(id)) filesOpen.delete(id); else { filesOpen.add(id); loadFiles(id); }
+    feedCache = ""; renderFeed();
+    return;
+  }
   const u = e.target.closest("[data-undo]");
   if (u) {
     const n = +u.dataset.files;
@@ -1054,6 +1095,12 @@ function renderFeedFilters() {
 
 function renderFeed() {
   renderFeedFilters();
+  for (const id of filesOpen) {   // a list whose copies are still running is fetched again, at most every 3 s
+    const d = filesData.get(id);
+    if (d && d.files.some(f => f.targets.some(t => t.result === "Pending" || t.result === "Waiting")) && Date.now() - (filesAt.get(id) || 0) > 3000) {
+      filesAt.set(id, Date.now()); loadFiles(id);
+    }
+  }
   const ff = feedFilter();
   const items = [
     ...events.filter(ff.event).map(e => ({ t: new Date(e.timeUtc), html: eventHtml(e) })),

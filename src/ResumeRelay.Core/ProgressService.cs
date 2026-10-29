@@ -133,10 +133,30 @@ public sealed class ProgressService
     /// watched, or reset), through the copy queue, as one Activity card with Undo. Returns the number of files.
     /// Only the given players are compared (each must have been read).
     /// </summary>
+    /// <summary>
+    /// Whether a player already holds the same thing: the same watched mark and the same resume point (within 2 s).
+    /// Lengths aren't compared: Plex and the Zidoos often report a file's length a few seconds apart (a Zidoo that
+    /// never played a file may not know it at all), so "watched" on both is the same whatever the lengths say.
+    /// </summary>
+    internal static bool SameState(ProgressCell a, ProgressCell b) =>
+        a.Watched == b.Watched && Math.Abs(Math.Max(0, a.PlayPointMs) - Math.Max(0, b.PlayPointMs)) <= 2000;
+
+    /// <summary>
+    /// What to send to copy a cell: its resume point, or for a watched file its length (which marks it watched), or 0
+    /// (not started: a reset). A watched file whose player doesn't know its length borrows another player's; if none
+    /// knows it, null, because sending 0 would reset (unwatch) it everywhere.
+    /// </summary>
+    internal static (int Pos, int Dur)? CopyPosition(ProgressCell src, IEnumerable<ProgressCell> others)
+    {
+        int dur = src.DurationMs > 0 ? src.DurationMs : others.Select(c => c.DurationMs).DefaultIfEmpty(0).Max();
+        if (src.PlayPointMs > 0) return (src.PlayPointMs, dur);
+        if (!src.Watched) return (0, dur);
+        return dur > 0 ? (dur, dur) : null;
+    }
+
     public async Task<(int Files, int Copies)> CatchUpAsync(DateTime sinceUtc, IReadOnlyCollection<string> playerIds, string reason)
     {
         long since = new DateTimeOffset(sinceUtc).ToUnixTimeMilliseconds();
-        static int Eff(ProgressCell c) => c.PlayPointMs > 0 ? c.PlayPointMs : c.Watched && c.DurationMs > 0 ? c.DurationMs : 0;
         var devices = _store.Devices().Where(d => d.Enabled && playerIds.Contains(d.Id)).ToDictionary(d => d.Id);
         var plan = new List<(string Key, string WinnerId, int Pos, int Dur, List<Device> To, List<UndoItem> Undo)>();
         // Files with copies still on their way are left alone: what was read for them is about to change.
@@ -150,17 +170,16 @@ public sealed class ProgressService
                 if (cells.Count < 2 || busy.Contains(f.Key)) continue;
                 var win = cells.OrderByDescending(x => x.Cell.LastWatchMs).First();
                 if (win.Cell.LastWatchMs <= since) continue; // nothing new for this file since Resume Relay last saw the players
-                int pos = Eff(win.Cell);
+                if (CopyPosition(win.Cell, cells.Select(x => x.Cell)) is not var (pos, dur)) continue; // watched, but no player knows its length
                 var to = new List<Device>();
                 var undo = new List<UndoItem>();
                 foreach (var (id, c) in cells.Where(x => x.DeviceId != win.DeviceId))
                 {
-                    bool differs = pos == 0 ? c.PlayPointMs > 0 || c.Watched : Math.Abs(Eff(c) - pos) > 2000 || c.Watched != win.Cell.Watched;
-                    if (!differs) continue;
+                    if (SameState(c, win.Cell)) continue;
                     to.Add(devices[id]);
                     undo.Add(new UndoItem { DeviceId = id, Title = f.FileName, PositionMs = c.PlayPointMs, DurationMs = c.DurationMs, Watched = c.Watched });
                 }
-                if (to.Count > 0) plan.Add((f.Key, win.DeviceId, pos, win.Cell.DurationMs, to, undo));
+                if (to.Count > 0) plan.Add((f.Key, win.DeviceId, pos, dur, to, undo));
             }
         }
         if (plan.Count == 0) return (0, 0);
@@ -169,7 +188,7 @@ public sealed class ProgressService
         foreach (var p in plan)
         {
             if (await UrlForAsync(p.Key) is not { } url) continue;
-            items.Add(new RelayEngine.BatchItem(url, _files.GetValueOrDefault(p.Key)?.Display ?? p.Key, p.Pos, p.Dur, p.To));
+            items.Add(new RelayEngine.BatchItem(url, _files.GetValueOrDefault(p.Key)?.Display ?? p.Key, p.Pos, p.Dur, p.To, devices[p.WinnerId].Name));
             foreach (var u in p.Undo) { u.SourceUrl = url; undoAll.Add(u); }
         }
         if (items.Count == 0) return (0, 0);
@@ -881,6 +900,7 @@ public sealed class ProgressService
         {
             TimeUtc = DateTime.UtcNow, Title = c.Title, Subtitle = $"{work.Count:N0} file{(work.Count == 1 ? "" : "s")}", Summary = c.Summary,
             FromName = c.FromName, FromKind = c.FromKind, Batch = true, Manual = true, Files = work.Count, Undo = undo,
+            Changes = work.Select(w => new BatchChange { Key = w.Key, Title = _files.GetValueOrDefault(w.Key)?.Display ?? w.Key, Watched = w.Watched }).ToList(),
             Targets = work.SelectMany(w => w.Devices).Distinct().Where(devices.ContainsKey).Select(id => new StopTarget
             {
                 DeviceId = id, Name = devices[id].Name, Kind = devices[id].IsPlex ? "plex" : "zidoo",
@@ -904,7 +924,6 @@ public sealed class ProgressService
         if (source == null) return ("That player is no longer there.", 0, 0, 0, 0);
         var targets = toIds.Where(id => id != fromId).Distinct().Select(id => _store.Device(id)).Where(d => d != null).Select(d => d!).ToList();
         if (targets.Count == 0) return ("Tick Target on at least one other player.", 0, 0, 0, 0);
-        static int Eff(ProgressCell c) => c.PlayPointMs > 0 ? c.PlayPointMs : c.Watched && c.DurationMs > 0 ? c.DurationMs : 0;
         var plan = new List<(string Key, int Pos, int Dur, List<Device> To, List<UndoItem> Undo)>();
         int notStarted = 0;
         lock (_lock)
@@ -913,7 +932,8 @@ public sealed class ProgressService
             foreach (string key in keys.Distinct())
             {
                 if (!src.Cells.TryGetValue(key, out var sc) || sc.FileId <= 0) continue;
-                int pos = Eff(sc);
+                var others = targets.Select(t => _devices.TryGetValue(t.Id, out var d) && d.Cells.TryGetValue(key, out var c) ? c : null).Where(c => c != null).Select(c => c!);
+                if (CopyPosition(sc, others) is not var (pos, dur)) continue; // watched, but no player knows its length
                 if (pos == 0 && !includeNotStarted)
                 {
                     if (targets.Any(t => _devices.TryGetValue(t.Id, out var d) && d.Cells.TryGetValue(key, out var c) && (c.PlayPointMs > 0 || c.Watched))) notStarted++;
@@ -924,12 +944,11 @@ public sealed class ProgressService
                 foreach (var t in targets)
                 {
                     if (!_devices.TryGetValue(t.Id, out var d) || !d.Cells.TryGetValue(key, out var c) || c.FileId <= 0) continue;
-                    bool differs = pos == 0 ? c.PlayPointMs > 0 || c.Watched : Math.Abs(Eff(c) - pos) > 2000 || c.Watched != sc.Watched;
-                    if (!differs) continue;
+                    if (SameState(c, sc)) continue;
                     to.Add(t);
                     undo.Add(new UndoItem { DeviceId = t.Id, Title = _files.GetValueOrDefault(key)?.FileName ?? key, PositionMs = c.PlayPointMs, DurationMs = c.DurationMs, Watched = c.Watched });
                 }
-                if (to.Count > 0) plan.Add((key, pos, sc.DurationMs, to, undo));
+                if (to.Count > 0) plan.Add((key, pos, dur, to, undo));
             }
         }
         int copies = plan.Where(p => p.Pos > 0).Sum(p => p.To.Count), resets = plan.Where(p => p.Pos == 0).Sum(p => p.To.Count);

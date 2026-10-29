@@ -214,6 +214,41 @@ public static class RelayHost
         })));
 
         // Undo on a card: put every file back the way each player held it before.
+        // "Show files" on a batch card: each file, what it was set to, and each player's state before and result.
+        app.MapGet("/api/events/{id}/files", (string id) =>
+        {
+            var e = store.Events(300).FirstOrDefault(x => x.Id == id);
+            if (e == null || !e.Batch) return Results.NotFound();
+            var before = e.Undo.GroupBy(u => (Store.ItemKey(u.SourceUrl), u.DeviceId)).ToDictionary(g => g.Key, g => g.First());
+            var results = e.Targets.Where(t => t.Items != null)
+                .SelectMany(t => t.Items!.Select(kv => (Key: Store.ItemKey(kv.Key), t, kv.Value))).ToList();
+            var keys = (e.Changes?.Select(c => c.Key) ?? Enumerable.Empty<string>())
+                .Concat(e.Undo.Select(u => Store.ItemKey(u.SourceUrl))).Concat(results.Select(r => r.Key)).Distinct().ToList();
+            var changes = (e.Changes ?? new()).GroupBy(c => c.Key).ToDictionary(g => g.Key, g => g.ToList());
+            static object St(bool watched, int pos) => new { Watched = watched, PositionMs = Math.Max(0, pos) };
+            var files = keys.Select(k =>
+            {
+                var ch = changes.GetValueOrDefault(k);
+                string title = ch?.First().Title is { Length: > 0 } t ? t : e.Undo.FirstOrDefault(u => Store.ItemKey(u.SourceUrl) == k)?.Title ?? k;
+                return new
+                {
+                    Title = title,
+                    From = ch?.First().FromName ?? "",
+                    Targets = results.Where(r => r.Key == k).Select(r =>
+                    {
+                        var c = ch?.FirstOrDefault(x => x.DeviceIds == null || x.DeviceIds.Contains(r.t.DeviceId));
+                        var b = before.GetValueOrDefault((k, r.t.DeviceId));
+                        return new
+                        {
+                            r.t.Name, Kind = r.t.Kind.Length > 0 ? r.t.Kind : "zidoo", Result = r.Value.ToString(),
+                            Before = b == null ? null : St(b.Watched, b.PositionMs),
+                            After = c == null ? null : St(c.Watched, c.PositionMs),
+                        };
+                    }).ToList(),
+                };
+            }).ToList();
+            return Results.Ok(new { e.Id, Files = files });
+        });
         app.MapPost("/api/events/{id}/undo", (string id) =>
         {
             var (card, err) = engine.UndoCard(id);

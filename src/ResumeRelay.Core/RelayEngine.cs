@@ -612,7 +612,7 @@ public sealed partial class RelayEngine : BackgroundService
     }
 
     /// <summary>One file of a batch: where to send it, and what position (0 resets; its length marks it watched).</summary>
-    public sealed record BatchItem(string SourceUrl, string Label, int PositionMs, int DurationMs, List<Device> Targets);
+    public sealed record BatchItem(string SourceUrl, string Label, int PositionMs, int DurationMs, List<Device> Targets, string FromName = "");
 
     /// <summary>
     /// Many copies at once (Copy all on Progress Reset, an Undo): one Activity card whose chips count the files, and one
@@ -625,6 +625,11 @@ public sealed partial class RelayEngine : BackgroundService
         {
             TimeUtc = DateTime.UtcNow, Title = title, Subtitle = subtitle, Summary = summary, FromName = fromName, FromKind = fromKind,
             Batch = true, Copied = true, Files = items.Select(i => i.SourceUrl).Distinct().Count(), Undo = undo, UndoOf = undoOf,
+            Changes = items.Select(i => new BatchChange
+            {
+                Key = Store.ItemKey(i.SourceUrl), Title = i.Label, FromName = i.FromName, DeviceIds = i.Targets.Select(t => t.Id).ToList(),
+                Watched = i.DurationMs > 0 && i.PositionMs >= i.DurationMs, PositionMs = i.DurationMs > 0 && i.PositionMs >= i.DurationMs ? 0 : Math.Max(0, i.PositionMs),
+            }).ToList(),
             Targets = targets.Select(t => new StopTarget
             {
                 DeviceId = t.Id, Name = t.Name, Kind = KindOf(t),

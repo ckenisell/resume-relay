@@ -127,6 +127,8 @@ public sealed class StopEvent
     /// <summary>What each target held before this card's changes, so Undo can put it back. Empty when there's nothing to undo.</summary>
     public List<UndoItem> Undo { get; set; } = new();
     public bool Undone { get; set; }
+    /// <summary>Batch cards: what each file was set to (shown under "Show files"). Null on cards made before 0.5.0-beta.3.</summary>
+    public List<BatchChange>? Changes { get; set; }
     /// <summary>On an Undo card: the card it undid.</summary>
     public string UndoOf { get; set; } = "";
     /// <summary>The file's network path (smb://...), used to find it on every player. Empty on cards made before 0.3.2.</summary>
@@ -148,6 +150,18 @@ public sealed class StopTarget
     public string Note { get; set; } = "";
     /// <summary>Batch cards only: each file's state on this target (file → state), counted into State and Note.</summary>
     public Dictionary<string, TargetState>? Items { get; set; }
+}
+
+/// <summary>One file of a batch card and what it was set to. DeviceIds: only when its players differ from the card's
+/// (an Undo sends each player its own state).</summary>
+public sealed class BatchChange
+{
+    public string Key { get; set; } = "";
+    public string Title { get; set; } = "";
+    public string FromName { get; set; } = "";
+    public int PositionMs { get; set; }
+    public bool Watched { get; set; }
+    public List<string>? DeviceIds { get; set; }
 }
 
 /// <summary>One file on one player as it was before a change, for Undo.</summary>

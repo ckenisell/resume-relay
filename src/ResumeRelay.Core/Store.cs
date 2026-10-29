@@ -308,6 +308,9 @@ public sealed class Store
         Changed?.Invoke();
     }
 
+    /// <summary>One key per file for a batch card's lists: Items use a source URL (copies) or a library key (Watch Sync jobs).</summary>
+    public static string ItemKey(string s) => PlexPaths.RelOfUrl(s) is { } rel ? PlexPaths.Key(rel) : s.ToLowerInvariant();
+
     public static void CountBatch(StopTarget t)
     {
         var v = t.Items!.Values;

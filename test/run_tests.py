@@ -645,7 +645,10 @@ check("Watch Sync: All Movie files / All TV Show files", kf in mv and k3 in tv a
 
 # ---------------------------------------------------------------- 43. update notice
 st = http("GET", RELAY + "/api/state")
-check("a newer full release is offered (betas left out)", wait_for(lambda: (http("GET", RELAY + "/api/state").get("update") or {}).get("version") == "9.9.0", 20),
+running_beta = "-" in st["version"]   # a beta build is offered betas too (CI stamps the release's version)
+want = "9.9.1-beta.1" if running_beta else "9.9.0"
+check(f"a newer release is offered ({'betas included: this is a beta build' if running_beta else 'betas left out'})",
+      wait_for(lambda: (http("GET", RELAY + "/api/state").get("update") or {}).get("version") == want, 20),
       str(http("GET", RELAY + "/api/state").get("update")))
 settings(includeBetas=True)
 http("POST", RELAY + "/api/update/check")

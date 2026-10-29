@@ -261,16 +261,61 @@ public sealed class Store
         Changed?.Invoke();
     }
 
-    /// <summary>Updates one player's chip on a stop card.</summary>
-    public void UpdateEventTarget(string eventId, string deviceId, TargetState state, string note)
+    /// <summary>Updates one player's chip on a stop card. On a batch card, item names the file: its state is counted
+    /// into the chip ("270 copied · 6 skipped · 4 to go").</summary>
+    public void UpdateEventTarget(string eventId, string deviceId, TargetState state, string note, string item = "")
     {
         if (string.IsNullOrEmpty(eventId)) return;
         lock (_lock)
         {
-            var t = _events.FirstOrDefault(x => x.Id == eventId)?.Targets.FirstOrDefault(x => x.DeviceId == deviceId);
+            var ev = _events.FirstOrDefault(x => x.Id == eventId);
+            var t = ev?.Targets.FirstOrDefault(x => x.DeviceId == deviceId);
             if (t == null) return;
-            t.State = state;
-            t.Note = note;
+            if (ev!.Batch && t.Items != null && item.Length > 0)
+            {
+                if (!t.Items.ContainsKey(item)) return;
+                t.Items[item] = state;
+                CountBatch(t);
+                SaveEventsSoon(); // a batch updates its card hundreds of times: write it out at most every few seconds
+            }
+            else
+            {
+                t.State = state;
+                t.Note = note;
+                Save("events.json", _events.ToList());
+            }
+        }
+        Changed?.Invoke();
+    }
+
+    public static void CountBatch(StopTarget t)
+    {
+        var v = t.Items!.Values;
+        int ok = v.Count(s => s is TargetState.Ok or TargetState.WatchOnly), skip = v.Count(s => s == TargetState.Skipped),
+            bad = v.Count(s => s == TargetState.Failed), wait = v.Count(s => s == TargetState.Waiting), pend = v.Count(s => s == TargetState.Pending);
+        t.State = pend + wait > 0 ? (wait > 0 ? TargetState.Waiting : TargetState.Pending) : bad > 0 ? TargetState.Failed : ok > 0 ? TargetState.Ok : TargetState.Skipped;
+        t.Note = string.Join(" · ", new[]
+        {
+            ok > 0 ? $"{ok:N0} done" : "", skip > 0 ? $"{skip:N0} skipped" : "", bad > 0 ? $"{bad:N0} failed" : "",
+            wait > 0 ? $"{wait:N0} waiting" : "", pend > 0 ? $"{pend:N0} to go" : "",
+        }.Where(x => x.Length > 0));
+    }
+
+    private Timer? _eventsTimer;
+    private void SaveEventsSoon()
+    {
+        _eventsTimer ??= new Timer(_ => { lock (_lock) Save("events.json", _events.ToList()); }, null, Timeout.Infinite, Timeout.Infinite);
+        _eventsTimer.Change(2000, Timeout.Infinite);
+    }
+
+    /// <summary>Marks a card undone (its Undo button goes away).</summary>
+    public void MarkUndone(string eventId)
+    {
+        lock (_lock)
+        {
+            var ev = _events.FirstOrDefault(x => x.Id == eventId);
+            if (ev == null) return;
+            ev.Undone = true;
             Save("events.json", _events.ToList());
         }
         Changed?.Invoke();

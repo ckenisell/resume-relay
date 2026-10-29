@@ -220,6 +220,12 @@ class Tv(Base):
         if path == "/_test/link":
             LINKED["done"] = True
             return self.send({"ok": True})
+        if path == "/repos/ckenisell/resume-relay/releases":   # stands in for GitHub's release list (update notice)
+            return self.send([
+                dict(tag_name="v9.9.1-beta.1", prerelease=True, draft=False, html_url="https://github.com/x/beta", body="## Beta\n- **New** thing", published_at="2026-11-02T10:00:00Z"),
+                dict(tag_name="v9.9.0", prerelease=False, draft=False, html_url="https://github.com/x/full", body="## What's new\n- Big things", published_at="2026-11-01T10:00:00Z"),
+                dict(tag_name="v0.1.0", prerelease=False, draft=False, html_url="https://github.com/x/old", body="old", published_at="2026-01-01T10:00:00Z"),
+            ])
         if path.startswith("/api/v2/pins/"):
             return self.send(dict(id=42, code="RRPX", authToken="acct-owner" if LINKED["done"] else None))
         uid = self.acct(q)

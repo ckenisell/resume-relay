@@ -44,6 +44,9 @@ Resume Relay per home, on a computer that stays on while you watch.
   kept for 14 days (you can change this in Settings).
 - **Turn players on and off.** Each player has a power button like Z-Keeper's: red is off, green is
   on, and an orange ring spins while it's switching. **Launch HT** opens the Home Theater app.
+- **Copy all, then undo if needed.** On Progress Reset and Watch Sync, copy one player's progress or watched marks to
+  the others for every file in the list, and undo any batch from its Activity card.
+- **Tells you when there's a new version,** with the exact steps to update.
 - **See every copy.** The Activity tab shows a card for each stop, with the poster, whether it happened on a Zidoo
   or on Plex, and a mark for every other player: ✓ copied, ◷ waiting, – skipped, ✕ failed.
 - **Every write is checked.** Before writing, it confirms the player's entry really is that file.

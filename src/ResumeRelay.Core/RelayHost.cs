@@ -18,7 +18,8 @@ public interface IHostIntegration
 /// <summary>Used by the Linux service, where systemd already starts it with the computer.</summary>
 public sealed class ServiceHostIntegration : IHostIntegration
 {
-    public string Edition => "Linux service";
+    /// <summary>"Docker" inside a container (the update notice then explains how to update the image).</summary>
+    public string Edition => File.Exists("/.dockerenv") || Environment.GetEnvironmentVariable("RESUMERELAY_DOCKER") == "1" ? "Docker" : "Linux service";
     public bool SupportsAutostart => false;
     public bool GetAutostart() => true;
     public void SetAutostart(bool enabled) { }
@@ -69,17 +70,26 @@ public static class RelayHost
         builder.Services.AddSingleton<RelayEngine>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<RelayEngine>());
         builder.Services.AddSingleton<ProgressService>();
+        builder.Services.AddSingleton<UpdateService>();
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<UpdateService>());
 
         var app = builder.Build();
-        MapApi(app, store, app.Services.GetRequiredService<RelayEngine>(), options.Host);
+        var updates = app.Services.GetRequiredService<UpdateService>();
+        MapApi(app, store, app.Services.GetRequiredService<RelayEngine>(), options.Host, updates);
         MapProgressApi(app, app.Services.GetRequiredService<ProgressService>(), app.Lifetime.ApplicationStopping);
         PlexApi.Map(app, store, app.Services.GetRequiredService<RelayEngine>());
         MapIcons(app, store);
         return app;
     }
 
-    private static void MapApi(WebApplication app, Store store, RelayEngine engine, IHostIntegration host)
+    private static void MapApi(WebApplication app, Store store, RelayEngine engine, IHostIntegration host, UpdateService updates)
     {
+        // Check GitHub for a newer version now (Settings: "Check now").
+        app.MapPost("/api/update/check", async (CancellationToken ct) =>
+        {
+            await updates.CheckAsync(ct);
+            return Results.Ok(new { Update = updates.Available, updates.CheckedUtc, Error = updates.LastError });
+        });
         string indexHtml;
         using (var s = typeof(RelayHost).Assembly.GetManifestResourceStream("index.html")!)
         using (var r = new StreamReader(s))
@@ -142,6 +152,8 @@ public static class RelayHost
                 Settings = store.Settings(),
                 Devices = devices,
                 Plex = PlexApi.Summary(store),
+                Update = store.Settings().CheckUpdates ? updates.Available : null,
+                UpdateCheckedUtc = updates.CheckedUtc,
                 Icons = new { Zidoo = IconFile(store, "zidoo") != null, Plex = IconFile(store, "plex") != null, V = IconVersion(store) },
                 Pending = pending,
                 DataFolder = store.DataDirectory,
@@ -157,11 +169,19 @@ public static class RelayHost
 
         app.MapGet("/api/events", (int? n) => Results.Ok(store.Events(Math.Clamp(n ?? 100, 1, 300)).Select(e => new
         {
-            e.Id, e.TimeUtc, e.Title, e.Subtitle, e.FileName, e.Manual, e.Series, e.Copied, CanReset = e.SourceUrl.Length > 0, e.FromName,
-            FromKind = e.FromKind.Length > 0 ? e.FromKind : e.Manual ? "" : "zidoo", e.PositionMs, e.DurationMs, e.Finished, e.Reset,
+            e.Id, e.TimeUtc, e.Title, e.Subtitle, e.FileName, e.Manual, e.Series, e.Copied, e.Batch, e.Files, e.Summary, e.Undone,
+            CanUndo = e.Undo.Count > 0 && !e.Undone, UndoOf = e.UndoOf.Length > 0 ? e.UndoOf : null, CanReset = e.SourceUrl.Length > 0, e.FromName,
+            FromKind = e.FromKind.Length > 0 ? e.FromKind : e.Manual || e.Batch ? "" : "zidoo", e.PositionMs, e.DurationMs, e.Finished, e.Reset,
             Poster = e.Poster.Length > 0 ? "/api/poster/" + e.Poster : null,
-            e.Targets,
+            Targets = e.Targets.Select(t => new { t.DeviceId, t.Name, t.Kind, t.State, t.Note }),
         })));
+
+        // Undo on a card: put every file back the way each player held it before.
+        app.MapPost("/api/events/{id}/undo", (string id) =>
+        {
+            var (card, err) = engine.UndoCard(id);
+            return card == null ? Results.BadRequest(new { Error = err }) : Results.Ok(new { card.Id });
+        });
 
         // "Reset Progress" on an Activity card.
         app.MapPost("/api/events/{id}/reset", (string id) =>
@@ -223,8 +243,10 @@ public static class RelayHost
 
         app.MapPost("/api/settings", (Settings s) =>
         {
-            bool wasWatchOnly = store.Settings().WatchOnly;
+            var before = store.Settings();
+            bool wasWatchOnly = before.WatchOnly;
             store.SaveSettings(s);
+            if (before.CheckUpdates != s.CheckUpdates || before.IncludeBetas != s.IncludeBetas) updates.CheckSoon();
             if (wasWatchOnly != s.WatchOnly)
                 store.Log(ActivityLevel.Info, s.WatchOnly ? "Watch-only mode turned ON: bookmarks will be logged, not copied." : "Watch-only mode turned OFF: bookmarks will now be copied.");
             return Results.Ok(store.Settings());
@@ -307,6 +329,18 @@ public static class RelayHost
         });
         // Remove a waiting Watched All / cleanup job, or stop the running one after its current file.
         app.MapDelete("/api/progress/jobs/{id}", (string id) => progress.CancelJob(id) ? Results.Ok() : Results.NotFound());
+        // "Copy all" from a player's column (both tabs). dryRun=true only counts.
+        app.MapPost("/api/progress/batch", async (ProgressBatchRequest req) =>
+        {
+            var (err, files, copies, resets, notStarted) = await progress.CopyProgressFrom(req.From ?? "", req.To ?? new(), req.Keys ?? new(), req.IncludeNotStarted, req.DryRun);
+            return err != null ? Results.BadRequest(new { Error = err }) : Results.Ok(new { Files = files, Copies = copies, Resets = resets, NotStarted = notStarted });
+        });
+        app.MapPost("/api/watched/batch", (WatchBatchRequest req) =>
+        {
+            var (err, files, toW, toU) = progress.CopyWatchedFrom(req.From ?? "", req.To ?? new(), req.Show ?? "different",
+                (req.Players ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries), req.Q ?? "", req.DryRun);
+            return err != null ? Results.BadRequest(new { Error = err }) : Results.Ok(new { Files = files, ToWatched = toW, ToUnwatched = toU });
+        });
         // The one-time cleanup on Progress Reset: watched files that kept a resume point. dryRun=true only counts.
         app.MapPost("/api/progress/tidy", (TidyRequest req) =>
         {
@@ -348,6 +382,8 @@ public static class RelayHost
     private sealed record ProgressKeyRequest(string? Key);
     private sealed record ProgressCopyItem(string? Key, string? From, List<string>? To);
     private sealed record WatchSetRequest(string? Key, List<string>? DeviceIds, bool Watched);
+    private sealed record ProgressBatchRequest(string? From, List<string>? To, List<string>? Keys, bool IncludeNotStarted, bool DryRun);
+    private sealed record WatchBatchRequest(string? From, List<string>? To, string? Show, string? Players, string? Q, bool DryRun);
     private sealed record TidyRequest(List<string>? DeviceIds, bool DryRun);
     private sealed record WatchShowRequest(string? Show, List<string>? DeviceIds, bool Watched, bool DryRun);
     private sealed record AddDeviceRequest(string? Ip, int? Port);

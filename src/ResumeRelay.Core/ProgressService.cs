@@ -433,28 +433,35 @@ public sealed class ProgressService
     /// the file, not on others), "watched" (on any of them), "unwatched" (on none), "missing" (some of the chosen
     /// players have the file and some don't), or "all". sort: "title" or "watched" (most recently watched first).
     /// </summary>
+    /// <summary>The Watch Sync list as filtered (Show, ticked players, search), before sorting and pages. Call under _lock.</summary>
+    private (List<ProgressDevice> Devs, List<ProgressFile> Rows) WatchRows(string show, IReadOnlyCollection<string> players, string search)
+    {
+        var devs = _devices.Values.Where(d => d.ReadUtc != null && (players.Count == 0 || players.Contains(d.DeviceId))).ToList();
+        var q = search.Trim();
+        var rows = _files.Values.Where(f =>
+        {
+            if (q.Length > 0 && !f.Display.Contains(q, StringComparison.OrdinalIgnoreCase) && !f.FileName.Contains(q, StringComparison.OrdinalIgnoreCase)) return false;
+            var cells = devs.Select(d => d.Cells.GetValueOrDefault(f.Key)).Where(c => c != null).ToList();
+            if (cells.Count == 0) return false;
+            if (show == "movies" && f.IsEpisode || show == "tv" && !f.IsEpisode) return false;
+            int w = cells.Count(c => c!.Watched);
+            return show switch
+            {
+                "missing" => cells.Count < devs.Count,
+                "watched" => w > 0,
+                "unwatched" => w == 0,
+                "all" or "movies" or "tv" => true,
+                _ => w > 0 && w < cells.Count,
+            };
+        }).ToList();
+        return (devs, rows);
+    }
+
     public object WatchSnapshot(string show, IReadOnlyCollection<string> players, string search, string sort, int page, int pageSize)
     {
         lock (_lock)
         {
-            var devs = _devices.Values.Where(d => d.ReadUtc != null && (players.Count == 0 || players.Contains(d.DeviceId))).ToList();
-            var q = search.Trim();
-            var rows = _files.Values.Where(f =>
-            {
-                if (q.Length > 0 && !f.Display.Contains(q, StringComparison.OrdinalIgnoreCase) && !f.FileName.Contains(q, StringComparison.OrdinalIgnoreCase)) return false;
-                var cells = devs.Select(d => d.Cells.GetValueOrDefault(f.Key)).Where(c => c != null).ToList();
-                if (cells.Count == 0) return false;
-                if (show == "movies" && f.IsEpisode || show == "tv" && !f.IsEpisode) return false;
-                int w = cells.Count(c => c!.Watched);
-                return show switch
-                {
-                    "missing" => cells.Count < devs.Count,
-                    "watched" => w > 0,
-                    "unwatched" => w == 0,
-                    "all" or "movies" or "tv" => true,
-                    _ => w > 0 && w < cells.Count,
-                };
-            }).ToList();
+            var (devs, rows) = WatchRows(show, players, search);
             long LastWatched(ProgressFile f) => devs.Select(d => d.Cells.GetValueOrDefault(f.Key)?.LastWatchMs ?? -1).DefaultIfEmpty(-1).Max();
             var ordered = sort == "watched"
                 ? rows.OrderByDescending(LastWatched).ThenBy(f => SortTitle(f.Display), NaturalOrder.Instance)
@@ -575,16 +582,19 @@ public sealed class ProgressService
         return new WatchResult(d.Id, d.Name, ok, ok ? "" : "Plex didn't take the change");
     }
 
-    /// <summary>A Watched All / Unwatched All / cleanup job. They run one at a time, in the order pressed.</summary>
+    /// <summary>A Watched All / Unwatched All / Copy all (Watch Sync) / cleanup job. They run one at a time, in order.</summary>
     private sealed class BulkJob
     {
         public string Id = Guid.NewGuid().ToString("N")[..8];
-        public string Key = "";         // the show's title, or "tidy"
+        public string Key = "";         // what it's about: a show's title, "tidy", "copy:<player id>"
         public bool Watched;
         public string Label = "";       // "Marking The Big Bang Theory watched"
-        /// <summary>Works out the changes when the job starts (not when it was queued), so it acts on what earlier jobs left.</summary>
-        public Func<List<(string Key, List<string> Devices)>> Plan = () => new();
+        /// <summary>Works out the changes when the job starts (not when it was queued), so it acts on what earlier jobs left.
+        /// Each file: the players to change and whether to mark it watched there.</summary>
+        public Func<List<(string Key, List<string> Devices, bool Watched)>> Plan = () => new();
         public Func<int, int, string> Summary = (_, _) => "";
+        /// <summary>When set, the job gets an Activity card (chips counting files per player) with Undo.</summary>
+        public (string Title, string Summary, string FromName, string FromKind)? Card;
         public int Total, Done;
         public bool Running, Cancel;
     }
@@ -609,7 +619,7 @@ public sealed class ProgressService
             if (j == null) return false;
             if (j.Running) j.Cancel = true; else _jobs.Remove(j);
         }
-        UpdateJobStatus(); Changed();
+        Changed();
         return true;
     }
 
@@ -641,10 +651,57 @@ public sealed class ProgressService
         // Queued even when nothing needs changing right now: a job ahead of it may change that.
         bool ahead; lock (_jobs) ahead = _jobs.Count > 0;
         if (dryRun || (changes == 0 && !ahead)) return (null, episodes, changes, lose);
-        string? err = Enqueue(show, $"Marking {show} {(watched ? "watched" : "unwatched")}", () => (Plan() ?? new()).Select(w => (w.Key, w.Devices)).ToList(), watched,
-            (n, failed) => $"Watch Sync: marked {show} {(watched ? "watched" : "unwatched")} ({n:N0} change{(n == 1 ? "" : "s")} across {episodes:N0} episodes)"
-                           + (failed > 0 ? $"; {failed} didn't take. See the Watch Sync tab." : "."));
+        string what = watched ? "watched" : "unwatched";
+        string? err = Enqueue(new BulkJob
+        {
+            Key = show, Watched = watched, Label = $"Marking {show} {what}",
+            Plan = () => (Plan() ?? new()).Select(w => (w.Key, w.Devices, watched)).ToList(),
+            Card = (show, $"Watch Sync: every episode marked {what}", RelayEngine.ManualResetFrom, ""),
+            Summary = (n, failed) => $"Watch Sync: marked {show} {what} ({n:N0} change{(n == 1 ? "" : "s")} across {episodes:N0} episodes)"
+                                     + (failed > 0 ? $"; {failed} didn't take. See the Watch Sync tab." : "."),
+        });
         return (err, episodes, changes, lose);
+    }
+
+    /// <summary>
+    /// "Copy all" from one player's column on Watch Sync: for every file in the list as it's filtered (all pages), the
+    /// ticked players get the same watched mark as that player. Files it doesn't have, and players that already match,
+    /// are left alone. dryRun only counts.
+    /// </summary>
+    public (string? Error, int Files, int ToWatched, int ToUnwatched) CopyWatchedFrom(string fromId, IReadOnlyCollection<string> toIds,
+        string show, IReadOnlyCollection<string> players, string search, bool dryRun)
+    {
+        var source = _store.Device(fromId);
+        if (source == null) return ("That player is no longer there.", 0, 0, 0);
+        var targets = toIds.Where(id => id != fromId).Distinct().ToList();
+        if (targets.Count == 0) return ("Tick Target on at least one other player.", 0, 0, 0);
+        List<(string Key, List<string> Devices, bool Watched)> Plan()
+        {
+            lock (_lock)
+            {
+                if (!_devices.TryGetValue(fromId, out var src)) return new();
+                return WatchRows(show, players, search).Rows
+                    .Where(f => src.Cells.TryGetValue(f.Key, out var c) && c.FileId > 0)
+                    .Select(f =>
+                    {
+                        bool w = src.Cells[f.Key].Watched;
+                        var devs = targets.Where(id => _devices.TryGetValue(id, out var d) && d.Cells.TryGetValue(f.Key, out var c) && c.FileId > 0
+                                                       && (c.Watched != w || (w && c.PlayPointMs > 0))).ToList();
+                        return (f.Key, devs, w);
+                    })
+                    .Where(x => x.devs.Count > 0).ToList();
+            }
+        }
+        var work = Plan();
+        int toW = work.Where(w => w.Watched).Sum(w => w.Devices.Count), toU = work.Where(w => !w.Watched).Sum(w => w.Devices.Count);
+        if (dryRun || work.Count == 0) return (null, work.Count, toW, toU);
+        string? err = Enqueue(new BulkJob
+        {
+            Key = "copy:" + fromId, Watched = true, Label = $"Copying watched marks from {source.Name}", Plan = Plan,
+            Card = ($"Watched marks from {source.Name}", $"Copied from {source.Name} on Watch Sync", source.Name, source.IsPlex ? "plex" : "zidoo"),
+            Summary = (n, failed) => $"Watch Sync: copied {source.Name}'s watched marks ({n:N0} change{(n == 1 ? "" : "s")})" + (failed > 0 ? $"; {failed} didn't take." : "."),
+        });
+        return (err, work.Count, toW, toU);
     }
 
     /// <summary>
@@ -653,32 +710,36 @@ public sealed class ProgressService
     /// </summary>
     public (string? Error, int Changes, int Files) TidyWatched(IReadOnlyCollection<string> deviceIds, bool dryRun)
     {
-        List<(string Key, List<string> Devices)> Plan()
+        List<(string Key, List<string> Devices, bool Watched)> Plan()
         {
             lock (_lock)
                 return _files.Values.Select(f => (f.Key, deviceIds.Where(id => _store.Device(id) is { IsPlex: false }
-                        && _devices.TryGetValue(id, out var d) && d.Cells.TryGetValue(f.Key, out var c) && c.FileId > 0 && c.Watched && c.PlayPointMs > 0).ToList()))
+                        && _devices.TryGetValue(id, out var d) && d.Cells.TryGetValue(f.Key, out var c) && c.FileId > 0 && c.Watched && c.PlayPointMs > 0).ToList(), true))
                     .Where(w => w.Item2.Count > 0).ToList();
         }
         var work = Plan();
-        int changes = work.Sum(w => w.Devices.Count);
+        int changes = work.Sum(w => w.Item2.Count);
         if (dryRun || changes == 0) return (null, changes, work.Count);
-        return (Enqueue("tidy", "Clearing leftover resume points", Plan, true,
-            (n, failed) => $"Progress Reset: cleared {n:N0} leftover resume point{(n == 1 ? "" : "s")} on watched files" + (failed > 0 ? $"; {failed} didn't take." : ".")), changes, work.Count);
+        return (Enqueue(new BulkJob
+        {
+            Key = "tidy", Watched = true, Label = "Clearing leftover resume points", Plan = Plan,
+            Summary = (n, failed) => $"Progress Reset: cleared {n:N0} leftover resume point{(n == 1 ? "" : "s")} on watched files" + (failed > 0 ? $"; {failed} didn't take." : "."),
+        }), changes, work.Count);
     }
 
     /// <summary>Queues a job (refused when the same one is already running or waiting). Jobs run one at a time in the
-    /// background, one file at a time; the tabs show "label… n of N · next: …" and cells update as each is read back.</summary>
-    private string? Enqueue(string key, string label, Func<List<(string Key, List<string> Devices)>> plan, bool watched, Func<int, int, string> summary)
+    /// background, one file at a time; the tabs show its progress and cells update as each file is read back.</summary>
+    private string? Enqueue(BulkJob job)
     {
         lock (_jobs)
         {
-            var same = _jobs.FirstOrDefault(j => j.Key == key && j.Watched == watched && !j.Cancel);
+            var same = _jobs.FirstOrDefault(j => j.Key == job.Key && j.Watched == job.Watched && !j.Cancel);
             if (same != null) return same.Running ? $"{same.Label} is already running." : $"{same.Label} is already queued.";
-            _jobs.Add(new BulkJob { Key = key, Watched = watched, Label = label, Plan = plan, Summary = summary, Total = plan().Sum(w => w.Devices.Count) });
+            job.Total = job.Plan().Sum(w => w.Devices.Count);
+            _jobs.Add(job);
             if (!_worker) { _worker = true; _ = Task.Run(WorkAsync); }
         }
-        UpdateJobStatus(); Changed();
+        Changed();
         return null;
     }
 
@@ -694,17 +755,26 @@ public sealed class ProgressService
                 job.Running = true;
             }
             int failed = 0;
+            string cardId = "";
             try
             {
-                var work = job.Plan();
+                var work = job.Plan().Where(w => w.Devices.Count > 0).ToList();
                 job.Total = work.Sum(w => w.Devices.Count);
-                foreach (var w in work.Where(w => w.Devices.Count > 0))
+                if (job.Card is { } c && work.Count > 0) cardId = await NewJobCardAsync(job, c, work);
+                foreach (var w in work)
                 {
-                    if (job.Cancel) break;
-                    UpdateJobStatus(); Changed();
-                    var r = await SetWatchedAsync(w.Key, w.Devices, job.Watched);
+                    if (job.Cancel)
+                    {
+                        foreach (var dev in w.Devices) _store.UpdateEventTarget(cardId, dev, TargetState.Skipped, "stopped", w.Key);
+                        continue;
+                    }
+                    Changed();
+                    var r = await SetWatchedAsync(w.Key, w.Devices, w.Watched);
                     job.Done += w.Devices.Count;
                     failed += r.Count(x => !x.Ok);
+                    foreach (var x in r) _store.UpdateEventTarget(cardId, x.DeviceId, x.Ok ? TargetState.Ok : TargetState.Failed, x.Error, w.Key);
+                    foreach (var dev in w.Devices.Where(d => r.All(x => x.DeviceId != d)))
+                        _store.UpdateEventTarget(cardId, dev, TargetState.Skipped, "no longer in the list", w.Key);
                 }
                 _store.Log(failed == 0 && !job.Cancel ? ActivityLevel.Ok : ActivityLevel.Warn,
                     job.Cancel ? $"{job.Label}: stopped after {job.Done:N0} of {job.Total:N0}." : job.Summary(job.Total, failed));
@@ -713,13 +783,126 @@ public sealed class ProgressService
             finally
             {
                 lock (_jobs) _jobs.Remove(job);
-                UpdateJobStatus(); Changed();
+                Changed();
             }
         }
     }
 
-    /// <summary>The queue is shown from Jobs(); nothing goes in the status lines.</summary>
-    private void UpdateJobStatus() { }
+    /// <summary>The Activity card for a job, with what each player held before (for Undo).</summary>
+    private async Task<string> NewJobCardAsync(BulkJob job, (string Title, string Summary, string FromName, string FromKind) c,
+        List<(string Key, List<string> Devices, bool Watched)> work)
+    {
+        var undo = new List<UndoItem>();
+        foreach (var w in work)
+        {
+            string url = await UrlForAsync(w.Key) ?? "";
+            lock (_lock)
+                foreach (var dev in w.Devices)
+                    if (_devices.TryGetValue(dev, out var d) && d.Cells.TryGetValue(w.Key, out var cell))
+                        undo.Add(new UndoItem { DeviceId = dev, SourceUrl = url, Title = _files.GetValueOrDefault(w.Key)?.FileName ?? w.Key,
+                                                PositionMs = cell.PlayPointMs, DurationMs = cell.DurationMs, Watched = cell.Watched });
+        }
+        var devices = _store.Devices().ToDictionary(d => d.Id);
+        var ev = new StopEvent
+        {
+            TimeUtc = DateTime.UtcNow, Title = c.Title, Subtitle = $"{work.Count:N0} file{(work.Count == 1 ? "" : "s")}", Summary = c.Summary,
+            FromName = c.FromName, FromKind = c.FromKind, Batch = true, Manual = true, Files = work.Count, Undo = undo,
+            Targets = work.SelectMany(w => w.Devices).Distinct().Where(devices.ContainsKey).Select(id => new StopTarget
+            {
+                DeviceId = id, Name = devices[id].Name, Kind = devices[id].IsPlex ? "plex" : "zidoo",
+                Items = work.Where(w => w.Devices.Contains(id)).ToDictionary(w => w.Key, _ => TargetState.Pending),
+            }).ToList(),
+        };
+        foreach (var t in ev.Targets) Store.CountBatch(t);
+        _store.AddEvent(ev);
+        return ev.Id;
+    }
+
+    /// <summary>
+    /// "Copy all" from one player's column on Progress Reset: for every file given (the list as filtered), the ticked
+    /// players get that player's progress, through the copy queue, as one Activity card with Undo. Files that player
+    /// hasn't started are left out unless includeNotStarted (then they're reset on the others). dryRun only counts.
+    /// </summary>
+    public async Task<(string? Error, int Files, int Copies, int Resets, int NotStarted)> CopyProgressFrom(string fromId, IReadOnlyCollection<string> toIds,
+        IReadOnlyCollection<string> keys, bool includeNotStarted, bool dryRun)
+    {
+        var source = _store.Device(fromId);
+        if (source == null) return ("That player is no longer there.", 0, 0, 0, 0);
+        var targets = toIds.Where(id => id != fromId).Distinct().Select(id => _store.Device(id)).Where(d => d != null).Select(d => d!).ToList();
+        if (targets.Count == 0) return ("Tick Target on at least one other player.", 0, 0, 0, 0);
+        static int Eff(ProgressCell c) => c.PlayPointMs > 0 ? c.PlayPointMs : c.Watched && c.DurationMs > 0 ? c.DurationMs : 0;
+        var plan = new List<(string Key, int Pos, int Dur, List<Device> To, List<UndoItem> Undo)>();
+        int notStarted = 0;
+        lock (_lock)
+        {
+            if (!_devices.TryGetValue(fromId, out var src)) return ("Read that player first.", 0, 0, 0, 0);
+            foreach (string key in keys.Distinct())
+            {
+                if (!src.Cells.TryGetValue(key, out var sc) || sc.FileId <= 0) continue;
+                int pos = Eff(sc);
+                if (pos == 0 && !includeNotStarted)
+                {
+                    if (targets.Any(t => _devices.TryGetValue(t.Id, out var d) && d.Cells.TryGetValue(key, out var c) && (c.PlayPointMs > 0 || c.Watched))) notStarted++;
+                    continue;
+                }
+                var to = new List<Device>();
+                var undo = new List<UndoItem>();
+                foreach (var t in targets)
+                {
+                    if (!_devices.TryGetValue(t.Id, out var d) || !d.Cells.TryGetValue(key, out var c) || c.FileId <= 0) continue;
+                    bool differs = pos == 0 ? c.PlayPointMs > 0 || c.Watched : Math.Abs(Eff(c) - pos) > 2000 || c.Watched != sc.Watched;
+                    if (!differs) continue;
+                    to.Add(t);
+                    undo.Add(new UndoItem { DeviceId = t.Id, Title = _files.GetValueOrDefault(key)?.FileName ?? key, PositionMs = c.PlayPointMs, DurationMs = c.DurationMs, Watched = c.Watched });
+                }
+                if (to.Count > 0) plan.Add((key, pos, sc.DurationMs, to, undo));
+            }
+        }
+        int copies = plan.Where(p => p.Pos > 0).Sum(p => p.To.Count), resets = plan.Where(p => p.Pos == 0).Sum(p => p.To.Count);
+        if (dryRun || plan.Count == 0) return (null, plan.Count, copies, resets, notStarted);
+
+        var items = new List<RelayEngine.BatchItem>();
+        var undoAll = new List<UndoItem>();
+        foreach (var p in plan)
+        {
+            string? url = await UrlForAsync(p.Key);
+            if (url == null) continue; // none of the players holding it answered: left out
+            string label = _files.GetValueOrDefault(p.Key)?.Display ?? p.Key;
+            items.Add(new RelayEngine.BatchItem(url, label, p.Pos, p.Dur, p.To));
+            foreach (var u in p.Undo) { u.SourceUrl = url; undoAll.Add(u); }
+        }
+        if (items.Count == 0) return ("None of the players holding these files is answering right now.", 0, 0, 0, notStarted);
+        _engine.CopyBatch($"Progress from {source.Name}", $"{items.Count:N0} file{(items.Count == 1 ? "" : "s")}", $"Copied from {source.Name} on Progress Reset",
+            source.Name, source.IsPlex ? "plex" : "zidoo", items, undoAll);
+        return (null, items.Count, copies, resets, notStarted);
+    }
+
+    // ---------- each file's network path (for the copy queue), without asking a player for every file ----------
+
+    private readonly ConcurrentDictionary<string, string> _sharePrefix = new();
+
+    /// <summary>
+    /// A file's network path (smb://…). A Zidoo is asked for one file's path once; what comes before the file's in-share
+    /// path is that player's share address, used for every other file it has. A Plex user's path comes from the folder
+    /// mapping. Null when no player holding it answers.
+    /// </summary>
+    public async Task<string?> UrlForAsync(string key)
+    {
+        if (Find(key) is not { } found) return null;
+        string rel = found.File.Uri;
+        foreach (var (deviceId, fileId) in found.Holders.OrderBy(h => _store.Device(h.DeviceId)?.IsPlex == true).ThenByDescending(h => _engine.LiveOf(h.DeviceId).Online))
+        {
+            var d = _store.Device(deviceId);
+            if (d == null || fileId <= 0) continue;
+            if (d.IsPlex) { if (await _engine.PlexSourceUrlAsync(d, fileId) is { } pu) return pu; continue; }
+            if (rel.Length > 0 && _sharePrefix.TryGetValue(deviceId, out var prefix)) return prefix + rel;
+            var entry = await new ZidooClient(d.Ip, d.Port).GetEntryAsync(fileId);
+            if (entry == null || entry.Path.Length == 0) continue;
+            if (rel.Length > 0 && entry.Path.EndsWith(rel, StringComparison.OrdinalIgnoreCase)) _sharePrefix[deviceId] = entry.Path[..^rel.Length];
+            return entry.Path;
+        }
+        return null;
+    }
 
     /// <summary>Plain-text report of the last read of each player, for troubleshooting a "not in library".</summary>
     public string DiagnosticsText(string search)
@@ -813,7 +996,12 @@ public sealed class ProgressService
         if (file == null) return (url, null);
         int pos = cell.PlayPointMs > 0 ? cell.PlayPointMs : cell.Watched && cell.DurationMs > 0 ? cell.DurationMs : 0;
         string subtitle = file.IsEpisode ? (file.Season > 0 ? $"S{file.Season:00}E{file.Episode:00}" : "") : (file.Year > 0 ? file.Year.ToString() : "");
-        var (card, err) = _engine.CopyFile(file.Title, subtitle, file.FileName, url, poster, cell.DurationMs, source, pos, targets);
+        var undo = new List<UndoItem>();
+        lock (_lock)
+            foreach (var t in targets)
+                if (_devices.TryGetValue(t.Id, out var d) && d.Cells.TryGetValue(key, out var c))
+                    undo.Add(new UndoItem { DeviceId = t.Id, SourceUrl = url, Title = file.FileName, PositionMs = c.PlayPointMs, DurationMs = c.DurationMs, Watched = c.Watched });
+        var (card, err) = _engine.CopyFile(file.Title, subtitle, file.FileName, url, poster, cell.DurationMs, source, pos, targets, undo);
         return card == null ? (err, null) : (null, card.Id);
     }
 

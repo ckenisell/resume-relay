@@ -643,6 +643,53 @@ mv = {f["key"] for f in http("GET", RELAY + "/api/watched?show=movies&players=" 
 tv = {f["key"] for f in http("GET", RELAY + "/api/watched?show=tv&players=" + urllib.parse.quote(ids[LR]))["files"]}
 check("Watch Sync: All Movie files / All TV Show files", kf in mv and k3 in tv and k3 not in mv and kf not in tv, str((mv, tv)))
 
+# ---------------------------------------------------------------- 43. update notice
+st = http("GET", RELAY + "/api/state")
+check("a newer full release is offered (betas left out)", wait_for(lambda: (http("GET", RELAY + "/api/state").get("update") or {}).get("version") == "9.9.0", 20),
+      str(http("GET", RELAY + "/api/state").get("update")))
+settings(includeBetas=True)
+http("POST", RELAY + "/api/update/check")
+check("with betas included, the newer beta is offered", (http("GET", RELAY + "/api/state").get("update") or {}).get("version") == "9.9.1-beta.1")
+settings(includeBetas=False, checkUpdates=False)
+check("turning the check off hides it", http("GET", RELAY + "/api/state").get("update") is None)
+settings(checkUpdates=True)
+
+# ---------------------------------------------------------------- 44. Copy all on Progress Reset, with Undo
+now = int(time.time() * 1000)
+mock(LR, "setlwt", url=ARRIVAL, lwt=now, pp=1111000)
+mock(BR, "setlwt", url=ARRIVAL, lwt=now, pp=2222000)
+plexmock("set", user="1001", key=P_ARR, pos=0, count=0)
+http("POST", RELAY + "/api/progress/read", {"deviceIds": [ids[LR], ids[BR], PO]})
+wait_for(lambda: not http("GET", RELAY + "/api/progress")["reading"], 60)
+dry = http("POST", RELAY + "/api/progress/batch", {"from": ids[LR], "to": [ids[BR], PO], "keys": [ka, kb], "includeNotStarted": False, "dryRun": True})
+check("Copy all counts first, and writes nothing", dry["copies"] >= 2 and bookmark(BR, ARRIVAL)["playPoint"] == 2222000, str(dry))
+http("POST", RELAY + "/api/progress/batch", {"from": ids[LR], "to": [ids[BR], PO], "keys": [ka, kb], "includeNotStarted": False, "dryRun": False})
+check("Copy all copies the player's progress to every ticked target",
+      wait_for(lambda: bookmark(BR, ARRIVAL)["playPoint"] == 1111000 and plexitem("1001", P_ARR)["viewOffset"] == 1111000, 40),
+      str((bookmark(BR, ARRIVAL)["playPoint"], plexitem("1001", P_ARR)["viewOffset"])))
+bc = wait_for(lambda: next((e for e in events() if e.get("batch") and e["fromName"] == "Living Room" and all(t["state"] not in ("Pending", "Waiting") for t in e["targets"])), None), 30)
+check("one Activity card for the batch, its chips counting files", bc and bc["files"] >= 1 and bc["canUndo"] and any("done" in t["note"] for t in bc["targets"]), str(bc))
+http("POST", RELAY + f"/api/events/{bc['id']}/undo")
+check("Undo puts each player back as it was", wait_for(lambda: bookmark(BR, ARRIVAL)["playPoint"] == 2222000
+      and plexitem("1001", P_ARR)["viewOffset"] == 0 and plexitem("1001", P_ARR)["viewCount"] == 0, 40),
+      str((bookmark(BR, ARRIVAL)["playPoint"], plexitem("1001", P_ARR))))
+check("...and the card says it was undone", wait_for(lambda: next(e for e in events() if e["id"] == bc["id"])["undone"], 10))
+
+# ---------------------------------------------------------------- 45. Copy all on Watch Sync (across pages, as filtered), with Undo
+mock(LR, "setlwt", url=E03, lwt=now, pp=0, watched=1)
+mock(BR, "setlwt", url=E03, lwt=-1, pp=0, watched=0)
+http("POST", RELAY + "/api/progress/read", {"deviceIds": [ids[LR], ids[BR]]})
+wait_for(lambda: not http("GET", RELAY + "/api/progress")["reading"], 60)
+wq = {"from": ids[LR], "to": [ids[BR]], "show": "all", "players": ids[LR] + "," + ids[BR], "q": "Andor - S01E03"}
+dry = http("POST", RELAY + "/api/watched/batch", dict(wq, dryRun=True))
+check("Watch Sync Copy all counts only the files in the filtered list", dry["files"] == 1 and dry["toWatched"] == 1, str(dry))
+http("POST", RELAY + "/api/watched/batch", dict(wq, dryRun=False))
+check("Watch Sync Copy all gives the target the same watched mark", wait_for(lambda: bookmark(BR, E03).get("watched"), 40), str(bookmark(BR, E03)))
+wc = wait_for(lambda: next((e for e in events() if e.get("batch") and e["title"].startswith("Watched marks from") and e["canUndo"]
+                            and all(t["state"] not in ("Pending", "Waiting") for t in e["targets"])), None), 30)
+http("POST", RELAY + f"/api/events/{wc['id']}/undo")
+check("...and Undo makes it unwatched again", wait_for(lambda: not bookmark(BR, E03).get("watched"), 40), str(bookmark(BR, E03)))
+
 passed = sum(1 for _, ok in results if ok)
 print(f"\n{passed}/{len(results)} passed")
 sys.exit(0 if passed == len(results) else 1)

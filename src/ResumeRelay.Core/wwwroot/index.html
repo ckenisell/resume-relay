@@ -261,6 +261,39 @@ body.pr-dragging, body.pr-dragging * { cursor: grabbing !important; }
   .mcards { display: block; }
 }
 .pr-none { color: var(--muted); font-size: 12px; }
+/* Column batch options: tick Target on the players that receive, Copy all on the one to copy from. */
+.colctl { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-weight: 400; }
+.colctl .tgt { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); cursor: pointer; white-space: nowrap; }
+.colctl .tgt input { accent-color: var(--amber); margin: 0; }
+.colctl .copyall { font-size: 11.5px; padding: 2px 8px; color: var(--amber); border-color: color-mix(in srgb, var(--amber) 45%, var(--line)); white-space: nowrap; }
+.colctl .copyall[disabled] { color: var(--muted); border-color: var(--line); opacity: .6; cursor: not-allowed; }
+.pr-head .colctl { display: flex; margin: 4px 0 8px; }
+.chk { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-weight: 600; }
+.chk input { accent-color: var(--amber); }
+/* Activity filters */
+.feed-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 16px; }
+.feed-filters select, .feed-filters input[type=search] { font: inherit; font-size: 13.5px; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 6px 8px; }
+.feed-filters input[type=search] { width: 15em; max-width: 100%; }
+.feed-filters label { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; color: var(--muted); }
+.ev .undone { color: var(--muted); font-size: 12.5px; margin-top: 10px; }
+.ev .acts { display: flex; flex-wrap: wrap; gap: 8px; }
+/* Update notice */
+.update-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 0 0 18px; padding: 10px 14px; border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--amber) 10%, var(--panel)); border: 1px solid color-mix(in srgb, var(--amber) 55%, var(--line)); font-size: 14px; }
+.update-banner b { color: var(--amber); }
+.update-banner .acts { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+.update-banner .btn { font-size: 13px; padding: 5px 12px; }
+.tab .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--amber); display: inline-block; }
+dialog.info { max-width: min(680px, 94vw); }
+.info-body { max-height: 60vh; overflow: auto; font-size: 14px; }
+.info-body h4 { margin: 14px 0 4px; font-size: 14.5px; }
+.info-body ul { margin: 4px 0; padding-left: 20px; }
+.info-body pre { background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; white-space: pre-wrap; word-break: break-all; font-size: 12.5px; }
+.info-body code { background: var(--panel-2); border-radius: 4px; padding: 0 4px; font-size: .92em; }
+.set-updates { margin-top: 20px; display: flex; flex-direction: column; gap: 8px; max-width: 900px; }
+.set-updates label { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; }
+.set-updates label input { accent-color: var(--amber); }
+.set-updates .row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; color: var(--muted); font-size: 13px; }
 /* ---------- Zidoo / Plex badges ---------- */
 .kb { display: inline-flex; align-items: center; gap: 5px; vertical-align: -3px; font-size: 12px; font-weight: 650; padding: 1px 7px 1px 4px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); white-space: nowrap; }
 .kb svg, .kb img { width: 16px; height: 16px; flex: none; object-fit: contain; }
@@ -424,6 +457,7 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
 </div>
 
 <main>
+  <div class="update-banner" id="update" role="status" hidden></div>
   <section id="players" role="tabpanel" aria-labelledby="tab-players">
     <h2>Players</h2>
     <p class="hint">Click a name to rename it. Players are recognised by their network hardware address, so a name stays with the right player even if your router gives it a new IP.</p>
@@ -443,6 +477,12 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
   <section id="activity" role="tabpanel" aria-labelledby="tab-activity" hidden>
     <h2>Activity</h2>
     <p class="hint">Every stop and where it was copied, newest first.</p>
+    <div class="feed-filters" role="search">
+      <select id="af-player" aria-label="Player"><option value="">All players</option></select>
+      <select id="af-kind" aria-label="Zidoo or Plex"><option value="">Zidoo and Plex</option><option value="zidoo">Zidoo only</option><option value="plex">Plex only</option></select>
+      <label><input type="checkbox" id="af-failed"> Failed only</label>
+      <input type="search" id="af-q" placeholder="Search titles" aria-label="Search the Activity tab">
+    </div>
     <div class="feed" id="feed"></div>
   </section>
 
@@ -459,6 +499,7 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
         </select></label>
       <label class="pr-sort">Sort by
         <select id="pr-sort"><option value="title">Title</option><option value="watched">Last watched</option></select></label>
+      <input id="pr-q" class="ws-q" type="search" placeholder="Search titles" aria-label="Search titles">
       <button class="btn" id="pr-read">Read players</button>
     </div>
     <p class="msg" id="pr-msg" role="status"></p>
@@ -507,6 +548,11 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
         <span>A player that stays off longer than this misses the copy.</span>
         <input type="number" name="pendingMaxDays" min="1" max="365" required> days</label>
     </form>
+    <div class="set-updates">
+      <label><input type="checkbox" id="set-check"> Tell me when a new version is out</label>
+      <label><input type="checkbox" id="set-betas"> Include beta versions</label>
+      <div class="row"><button class="btn" id="set-checknow">Check now</button><span id="set-checked"></span></div>
+    </div>
     <p class="msg" id="set-msg" role="status"></p>
     <section class="plex-card" id="plex-card" aria-labelledby="plex-h"></section>
     <div class="icons-set">
@@ -521,6 +567,11 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
 <div class="menu" id="menu" role="menu" hidden></div>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+<dialog class="confirm info" id="info-dialog" aria-labelledby="info-h">
+  <h3 id="info-h"></h3>
+  <div class="info-body" id="info-body"></div>
+  <div class="row"><button class="btn" id="info-close" type="button">Close</button></div>
+</dialog>
 <dialog class="confirm" id="reset-dialog" aria-labelledby="reset-h">
   <h3 id="reset-h">Reset Progress</h3>
   <p id="reset-text"></p>
@@ -850,7 +901,9 @@ const CHIP = {
 const SYS_ICON = { Error: "✕", Warn: "!", Ok: "✓", Skip: "–", Info: "●" };
 
 function eventHtml(e) {
-  const what = e.copied
+  const what = e.batch
+    ? `${e.fromKind ? kindBadge(e.fromKind) + " " : ""}${esc(e.summary)}: <b class="tnum">${e.files.toLocaleString()} file${e.files === 1 ? "" : "s"}</b>`
+    : e.copied
     ? `Copied from ${kindBadge(e.fromKind)} ${esc(e.fromName)} on Progress Reset: <b class="tnum">${e.reset ? "not started (progress reset)" : e.finished ? "watched" : clock(e.positionMs)}</b>`
     : e.series
     ? `Reset from <b>Resume Relay</b>: <b>all episodes reset on all players</b>`
@@ -870,7 +923,11 @@ function eventHtml(e) {
   return `<article class="ev">${poster(e.poster, e.title)}
     <div><h3>${esc(e.title)}</h3>${e.subtitle ? `<div class="sub">${esc(e.subtitle)}</div>` : ""}${e.fileName ? `<div class="file">${esc(e.fileName)}</div>` : ""}
       <div class="what">${what}</div>${chips ? `<div class="chips">${chips}</div>` : `<div class="sub">No other players to copy to.</div>`}
-      ${!e.reset && e.canReset ? `<button class="btn reset-btn" data-reset="${esc(e.id)}" data-file="${esc(e.fileName || e.title)}">Reset Progress</button>` : ""}</div>
+      <div class="acts">${!e.reset && e.canReset ? `<button class="btn reset-btn" data-reset="${esc(e.id)}" data-file="${esc(e.fileName || e.title)}">Reset Progress</button>` : ""}
+      ${e.canUndo ? (e.targets.some(t => t.state === "Pending" || t.state === "Waiting")
+        ? `<button class="btn reset-btn" disabled title="Undo is available once every copy on this card is done">Undo</button>`
+        : `<button class="btn reset-btn" data-undo="${esc(e.id)}" data-files="${e.batch ? e.files : 1}">Undo</button>`) : ""}</div>
+      ${e.undone ? `<div class="undone">Undone</div>` : ""}</div>
     <time class="tnum" datetime="${esc(e.timeUtc)}">${timeOf(e.timeUtc)}</time></article>`;
 }
 
@@ -894,6 +951,13 @@ $("#reset-go").onclick = async () => {
 
 // "Reset Progress" on an Activity card: reset that file on every player. The result appears as a new card.
 $("#feed").addEventListener("click", e => {
+  const u = e.target.closest("[data-undo]");
+  if (u) {
+    const n = +u.dataset.files;
+    confirmReset("Undo", `This puts ${n === 1 ? "the file" : `all ${n.toLocaleString()} files`} on this card back the way each player had ${n === 1 ? "it" : "them"} before: the same resume point, watched mark, or nothing. Last-watched dates aren't restored.`,
+      () => api("POST", `/api/events/${encodeURIComponent(u.dataset.undo)}/undo`));
+    return;
+  }
   const b = e.target.closest("[data-reset]"); if (!b) return;
   const id = b.dataset.reset;
   confirmReset("Reset Progress", `This will reset the progress for <b>${esc(b.dataset.file)}</b> on all players.`,
@@ -908,10 +972,37 @@ function dayLabel(d) {
   return diff === 0 ? "Today, " + long : diff === 1 ? "Yesterday, " + long : long;
 }
 
+// Activity filters: by player, Zidoo or Plex, failed only, and a search. Messages without a card (player online,
+// settings changed...) show only when no player, kind or failed filter is set.
+function feedFilter() {
+  const p = $("#af-player").value, k = $("#af-kind").value, failed = $("#af-failed").checked, q = $("#af-q").value.trim().toLowerCase();
+  const name = p === "rr" ? "Resume Relay" : (state?.devices || []).find(d => d.id === p)?.name;
+  return {
+    any: !!(p || k || failed || q), cardsOnly: !!(p || k || failed),
+    event: e => (!p || e.fromName === name || e.targets.some(t => t.deviceId === p))
+      && (!k || e.fromKind === k || e.targets.some(t => (t.kind || "zidoo") === k))
+      && (!failed || e.targets.some(t => t.state === "Failed"))
+      && (!q || [e.title, e.subtitle, e.fileName, e.summary].some(x => (x || "").toLowerCase().includes(q))),
+    row: r => !q || r.message.toLowerCase().includes(q),
+  };
+}
+for (const id of ["#af-player", "#af-kind", "#af-failed"]) $(id).addEventListener("change", () => renderFeed());
+let afTyping; $("#af-q").addEventListener("input", () => { clearTimeout(afTyping); afTyping = setTimeout(renderFeed, 200); });
+function renderFeedFilters() {
+  const sel = $("#af-player"), sig = (state?.devices || []).map(d => d.id + d.name).join("|");
+  if (sel.dataset.sig === sig) return;
+  sel.dataset.sig = sig;
+  const v = sel.value;
+  sel.innerHTML = `<option value="">All players</option>${(state?.devices || []).map(d => `<option value="${esc(d.id)}">${esc(d.name)}</option>`).join("")}<option value="rr">Resume Relay (resets, copies, undo)</option>`;
+  sel.value = [...sel.options].some(o => o.value === v) ? v : "";
+}
+
 function renderFeed() {
+  renderFeedFilters();
+  const ff = feedFilter();
   const items = [
-    ...events.map(e => ({ t: new Date(e.timeUtc), html: eventHtml(e) })),
-    ...systemRows.map(r => ({ t: new Date(r.timeUtc), html:
+    ...events.filter(ff.event).map(e => ({ t: new Date(e.timeUtc), html: eventHtml(e) })),
+    ...(ff.cardsOnly ? [] : systemRows.filter(ff.row)).map(r => ({ t: new Date(r.timeUtc), html:
       `<div class="sys ${esc(r.level)}"><span class="ic" aria-hidden="true">${SYS_ICON[r.level] || "●"}</span><span>${esc(r.message)}</span><time class="tnum" datetime="${esc(r.timeUtc)}">${timeOf(r.timeUtc)}</time></div>` })),
   ].sort((a, b) => b.t - a.t);
   let html = "", lastDay = "";
@@ -920,7 +1011,8 @@ function renderFeed() {
     if (day !== lastDay) { html += `<div class="day">${esc(day)}</div>`; lastDay = day; }
     html += it.html;
   }
-  if (!items.length) html = `<div class="empty"><strong>Nothing yet</strong>Play something on a player and stop it. Each stop shows up here as a card.</div>`;
+  if (!items.length) html = ff.any ? `<div class="empty"><strong>Nothing matches</strong>Change or clear the filters above.</div>`
+    : `<div class="empty"><strong>Nothing yet</strong>Play something on a player and stop it. Each stop shows up here as a card.</div>`;
   if (html !== feedCache) { $("#feed").innerHTML = html; feedCache = html; }
 }
 
@@ -989,6 +1081,7 @@ $("#pr-players").addEventListener("change", () => {
 });
 try { $("#pr-sort").value = store.get("rr.progressSort") || "title"; } catch { }
 try { $("#pr-show").value = store.get("rr.progressShow") || "all"; } catch { }
+let prTyping; $("#pr-q").addEventListener("input", () => { clearTimeout(prTyping); prTyping = setTimeout(renderProgress, 200); });
 $("#pr-show").addEventListener("change", () => { store.set("rr.progressShow", $("#pr-show").value); renderProgress(); });
 $("#pr-sort").addEventListener("change", () => { store.set("rr.progressSort", $("#pr-sort").value); renderProgress(); });
 $("#pr-read").onclick = async () => {
@@ -1023,6 +1116,63 @@ document.addEventListener("click", async e => {
   b.disabled = true;
   try { await api("DELETE", "/api/progress/jobs/" + encodeURIComponent(b.dataset.jobCancel)); } catch (err) { toast(err.message, true); }
   prCache = ""; refresh();
+});
+
+// ---- Copy all from a player's column (both tabs): tick Target on the players that receive.
+const colTargets = {};
+for (const tab of ["pr", "ws"]) { let v = []; try { v = JSON.parse(store.get("rr." + tab + "Targets") || "[]"); } catch { } colTargets[tab] = new Set(Array.isArray(v) ? v : []); }
+function colCtl(tab, d, ticked) {
+  const others = [...colTargets[tab]].filter(id => id !== d.id && ticked.includes(id));
+  const what = tab === "pr" ? "progress" : "watched marks";
+  return `<span class="colctl"><label class="tgt" title="This player receives Copy all from another player"><input type="checkbox" data-tgt="${tab}" value="${esc(d.id)}" ${colTargets[tab].has(d.id) ? "checked" : ""}> Target</label>
+    <button class="btn mini copyall" data-copyall="${tab}" data-from="${esc(d.id)}" ${others.length ? "" : "disabled"}
+      title="${others.length ? `Copy ${esc(d.name)}'s ${what} for every file in this list (all pages, as filtered) to the players ticked Target` : "Tick Target on at least one other player first"}">Copy all ⟶</button></span>`;
+}
+document.addEventListener("change", e => {
+  const t = e.target.closest("[data-tgt]"); if (!t) return;
+  const set = colTargets[t.dataset.tgt];
+  if (t.checked) set.add(t.value); else set.delete(t.value);
+  store.set("rr." + t.dataset.tgt + "Targets", JSON.stringify([...set]));
+  if (t.dataset.tgt === "pr") { prCache = ""; renderProgress(); } else { wsCache = ""; renderWatch(); }
+});
+const namesOf = ids => (state?.devices || []).filter(d => ids.includes(d.id)).map(d => `<b>${esc(d.name)}</b>`).join(", ");
+let prLastKeys = [];
+document.addEventListener("click", async e => {
+  const b = e.target.closest("[data-copyall]"); if (!b || b.disabled) return;
+  const tab = b.dataset.copyall, from = b.dataset.from, src = esc(devName(from));
+  try {
+    if (tab === "pr") {
+      const to = [...colTargets.pr].filter(id => id !== from && prTicked().includes(id));
+      const keys = prLastKeys;
+      const n = await api("POST", "/api/progress/batch", { from, to, keys, includeNotStarted: false, dryRun: true });
+      if (!n.copies && !n.notStarted) { toast("Nothing to copy: those players already match for every file in this list."); return; }
+      confirmReset(`Copy all from ${devName(from)}`,
+        `This copies <b>${src}</b>'s progress to ${namesOf(to)} for every file in this list (${keys.length.toLocaleString()}, as filtered): ` +
+        `<b>${n.copies.toLocaleString()}</b> resume point${n.copies === 1 ? "" : "s"}.` +
+        (n.notStarted ? `<label class="chk"><input type="checkbox" id="copy-ns"> Also reset ${n.notStarted.toLocaleString()} file${n.notStarted === 1 ? "" : "s"} ${src} hasn't started</label>` : "") +
+        `<br><br>You can undo it from its card on the Activity tab.`,
+        async () => {
+          const inc = !!document.querySelector("#copy-ns")?.checked;
+          const r = await api("POST", "/api/progress/batch", { from, to, keys, includeNotStarted: inc, dryRun: false });
+          toast(`Copying ${r.files.toLocaleString()} file${r.files === 1 ? "" : "s"} from ${devName(from)}. Its card on the Activity tab shows how it goes.`);
+        });
+    } else {
+      const to = [...colTargets.ws].filter(id => id !== from && wsTicked().includes(id));
+      const q = { show: $("#ws-show").value, players: wsTicked().join(","), q: $("#ws-q").value.trim() };
+      const n = await api("POST", "/api/watched/batch", { from, to, ...q, dryRun: true });
+      if (!n.files) { toast("Nothing to copy: those players already match for every file in this list."); return; }
+      confirmReset(`Copy all from ${devName(from)}`,
+        `This gives ${namesOf(to)} the same watched marks as <b>${src}</b> for every file in this list (all pages, as filtered): ` +
+        `<b>${n.toWatched.toLocaleString()}</b> marked watched, <b>${n.toUnwatched.toLocaleString()}</b> marked unwatched.` +
+        `${n.toWatched ? " Marking watched removes those resume points." : ""}<br><br>You can undo it from its card on the Activity tab.`,
+        async () => {
+          const ahead = (watch?.jobs || []).length;
+          await api("POST", "/api/watched/batch", { from, to, ...q, dryRun: false });
+          toast(ahead ? "Queued: it starts when the job ahead of it finishes." : `Copying watched marks from ${devName(from)}.`);
+          loadWatch(true);
+        });
+    }
+  } catch (err) { toast(err.message, true); }
 });
 
 // "The Matrix" sorts under M and "A Beautiful Mind" under B, as on the players.
@@ -1157,6 +1307,9 @@ function renderProgress() {
   };
   if (show === "different") rows = rows.filter(f => !same(f));
   else if (show === "same") rows = rows.filter(same);
+  const prq = $("#pr-q").value.trim().toLowerCase();
+  if (prq) rows = rows.filter(f => f.display.toLowerCase().includes(prq) || f.fileName.toLowerCase().includes(prq));
+  prLastKeys = rows.map(f => f.key);
   const lastOf = f => Math.max(-1, ...devs.map(d => f.cells[d.id]?.lastWatchMs ?? -1));
   rows.sort($("#pr-sort").value === "watched"
     ? (a, b) => lastOf(b) - lastOf(a) || sortTitle(a.display).localeCompare(sortTitle(b.display), undefined, { numeric: true })
@@ -1169,7 +1322,7 @@ function renderProgress() {
     const head = devs.map(d => {
       const r = readOf[d.id];
       const sub = r?.readUtc ? `read ${timeOf(r.readUtc)}` : "not read";
-      return `<th>${kindBadge(d.kind, true)}${esc(d.name)}<small>${esc(sub)}</small>${r?.error ? `<small class="err">${esc(r.error)}</small>` : ""}${r?.unread ? `<small class="err" title="The player didn't answer for these, even when asked again. Their last known state is shown. Read again, or see the diagnostics page.">${r.unread} title${r.unread === 1 ? "" : "s"} couldn't be read</small>` : ""}</th>`;
+      return `<th>${kindBadge(d.kind, true)}${esc(d.name)}<small>${esc(sub)}</small>${r?.error ? `<small class="err">${esc(r.error)}</small>` : ""}${r?.unread ? `<small class="err" title="The player didn't answer for these, even when asked again. Their last known state is shown. Read again, or see the diagnostics page.">${r.unread} title${r.unread === 1 ? "" : "s"} couldn't be read</small>` : ""}${r?.readUtc ? colCtl("pr", d, ticked) : ""}</th>`;
     }).join("");
     const prActs = f => prBusy.has(f.key) ? `<button class="btn" disabled>Resetting…</button>` : `<button class="btn" data-pr-reset="${esc(f.key)}">Reset</button>`;
     const prLine = (f, d) => prNode(f, d, !!readOf[d.id]?.readUtc);
@@ -1303,7 +1456,7 @@ function renderWatch() {
     const label = { different: "watched on some players but not others", watched: "watched on at least one player", unwatched: "not watched on any player", missing: "missing on at least one player", all: "" }[$("#ws-show").value];
     const head = devs.map(d => {
       const r = readOf[d.id];
-      return `<th>${kindBadge(d.kind, true)}${esc(d.name)}<small>${esc(r?.readUtc ? "read " + timeOf(r.readUtc) : "not read")}</small>${r?.error ? `<small class="err">${esc(r.error)}</small>` : ""}${r?.unread ? `<small class="err" title="The player didn't answer for these, even when asked again. Their last known state is shown. Read again, or see the diagnostics page.">${r.unread} title${r.unread === 1 ? "" : "s"} couldn't be read</small>` : ""}</th>`;
+      return `<th>${kindBadge(d.kind, true)}${esc(d.name)}<small>${esc(r?.readUtc ? "read " + timeOf(r.readUtc) : "not read")}</small>${r?.error ? `<small class="err">${esc(r.error)}</small>` : ""}${r?.unread ? `<small class="err" title="The player didn't answer for these, even when asked again. Their last known state is shown. Read again, or see the diagnostics page.">${r.unread} title${r.unread === 1 ? "" : "s"} couldn't be read</small>` : ""}${r?.readUtc ? colCtl("ws", d, ticked) : ""}</th>`;
     }).join("");
     const wsActs = f => `<button class="btn mini" data-ws-all="1" data-ws-key="${esc(f.key)}">Watched</button><button class="btn mini" data-ws-all="0" data-ws-key="${esc(f.key)}">Unwatched</button>`;
     const wsLine = (f, d) => wsCell(f, d, !!readOf[d.id]?.readUtc);
@@ -1387,7 +1540,7 @@ async function loadWatch(force) {
       const [show, players, q, sort, page] = parts;
       watch = await api("GET", `/api/watched?show=${encodeURIComponent(show)}&players=${encodeURIComponent(players)}&q=${encodeURIComponent(q)}&sort=${sort}&page=${page}&pageSize=500`);
       wsV = watch.version; wsQuery = query; wsPage = watch.page;
-    } else { watch.reading = p.reading; watch.status = p.status; }
+    } else { watch.reading = p.reading; watch.status = p.status; watch.jobs = p.jobs; }
   } catch { }
   renderWatch();
 }
@@ -1591,13 +1744,100 @@ $("#icon-rows").addEventListener("click", async e => {
   feedCache = ""; cardCache.clear(); refresh();
 });
 
+// ---------------- update notice ----------------
+// A newer version on GitHub: What's new, How to update (for this edition), Remind me later (a week), Skip this version.
+const md = text => {
+  const out = []; let list = false;
+  for (const raw of String(text || "").split(/\r?\n/)) {
+    let l = esc(raw).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/`([^`]+)`/g, "<code>$1</code>")
+      .replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    const item = /^\s*[-*] (.*)$/.exec(l), head = /^#{1,4} (.*)$/.exec(l);
+    if (item) { if (!list) { out.push("<ul>"); list = true; } out.push(`<li>${item[1]}</li>`); continue; }
+    if (list) { out.push("</ul>"); list = false; }
+    if (head) out.push(`<h4>${head[1]}</h4>`); else if (l.trim()) out.push(`<p>${l}</p>`);
+  }
+  if (list) out.push("</ul>");
+  return out.join("");
+};
+function info(title, html) { $("#info-h").textContent = title; $("#info-body").innerHTML = html; $("#info-dialog").showModal(); $("#info-close").focus(); }
+$("#info-close").onclick = () => $("#info-dialog").close();
+$("#info-body").addEventListener("click", async e => {
+  const b = e.target.closest("[data-copy]"); if (!b) return;
+  const text = b.previousElementSibling.textContent;
+  try { await navigator.clipboard.writeText(text); }
+  catch { const r = document.createRange(); r.selectNodeContents(b.previousElementSibling); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); document.execCommand("copy"); }
+  b.textContent = "Copied"; setTimeout(() => b.textContent = "Copy", 1500);
+});
+function updateHidden(u) {
+  if (store.get("rr.skipVersion") === u.version) return true;
+  let snooze = null; try { snooze = JSON.parse(store.get("rr.snooze") || "null"); } catch { }
+  return !!(snooze && snooze.version === u.version && Date.now() < snooze.until);
+}
+function howToUpdate(u) {
+  const v = u.version, tag = "v" + v, base = `https://github.com/ckenisell/resume-relay/releases/download/${tag}`;
+  const ed = state?.edition || "";
+  if (ed.startsWith("Windows"))
+    return `<p>Download the new app, quit Resume Relay from the tray (right-click its icon, Quit), then run the new file. Your players and settings are kept.</p>
+      <p><a class="btn" href="${base}/ResumeRelay-${v}-windows.exe">Download ResumeRelay-${esc(v)}-windows.exe</a></p>`;
+  if (ed.startsWith("Docker"))
+    return `<p>Your players and settings are kept in the <b>data</b> folder.</p>
+      <h4>Synology (Container Manager)</h4><p>Open <b>Image</b>: <code>ghcr.io/ckenisell/resume-relay</code> shows <b>Update available</b>. Click it and choose <b>Update</b>.</p>
+      <h4>uGreen (Docker app)</h4><p>Pull the new image under <b>Image</b>, then redeploy the <b>resume-relay</b> project.</p>
+      <h4>Command line / Portainer</h4><pre>docker compose pull && docker compose up -d</pre><button class="btn" data-copy>Copy</button>
+      ${u.beta ? `<p>This is a beta: it isn't <code>:latest</code>. To try it, set the image to <code>ghcr.io/ckenisell/resume-relay:${esc(v)}</code>.</p>` : ""}`;
+  return `<p>On the Ubuntu computer running Resume Relay, open a terminal and paste these three lines. Your players and settings are kept.</p>
+    <pre>rm -rf /tmp/rr-install && mkdir /tmp/rr-install && cd /tmp/rr-install
+wget -O resume-relay.tar.gz ${base}/resume-relay-${v}-linux.tar.gz
+tar -xzf resume-relay.tar.gz && cd resume-relay && ./install.sh</pre><button class="btn" data-copy>Copy</button>`;
+}
+function renderUpdate() {
+  const u = state?.update, el = $("#update");
+  const show = !!u && !updateHidden(u);
+  const sig = show ? u.version : "";
+  $("#tab-settings").querySelector(".dot")?.remove();
+  if (u && store.get("rr.skipVersion") !== u.version) $("#tab-settings").insertAdjacentHTML("beforeend", `<span class="dot" title="A new version is out"></span>`);
+  if (el.dataset.sig === sig) return;
+  el.dataset.sig = sig; el.hidden = !show;
+  if (!show) { el.innerHTML = ""; return; }
+  el.innerHTML = `<span><b>Resume Relay ${esc(u.version)}</b>${u.beta ? " (beta)" : ""} is out. You have ${esc(state.version)}.</span>
+    <span class="acts"><button class="btn" data-up="notes">What's new</button><button class="btn" data-up="how">How to update</button>
+    <button class="btn quiet" data-up="later">Remind me later</button><button class="btn quiet" data-up="skip">Skip this version</button></span>`;
+}
+$("#update").addEventListener("click", e => {
+  const b = e.target.closest("[data-up]"); if (!b) return;
+  const u = state?.update; if (!u) return;
+  if (b.dataset.up === "notes") info(`What's new in ${u.version}`, md(u.notes) + `<p><a href="${esc(u.url)}" target="_blank" rel="noopener">See it on GitHub</a></p>`);
+  else if (b.dataset.up === "how") info(`Update to ${u.version}`, howToUpdate(u));
+  else if (b.dataset.up === "later") { store.set("rr.snooze", JSON.stringify({ version: u.version, until: Date.now() + 7 * 86400000 })); renderUpdate(); }
+  else if (b.dataset.up === "skip") { store.set("rr.skipVersion", u.version); renderUpdate(); }
+});
+function renderUpdateSettings(s) {
+  if (document.activeElement?.closest?.(".set-updates")) return;
+  $("#set-check").checked = s.checkUpdates; $("#set-betas").checked = s.includeBetas; $("#set-betas").disabled = !s.checkUpdates;
+  const u = state?.update;
+  $("#set-checked").innerHTML = !s.checkUpdates ? "Not checking." : !state.updateCheckedUtc ? "Not checked yet."
+    : `Checked ${ago(state.updateCheckedUtc)}: ${u ? `<b>${esc(u.version)}</b> is out. <button class="btn quiet" data-up-how>How to update</button>` : "you have the newest version."}`;
+}
+for (const id of ["#set-check", "#set-betas"]) $(id).addEventListener("change", async () => {
+  await api("POST", "/api/settings", { ...state.settings, checkUpdates: $("#set-check").checked, includeBetas: $("#set-betas").checked });
+  store.set("rr.skipVersion", ""); refresh();
+});
+$("#set-checknow").onclick = async () => {
+  const b = $("#set-checknow"); b.disabled = true; b.textContent = "Checking…";
+  try { const r = await api("POST", "/api/update/check"); if (r.error) say($("#set-msg"), "Couldn't reach GitHub: " + r.error, "err"); } catch (err) { say($("#set-msg"), err.message, "err"); }
+  store.set("rr.skipVersion", ""); store.set("rr.snooze", "");
+  b.disabled = false; b.textContent = "Check now"; refresh();
+};
+document.addEventListener("click", e => { if (e.target.closest("[data-up-how]") && state?.update) info(`Update to ${state.update.version}`, howToUpdate(state.update)); });
+
 async function refresh() {
   if (busy) return; busy = true;
   try {
-    const [s, ev, sys] = await Promise.all([api("GET", "/api/state"), api("GET", "/api/events?n=150"), api("GET", "/api/activity?n=150&system=true")]);
+    const [s, ev, sys] = await Promise.all([api("GET", "/api/state"), api("GET", "/api/events?n=300"), api("GET", "/api/activity?n=150&system=true")]);
     state = s; events = ev; systemRows = sys;
     for (const [id, t] of launching) if (Date.now() - t > 60000) launching.delete(id);
     renderMode(s.settings); renderRooms(s.devices); renderPlex(); renderFeed(); renderSettings(s.settings); renderIcons(); renderBadges();
+    renderUpdate(); renderUpdateSettings(s.settings);
     if (!$("#progress").hidden || progress?.reading) await loadProgress(); else renderProgressControls();
     if (!$("#watch").hidden) await loadWatch(false); else renderWatchControls();
     $("#autostart-row").hidden = s.autostart === null || s.autostart === undefined;

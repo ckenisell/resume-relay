@@ -22,6 +22,7 @@ COPY app/ /app/
 # survive updates. Change the port with RESUMERELAY_PORT if 8090 is taken on the NAS.
 ENV RESUMERELAY_DATA=/data \
     RESUMERELAY_PORT=8090 \
+    RESUMERELAY_DOCKER=1 \
     DOTNET_gcServer=0
 VOLUME ["/data"]
 EXPOSE 8090

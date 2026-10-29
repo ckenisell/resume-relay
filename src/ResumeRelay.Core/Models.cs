@@ -43,6 +43,11 @@ public sealed class Settings
 
     /// <summary>When true, the relay only logs what it would copy. Fresh installs start here.</summary>
     public bool WatchOnly { get; set; } = true;
+
+    /// <summary>Ask GitHub once a day whether a newer version is out (nothing about the user is sent).</summary>
+    public bool CheckUpdates { get; set; } = true;
+    /// <summary>Also offer beta versions (always on while running a beta).</summary>
+    public bool IncludeBetas { get; set; }
 }
 
 public sealed class PendingCopy
@@ -107,6 +112,16 @@ public sealed class StopEvent
     public bool Copied { get; set; }
     /// <summary>"Reset TV Show": every episode of the series (Title) was reset.</summary>
     public bool Series { get; set; }
+    /// <summary>A card for many files at once (Copy all, Watched All, Undo): each target's chip counts its files.</summary>
+    public bool Batch { get; set; }
+    public int Files { get; set; }
+    /// <summary>What a batch card says it did, e.g. "Copied from Living Room on Progress Reset".</summary>
+    public string Summary { get; set; } = "";
+    /// <summary>What each target held before this card's changes, so Undo can put it back. Empty when there's nothing to undo.</summary>
+    public List<UndoItem> Undo { get; set; } = new();
+    public bool Undone { get; set; }
+    /// <summary>On an Undo card: the card it undid.</summary>
+    public string UndoOf { get; set; } = "";
     /// <summary>The file's network path (smb://...), used to find it on every player. Empty on cards made before 0.3.2.</summary>
     public string SourceUrl { get; set; } = "";
     /// <summary>File name of the cached poster, or "" when none.</summary>
@@ -124,6 +139,19 @@ public sealed class StopTarget
     public string Kind { get; set; } = "";
     public TargetState State { get; set; } = TargetState.Pending;
     public string Note { get; set; } = "";
+    /// <summary>Batch cards only: each file's state on this target (file → state), counted into State and Note.</summary>
+    public Dictionary<string, TargetState>? Items { get; set; }
+}
+
+/// <summary>One file on one player as it was before a change, for Undo.</summary>
+public sealed class UndoItem
+{
+    public string DeviceId { get; set; } = "";
+    public string SourceUrl { get; set; } = "";
+    public string Title { get; set; } = "";
+    public int PositionMs { get; set; }
+    public int DurationMs { get; set; }
+    public bool Watched { get; set; }
 }
 
 public enum PowerAction { None, TurningOn, TurningOff }

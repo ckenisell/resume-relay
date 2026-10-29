@@ -442,7 +442,7 @@ public sealed partial class RelayEngine : BackgroundService
         var superseded = _store.RemovePending(source.Id + "|" + last.SourceUrl.ToLowerInvariant());
         if (superseded != null)
         {
-            _store.UpdateEventTarget(superseded.EventId, source.Id, TargetState.Skipped, "watched there instead");
+            _store.UpdateEventTarget(superseded.EventId, source.Id, TargetState.Skipped, "watched there instead", superseded.SourceUrl);
             _store.Log(ActivityLevel.Info, $"Discarded an older waiting copy of {label} for {source.Name}: it was just watched there.");
         }
 
@@ -499,7 +499,7 @@ public sealed partial class RelayEngine : BackgroundService
                 EventId = ev.Id,
             });
             if (replaced != null)
-                _store.UpdateEventTarget(replaced.EventId, t.Id, TargetState.Skipped, "replaced by a later stop");
+                _store.UpdateEventTarget(replaced.EventId, t.Id, TargetState.Skipped, "replaced by a later stop", replaced.SourceUrl);
         }
         // Finished on a Zidoo: the HT app keeps the stop position on a watched file. Clear it there too, so every player
         // stores "finished" the same way (watched, no resume point). Not shown as a chip on the card.
@@ -561,7 +561,7 @@ public sealed partial class RelayEngine : BackgroundService
     /// gets it when it's back. 0 resets the file there; the file's length marks it watched.
     /// </summary>
     public (StopEvent? Card, string Error) CopyFile(string title, string subtitle, string fileName, string sourceUrl, string poster,
-        int durationMs, Device source, int positionMs, List<Device> targets)
+        int durationMs, Device source, int positionMs, List<Device> targets, List<UndoItem>? undo = null)
     {
         if (targets.Count == 0) return (null, "Nothing to copy to.");
         bool reset = positionMs <= 0;
@@ -580,6 +580,7 @@ public sealed partial class RelayEngine : BackgroundService
             Reset = reset,
             Copied = true,
             Poster = poster,
+            Undo = undo ?? new List<UndoItem>(),
             Targets = targets.Select(t => new StopTarget { DeviceId = t.Id, Name = t.Name, Kind = KindOf(t) }).ToList(),
         };
         _store.AddEvent(ev);
@@ -600,10 +601,71 @@ public sealed partial class RelayEngine : BackgroundService
                 CreatedUtc = ev.TimeUtc,
                 EventId = ev.Id,
             });
-            if (replaced != null) _store.UpdateEventTarget(replaced.EventId, t.Id, TargetState.Skipped, "replaced by a later copy");
+            if (replaced != null) _store.UpdateEventTarget(replaced.EventId, t.Id, TargetState.Skipped, "replaced by a later copy", replaced.SourceUrl);
         }
         NudgeQueue();
         return (ev, "");
+    }
+
+    /// <summary>One file of a batch: where to send it, and what position (0 resets; its length marks it watched).</summary>
+    public sealed record BatchItem(string SourceUrl, string Label, int PositionMs, int DurationMs, List<Device> Targets);
+
+    /// <summary>
+    /// Many copies at once (Copy all on Progress Reset, an Undo): one Activity card whose chips count the files, and one
+    /// queued copy per file and player, handled like any stop (read back, waits for players that are off).
+    /// </summary>
+    public StopEvent CopyBatch(string title, string subtitle, string summary, string fromName, string fromKind, List<BatchItem> items, List<UndoItem> undo, string undoOf = "")
+    {
+        var targets = items.SelectMany(i => i.Targets).DistinctBy(t => t.Id).ToList();
+        var ev = new StopEvent
+        {
+            TimeUtc = DateTime.UtcNow, Title = title, Subtitle = subtitle, Summary = summary, FromName = fromName, FromKind = fromKind,
+            Batch = true, Copied = true, Files = items.Select(i => i.SourceUrl).Distinct().Count(), Undo = undo, UndoOf = undoOf,
+            Targets = targets.Select(t => new StopTarget
+            {
+                DeviceId = t.Id, Name = t.Name, Kind = KindOf(t),
+                Items = items.Where(i => i.Targets.Any(x => x.Id == t.Id)).Select(i => i.SourceUrl).Distinct().ToDictionary(u => u, _ => TargetState.Pending),
+            }).ToList(),
+        };
+        foreach (var t in ev.Targets) Store.CountBatch(t);
+        _store.AddEvent(ev);
+        _store.LogCopy(ActivityLevel.Info, $"{summary}: {ev.Files:N0} file(s) to {string.Join(", ", targets.Select(t => t.Name))}…");
+        long now = new DateTimeOffset(ev.TimeUtc).ToUnixTimeMilliseconds();
+        foreach (var i in items)
+            foreach (var t in i.Targets)
+            {
+                var replaced = _store.Enqueue(new PendingCopy
+                {
+                    TargetId = t.Id, SourceUrl = i.SourceUrl, Title = i.Label, FromName = fromName,
+                    PositionMs = Math.Max(0, i.PositionMs), DurationMs = i.DurationMs, LastWatchTimeMs = now, CreatedUtc = ev.TimeUtc, EventId = ev.Id,
+                });
+                if (replaced != null && replaced.EventId != ev.Id)
+                    _store.UpdateEventTarget(replaced.EventId, t.Id, TargetState.Skipped, "replaced by a later copy", replaced.SourceUrl);
+            }
+        NudgeQueue();
+        return ev;
+    }
+
+    /// <summary>Undo on a card: puts every file back the way each player held it before (resume point, watched or
+    /// nothing), through the same queue. Last-watched dates aren't restored.</summary>
+    public (StopEvent? Card, string Error) UndoCard(string eventId)
+    {
+        var card = _store.Events(300).FirstOrDefault(e => e.Id == eventId);
+        if (card == null) return (null, "That card no longer exists.");
+        if (card.Undone) return (null, "That was already undone.");
+        if (card.Undo.Count == 0) return (null, "There's nothing to undo on that card.");
+        if (card.Targets.Any(t => t.State is TargetState.Pending or TargetState.Waiting))
+            return (null, "Some of its copies haven't finished yet. Wait until they're done, then undo.");
+        var devices = _store.Devices().ToDictionary(d => d.Id);
+        var items = card.Undo.Where(u => devices.ContainsKey(u.DeviceId) && u.SourceUrl.Length > 0)
+            .Select(u => new BatchItem(u.SourceUrl, u.Title,
+                u.Watched ? (u.DurationMs > 0 ? u.DurationMs : 0) : u.PositionMs, u.DurationMs, new List<Device> { devices[u.DeviceId] }))
+            .ToList();
+        if (items.Count == 0) return (null, "The players on that card have been removed.");
+        _store.MarkUndone(eventId);
+        var undo = CopyBatch("Undo: " + (card.Batch ? card.Title : card.FileName.Length > 0 ? card.FileName : card.Title),
+            card.Batch ? card.Subtitle : card.Subtitle, "Undo: put back as it was", ManualResetFrom, "", items, new List<UndoItem>(), eventId);
+        return (undo, "");
     }
 
     private StopEvent NewResetCard(string title, string subtitle, string fileName, string sourceUrl, string poster, int durationMs, bool series, List<Device> targets)
@@ -648,7 +710,7 @@ public sealed partial class RelayEngine : BackgroundService
                 EventId = ev.Id,
             });
             if (replaced != null)
-                _store.UpdateEventTarget(replaced.EventId, t.Id, TargetState.Skipped, "replaced by a later reset");
+                _store.UpdateEventTarget(replaced.EventId, t.Id, TargetState.Skipped, "replaced by a later reset", replaced.SourceUrl);
         }
         NudgeQueue();
     }
@@ -763,7 +825,7 @@ public sealed partial class RelayEngine : BackgroundService
                 int days = _store.Settings().PendingMaxDays;
                 var expired = _store.ExpirePending(TimeSpan.FromDays(days));
                 foreach (var x in expired)
-                    _store.UpdateEventTarget(x.EventId, x.TargetId, TargetState.Failed, $"expired: the player stayed off for {days} days");
+                    _store.UpdateEventTarget(x.EventId, x.TargetId, TargetState.Failed, $"expired: the player stayed off for {days} days", x.SourceUrl);
                 if (expired.Count > 0) _store.Log(ActivityLevel.Warn, $"{expired.Count} waiting bookmark copies expired (their player stayed offline too long).");
 
                 // Players whose Home Theater app did not answer in this pass: their other copies wait for the next pass
@@ -1043,7 +1105,7 @@ public sealed partial class RelayEngine : BackgroundService
     private void Finish(PendingCopy job, TargetState state, string note)
     {
         _store.Dequeue(job);
-        _store.UpdateEventTarget(job.EventId, job.TargetId, state, note);
+        _store.UpdateEventTarget(job.EventId, job.TargetId, state, note, job.SourceUrl);
     }
 
     private void MarkWaiting(PendingCopy job, string reason)
@@ -1054,7 +1116,7 @@ public sealed partial class RelayEngine : BackgroundService
         _store.UpdatePending(job);
         _store.UpdateEventTarget(job.EventId, job.TargetId, TargetState.Waiting,
             reason != WaitOff ? "waiting, Home Theater isn't open"
-            : _store.Device(job.TargetId)?.IsPlex == true ? "waiting, the Plex server isn't answering" : "waiting, player is off");
+            : _store.Device(job.TargetId)?.IsPlex == true ? "waiting, the Plex server isn't answering" : "waiting, player is off", job.SourceUrl);
     }
 
     private void WaitForHomeTheater(PendingCopy job, Device target, HashSet<string> htNotReady)
@@ -1080,7 +1142,7 @@ public sealed partial class RelayEngine : BackgroundService
         job.LastAttemptUtc = DateTime.UtcNow;
         job.LastNote = $"retry {attempt}: {why}";
         _store.UpdatePending(job);
-        _store.UpdateEventTarget(job.EventId, job.TargetId, TargetState.Waiting, "retrying: " + why);
+        _store.UpdateEventTarget(job.EventId, job.TargetId, TargetState.Waiting, "retrying: " + why, job.SourceUrl);
         _store.LogCopy(ActivityLevel.Warn, $"Will retry {what}: {why}.");
     }
 
@@ -1089,7 +1151,7 @@ public sealed partial class RelayEngine : BackgroundService
     {
         var p = _store.RemovePending(key);
         if (p == null) return false;
-        _store.UpdateEventTarget(p.EventId, p.TargetId, TargetState.Skipped, "discarded");
+        _store.UpdateEventTarget(p.EventId, p.TargetId, TargetState.Skipped, "discarded", p.SourceUrl);
         return true;
     }
 

@@ -47,6 +47,10 @@ Resume Relay per home, on a computer that stays on while you watch.
 - **Copy all, then undo if needed.** On Progress Reset and Watch Sync, copy one player's progress or watched marks to
   the others for every file in the list, and undo any batch from its Activity card.
 - **Tells you when there's a new version,** with the exact steps to update.
+- **Catches up after downtime.** If Resume Relay was off, it reads the players when it starts and copies whatever
+  was watched meanwhile (newest wins), with Undo.
+- **Easy to set up and move.** A getting-started checklist for new installs, health notes when something needs
+  attention, and a one-file backup of your players and settings.
 - **See every copy.** The Activity tab shows a card for each stop, with the poster, whether it happened on a Zidoo
   or on Plex, and a mark for every other player: ✓ copied, ◷ waiting, – skipped, ✕ failed.
 - **Every write is checked.** Before writing, it confirms the player's entry really is that file.

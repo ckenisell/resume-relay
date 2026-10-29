@@ -62,7 +62,7 @@ jobs:
           sleep 1
           mkdir -p /tmp/rr-docker-data
           docker run -d --name rr --network host \
-            -e RESUMERELAY_SCAN_EXTRA=127.0.0 -e RESUMERELAY_WOL_PORTS=40009 -e RESUMERELAY_PLEXTV=http://127.0.0.7:32400 -e RESUMERELAY_UPDATE_API=http://127.0.0.7:32400 \
+            -e RESUMERELAY_SCAN_EXTRA=127.0.0 -e RESUMERELAY_WOL_PORTS=40009 -e RESUMERELAY_PLEXTV=http://127.0.0.7:32400 -e RESUMERELAY_UPDATE_API=http://127.0.0.7:32400 -e RESUMERELAY_CATCHUP_DELAY=3 \
             -v /tmp/rr-docker-data:/data resume-relay:test
           for i in $(seq 1 30); do curl -fsS localhost:8090/api/state >/dev/null 2>&1 && break; sleep 1; done
           curl -fsS -X POST localhost:8090/api/scan

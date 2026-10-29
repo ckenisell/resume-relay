@@ -44,6 +44,13 @@ public sealed class Settings
     /// <summary>When true, the relay only logs what it would copy. Fresh installs start here.</summary>
     public bool WatchOnly { get; set; } = true;
 
+    /// <summary>After Resume Relay has been down, read the players and copy whatever was watched meanwhile.</summary>
+    public bool CatchUpAuto { get; set; } = true;
+    /// <summary>The getting-started checklist was hidden (or finished).</summary>
+    public bool SetupHidden { get; set; }
+    /// <summary>"Skip" on the checklist's optional Plex step.</summary>
+    public bool SetupPlexSkipped { get; set; }
+
     /// <summary>Ask GitHub once a day whether a newer version is out (nothing about the user is sent).</summary>
     public bool CheckUpdates { get; set; } = true;
     /// <summary>Also offer beta versions (always on while running a beta).</summary>

@@ -693,6 +693,66 @@ wc = wait_for(lambda: next((e for e in events() if e.get("batch") and e["title"]
 http("POST", RELAY + f"/api/events/{wc['id']}/undo")
 check("...and Undo makes it unwatched again", wait_for(lambda: not bookmark(BR, E03).get("watched"), 40), str(bookmark(BR, E03)))
 
+# ---------------------------------------------------------------- 46. Catch Up ("Catch up now")
+settings(watchOnly=False)
+wait_for(lambda: all(t["state"] not in ("Pending", "Waiting") for e in events()[:5] for t in e["targets"]), 60)  # the Undo above has finished
+now = int(time.time() * 1000)
+for ip in (LR, BR, HT):   # an unwatch leaves no time on a Zidoo, so start S01E03 the same everywhere
+    mock(ip, "setlwt", url=E03, lwt=now - 7200000, pp=0, watched=0)
+for u in ("1001", "1002"):
+    plexmock("set", user=u, key=P_E03, pos=0, count=0, at=int(now / 1000) - 7200)
+mock(LR, "setlwt", url=E04, lwt=now - 3600000, pp=0, watched=0)
+mock(BR, "setlwt", url=E04, lwt=now - 3600000, pp=0, watched=0)
+for u in ("1001", "1002"):
+    plexmock("set", user=u, key=keys["Andor - S01E04.mkv"], pos=0, count=0, at=int(now / 1000) - 3600)
+mock(HT, "setlwt", url=E04, lwt=now - 60000, pp=987000, watched=0)   # watched on HT while Resume Relay "couldn't see"
+http("POST", RELAY + "/api/catchup")
+check("Catch up now copies the newest player's state to the others",
+      wait_for(lambda: bookmark(LR, E04)["playPoint"] == 987000 and bookmark(BR, E04)["playPoint"] == 987000, 90),
+      str((bookmark(LR, E04), bookmark(BR, E04))))
+cu = wait_for(lambda: next((e for e in events() if e.get("batch") and e["title"] == "Catch Up"), None), 20)
+check("...as one Catch Up card with Undo", cu and cu["canUndo"] and cu["files"] >= 1, str(cu))
+wait_for(lambda: all(t["state"] not in ("Pending", "Waiting") for t in next(e for e in events() if e["id"] == cu["id"])["targets"]), 60)
+check("...and Settings shows the result", wait_for(lambda: (lambda c: not c["running"] and "copied" in c["lastResult"])(http("GET", RELAY + "/api/state")["catchUp"]), 20),
+      str(http("GET", RELAY + "/api/state")["catchUp"]))
+http("POST", RELAY + "/api/catchup")
+wait_for(lambda: not http("GET", RELAY + "/api/state")["catchUp"]["running"], 90)
+check("a second Catch Up finds everything in sync", "already in sync" in http("GET", RELAY + "/api/state")["catchUp"]["lastResult"],
+      http("GET", RELAY + "/api/state")["catchUp"]["lastResult"])
+
+# ---------------------------------------------------------------- 47. health notes on the Players tab
+mock(HT, "setlwt", url=E04, lwt=now + 3 * 86400000, pp=987000)
+http("POST", RELAY + "/api/progress/read", {"deviceIds": [ids[HT]]})
+wait_for(lambda: not http("GET", RELAY + "/api/progress")["reading"], 60)
+hn = http("GET", RELAY + "/api/state")["health"]
+check("a player whose clock is ahead gets a health note", any(n["key"] == "clock:" + ids[HT] for n in hn), str(hn))
+mock(HT, "setlwt", url=E04, lwt=now, pp=987000)
+http("POST", RELAY + "/api/progress/read", {"deviceIds": [ids[HT]]})
+wait_for(lambda: not http("GET", RELAY + "/api/progress")["reading"], 60)
+check("...which goes away once it's right", not any(n["key"].startswith("clock:") for n in http("GET", RELAY + "/api/state")["health"]))
+
+# ---------------------------------------------------------------- 48. getting-started flags, back up and restore
+settings(setupHidden=True, setupPlexSkipped=True, catchUpAuto=False)
+st = http("GET", RELAY + "/api/state")["settings"]
+check("the checklist and Catch Up settings are kept", st["setupHidden"] and st["setupPlexSkipped"] and not st["catchUpAuto"], str(st))
+settings(setupHidden=False, setupPlexSkipped=False, catchUpAuto=True)
+with urllib.request.urlopen(RELAY + "/api/backup", timeout=20) as r:
+    disp, backup = r.headers.get("Content-Disposition", ""), json.loads(r.read())
+check("Back up downloads one file with the players, settings and Plex setup",
+      "attachment" in disp and backup["app"] == "Resume Relay" and len(backup["devices"]) >= 3 and backup["plex"].get("accountToken"), disp + " " + str(list(backup)))
+lr_name = next(d["name"] for d in backup["devices"] if d["id"] == ids[LR])
+http("POST", RELAY + "/api/restore", dict(backup, devices=[dict(x, name="Garage") if x["id"] == ids[LR] else x for x in backup["devices"]]))
+check("Restore replaces the players' names", next(d for d in http("GET", RELAY + "/api/state")["devices"] if d["id"] == ids[LR])["name"] == "Garage")
+r = http("POST", RELAY + "/api/restore", backup)
+check("...and restoring the backup puts them back", r["players"] == len(backup["devices"])
+      and next(d for d in http("GET", RELAY + "/api/state")["devices"] if d["id"] == ids[LR])["name"] == lr_name, str(r))
+try:
+    http("POST", RELAY + "/api/restore", {"app": "Something else", "devices": [], "settings": {}})
+    bad = False
+except urllib.error.HTTPError as e:
+    bad = e.code == 400
+check("a file that isn't a backup is refused", bad)
+
 passed = sum(1 for _, ok in results if ok)
 print(f"\n{passed}/{len(results)} passed")
 sys.exit(0 if passed == len(results) else 1)

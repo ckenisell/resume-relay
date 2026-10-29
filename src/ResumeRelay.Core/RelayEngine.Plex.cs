@@ -22,6 +22,16 @@ public sealed partial class RelayEngine
         public Dictionary<string, PlexItem> ByKey = new(StringComparer.Ordinal);   // in-share path (lower-case) → item
         public Dictionary<int, PlexItem> ByRating = new();
         public List<PlexItem> Items = new();
+        /// <summary>Plex files no folder mapping covers (they can't be matched to the Zidoos).</summary>
+        public int Unmapped;
+        public List<string> UnmappedFolders = new();
+    }
+
+    /// <summary>For the health notes: how many Plex files the folder mapping doesn't cover (from the last listing).</summary>
+    public (int Count, List<string> Folders)? PlexUnmapped()
+    {
+        var idx = _plexIndex.Values.OrderByDescending(i => i.BuiltUtc).FirstOrDefault();
+        return idx == null ? null : (idx.Unmapped, idx.UnmappedFolders);
     }
 
     private readonly ConcurrentDictionary<string, PlexIndex> _plexIndex = new();
@@ -56,7 +66,16 @@ public sealed partial class RelayEngine
             {
                 idx.ByRating[it.Key] = it;
                 foreach (var f in it.Files)
+                {
+                    if (PlexPaths.ToSourceUrl(f, cfg.Mappings) == null)
+                    {
+                        idx.Unmapped++;
+                        string folder = (Path.GetDirectoryName(f.Replace('\\', '/')) ?? "").Replace('\\', '/');
+                        if (idx.UnmappedFolders.Count < 3 && !idx.UnmappedFolders.Contains(folder)) idx.UnmappedFolders.Add(folder);
+                        continue;
+                    }
                     if (PlexPaths.Rel(f, cfg.Mappings) is { } rel) idx.ByKey[PlexPaths.Key(rel)] = it;
+                }
             }
             _plexIndex[d.Id] = idx;
             return idx;
@@ -153,6 +172,7 @@ public sealed partial class RelayEngine
             live.Online = true;
             live.OfflineSinceUtc = null;
             if (wasKnownOffline) _store.Log(ActivityLevel.Info, $"The Plex server is answering again ({d.Name}).");
+            CameOnline?.Invoke(d.Id);
             NudgeQueue();
         }
 

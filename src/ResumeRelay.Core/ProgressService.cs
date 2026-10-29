@@ -90,17 +90,91 @@ public sealed class ProgressService
     /// <summary>Starts reading the given players in the background. Returns an error, or null when started.</summary>
     public string? StartRead(IReadOnlyCollection<string> deviceIds, CancellationToken stopping)
     {
+        var (err, _) = BeginRead(deviceIds, stopping);
+        return err;
+    }
+
+    /// <summary>Reads players and waits for it (Catch Up). If a read is already running, waits for it to end first.</summary>
+    public async Task ReadAndWaitAsync(IReadOnlyCollection<string> deviceIds, CancellationToken ct)
+    {
+        for (int i = 0; i < 600 && Reading; i++) await Task.Delay(1000, ct);
+        var (err, task) = BeginRead(deviceIds, ct);
+        if (task != null) await task;
+    }
+
+    private (string? Error, Task? Read) BeginRead(IReadOnlyCollection<string> deviceIds, CancellationToken stopping)
+    {
         var devices = _store.Devices().Where(d => deviceIds.Contains(d.Id)).ToList();
-        if (devices.Count == 0) return "Tick at least one player to read.";
-        if (Interlocked.Exchange(ref _reading, 1) == 1) return "Already reading the players.";
+        if (devices.Count == 0) return ("Tick at least one player to read.", null);
+        if (Interlocked.Exchange(ref _reading, 1) == 1) return ("Already reading the players.", null);
         foreach (var k in _status.Keys.Where(k => k != "bulk").ToList()) _status.TryRemove(k, out _);
         foreach (var d in devices) _status[d.Id] = $"Waiting to read {d.Name}…";
-        _ = Task.Run(async () =>
+        var task = Task.Run(async () =>
         {
             try { await Task.WhenAll(devices.Select(d => ReadDeviceAsync(d, stopping))); }
             finally { foreach (var k in _status.Keys.Where(k => k != "bulk").ToList()) _status.TryRemove(k, out _); Interlocked.Exchange(ref _reading, 0); }
         }, stopping);
-        return null;
+        return (null, task);
+    }
+
+    /// <summary>A player whose last read had "last watched" times in the future: its clock is probably ahead.</summary>
+    public bool ClockAhead(string deviceId)
+    {
+        long soon = DateTimeOffset.UtcNow.AddMinutes(15).ToUnixTimeMilliseconds();
+        lock (_lock) return _devices.TryGetValue(deviceId, out var d) && d.Cells.Values.Any(c => c.LastWatchMs > soon);
+    }
+
+    /// <summary>When each player was last read successfully (for Catch Up and the health notes).</summary>
+    public DateTime? ReadUtcOf(string deviceId) { lock (_lock) return _devices.GetValueOrDefault(deviceId)?.ReadUtc; }
+
+    /// <summary>
+    /// Catch Up: for each file, the player with the newest "last watched" time after <paramref name="sinceUtc"/> wins, and
+    /// every other read player that holds the file but shows something different gets its state (resume point,
+    /// watched, or reset), through the copy queue, as one Activity card with Undo. Returns the number of files.
+    /// Only the given players are compared (each must have been read).
+    /// </summary>
+    public async Task<(int Files, int Copies)> CatchUpAsync(DateTime sinceUtc, IReadOnlyCollection<string> playerIds, string reason)
+    {
+        long since = new DateTimeOffset(sinceUtc).ToUnixTimeMilliseconds();
+        static int Eff(ProgressCell c) => c.PlayPointMs > 0 ? c.PlayPointMs : c.Watched && c.DurationMs > 0 ? c.DurationMs : 0;
+        var devices = _store.Devices().Where(d => d.Enabled && playerIds.Contains(d.Id)).ToDictionary(d => d.Id);
+        var plan = new List<(string Key, string WinnerId, int Pos, int Dur, List<Device> To, List<UndoItem> Undo)>();
+        // Files with copies still on their way are left alone: what was read for them is about to change.
+        var busy = _store.Pending().Select(p => PlexPaths.RelOfUrl(p.SourceUrl)).Where(r => r != null).Select(r => PlexPaths.Key(r!)).ToHashSet();
+        lock (_lock)
+        {
+            var read = _devices.Values.Where(d => d.ReadUtc != null && devices.ContainsKey(d.DeviceId)).ToList();
+            foreach (var f in _files.Values)
+            {
+                var cells = read.Where(d => d.Cells.TryGetValue(f.Key, out var c) && c.FileId > 0).Select(d => (d.DeviceId, Cell: d.Cells[f.Key])).ToList();
+                if (cells.Count < 2 || busy.Contains(f.Key)) continue;
+                var win = cells.OrderByDescending(x => x.Cell.LastWatchMs).First();
+                if (win.Cell.LastWatchMs <= since) continue; // nothing new for this file since Resume Relay last saw the players
+                int pos = Eff(win.Cell);
+                var to = new List<Device>();
+                var undo = new List<UndoItem>();
+                foreach (var (id, c) in cells.Where(x => x.DeviceId != win.DeviceId))
+                {
+                    bool differs = pos == 0 ? c.PlayPointMs > 0 || c.Watched : Math.Abs(Eff(c) - pos) > 2000 || c.Watched != win.Cell.Watched;
+                    if (!differs) continue;
+                    to.Add(devices[id]);
+                    undo.Add(new UndoItem { DeviceId = id, Title = f.FileName, PositionMs = c.PlayPointMs, DurationMs = c.DurationMs, Watched = c.Watched });
+                }
+                if (to.Count > 0) plan.Add((f.Key, win.DeviceId, pos, win.Cell.DurationMs, to, undo));
+            }
+        }
+        if (plan.Count == 0) return (0, 0);
+        var items = new List<RelayEngine.BatchItem>();
+        var undoAll = new List<UndoItem>();
+        foreach (var p in plan)
+        {
+            if (await UrlForAsync(p.Key) is not { } url) continue;
+            items.Add(new RelayEngine.BatchItem(url, _files.GetValueOrDefault(p.Key)?.Display ?? p.Key, p.Pos, p.Dur, p.To));
+            foreach (var u in p.Undo) { u.SourceUrl = url; undoAll.Add(u); }
+        }
+        if (items.Count == 0) return (0, 0);
+        _engine.CopyBatch("Catch Up", $"{items.Count:N0} file{(items.Count == 1 ? "" : "s")}", reason, RelayEngine.ManualResetFrom, "", items, undoAll);
+        return (items.Count, items.Sum(i => i.Targets.Count));
     }
 
     private async Task ReadDeviceAsync(Device d, CancellationToken ct)

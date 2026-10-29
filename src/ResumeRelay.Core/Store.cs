@@ -140,6 +140,26 @@ public sealed class Store
         }
     }
 
+    /// <summary>Restore from a backup: players, names, settings and the Plex setup are replaced. Waiting copies for
+    /// players that are no longer there are dropped. Activity is kept.</summary>
+    public void Restore(List<Device> devices, Settings settings, PlexConfig plex)
+    {
+        lock (_lock)
+        {
+            _devices = devices.Select(Clone).ToList();
+            _settings = Clone(settings);
+            if (plex.ClientId.Length == 0) plex.ClientId = _plex.ClientId;
+            _plex = Clone(plex);
+            var ids = _devices.Select(d => d.Id).ToHashSet();
+            _pending.RemoveAll(p => !ids.Contains(p.TargetId));
+            Save("devices.json", _devices);
+            Save("settings.json", _settings);
+            Save("plex.json", _plex);
+            Save("pending.json", _pending);
+        }
+        Changed?.Invoke();
+    }
+
     // ---------- plex ----------
 
     public PlexConfig Plex()

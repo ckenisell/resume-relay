@@ -202,7 +202,7 @@ class Server(Base):
             if path == "/_test/keys":
                 return self.send({it["file"].rsplit("/", 1)[1]: k for k, it in ITEMS.items()})
             if path == "/_test/set":
-                st(q["user"], int(q["key"])).update(viewOffset=int(q.get("pos", 0)), viewCount=int(q.get("count", 0)), lastViewedAt=int(time.time()))
+                st(q["user"], int(q["key"])).update(viewOffset=int(q.get("pos", 0)), viewCount=int(q.get("count", 0)), lastViewedAt=int(q.get("at", time.time())))
                 return self.send({"ok": True})
         return self.send({"error": "unknown"}, 404)
 

@@ -48,6 +48,9 @@ public sealed partial class RelayEngine : BackgroundService
 
     private sealed record TitleInfo(string Poster, string Subtitle);
 
+    /// <summary>A player (or the Plex server, for a Plex user) answers again after being off.</summary>
+    public event Action<string>? CameOnline;
+
     public RelayEngine(Store store) => _store = store;
 
     public DeviceLive LiveOf(string deviceId) => _live.GetOrAdd(deviceId, _ => new DeviceLive());
@@ -132,6 +135,7 @@ public sealed partial class RelayEngine : BackgroundService
             live.HomeTheaterCheckedUtc = DateTime.MinValue; // check the app straight away
             live.HtVersionCheckedUtc = DateTime.MinValue;   // ...and its version (it may have been updated)
             if (wasKnownOffline && live.Power != PowerAction.TurningOn) _store.Log(ActivityLevel.Info, $"{d.Name} is back online.");
+            CameOnline?.Invoke(d.Id);
             NudgeQueue(); // deliver anything that waited for it
         }
         else if (now - _identityCheckedUtc.GetValueOrDefault(d.Id) > IdentityCheckEvery)

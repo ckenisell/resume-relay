@@ -71,19 +71,50 @@ public static class RelayHost
         builder.Services.AddHostedService(sp => sp.GetRequiredService<RelayEngine>());
         builder.Services.AddSingleton<ProgressService>();
         builder.Services.AddSingleton<UpdateService>();
+        builder.Services.AddSingleton<CatchUpService>();
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<CatchUpService>());
         builder.Services.AddHostedService(sp => sp.GetRequiredService<UpdateService>());
 
         var app = builder.Build();
         var updates = app.Services.GetRequiredService<UpdateService>();
-        MapApi(app, store, app.Services.GetRequiredService<RelayEngine>(), options.Host, updates);
+        var catchUp = app.Services.GetRequiredService<CatchUpService>();
+        MapApi(app, store, app.Services.GetRequiredService<RelayEngine>(), options.Host, updates, catchUp);
         MapProgressApi(app, app.Services.GetRequiredService<ProgressService>(), app.Lifetime.ApplicationStopping);
         PlexApi.Map(app, store, app.Services.GetRequiredService<RelayEngine>());
         MapIcons(app, store);
         return app;
     }
 
-    private static void MapApi(WebApplication app, Store store, RelayEngine engine, IHostIntegration host, UpdateService updates)
+    private static void MapApi(WebApplication app, Store store, RelayEngine engine, IHostIntegration host, UpdateService updates, CatchUpService catchUp)
     {
+        // Back up: players, names, settings, the Plex setup (with its sign-in) and badge pictures, as one file.
+        app.MapGet("/api/backup", () =>
+        {
+            var icons = IconKinds.Select(k => (k, f: IconFile(store, k))).Where(x => x.f != null)
+                .ToDictionary(x => x.k, x => new BackupIcon(Path.GetExtension(x.f!), Convert.ToBase64String(File.ReadAllBytes(x.f!))));
+            var b = new Backup("Resume Relay", Version, DateTime.UtcNow, store.Devices(), store.Settings(), store.Plex(), icons);
+            var json = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(b, new System.Text.Json.JsonSerializerOptions { WriteIndented = true, PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
+            return Results.File(json, "application/json", $"resume-relay-backup-{DateTime.Now:yyyy-MM-dd}.json");
+        });
+        app.MapPost("/api/restore", (Backup b) =>
+        {
+            if (b == null || b.App != "Resume Relay" || b.Devices == null || b.Settings == null)
+                return Results.BadRequest(new { Error = "That isn't a Resume Relay backup file." });
+            store.Restore(b.Devices, b.Settings, b.Plex ?? new PlexConfig());
+            foreach (var k in IconKinds) if (IconFile(store, k) is { } old) File.Delete(old);
+            foreach (var (k, icon) in b.Icons ?? new())
+                if (IconKinds.Contains(k) && IconTypes.ContainsKey(icon.Ext))
+                {
+                    Directory.CreateDirectory(IconDir(store));
+                    File.WriteAllBytes(Path.Combine(IconDir(store), k + icon.Ext), Convert.FromBase64String(icon.Data));
+                }
+            engine.ForgetPlexIndex();
+            store.Log(ActivityLevel.Info, $"Restored settings from a backup made {b.CreatedUtc.ToLocalTime():g} (version {b.Version}): {b.Devices.Count} player(s).");
+            return Results.Ok(new { Players = b.Devices.Count });
+        });
+
+        // "Catch up now" (Settings).
+        app.MapPost("/api/catchup", () => catchUp.StartNow() is { } err ? Results.BadRequest(new { Error = err }) : Results.Ok());
         // Check GitHub for a newer version now (Settings: "Check now").
         app.MapPost("/api/update/check", async (CancellationToken ct) =>
         {
@@ -154,6 +185,12 @@ public static class RelayHost
                 Plex = PlexApi.Summary(store),
                 Update = store.Settings().CheckUpdates ? updates.Available : null,
                 UpdateCheckedUtc = updates.CheckedUtc,
+                Health = Health(store, engine, app.Services.GetRequiredService<ProgressService>()),
+                CatchUp = new
+                {
+                    catchUp.Running, catchUp.Status, catchUp.LastRunUtc, catchUp.LastResult,
+                    Waiting = catchUp.WaitingFor.Select(id => store.Device(id)?.Name).Where(n => n != null),
+                },
                 Icons = new { Zidoo = IconFile(store, "zidoo") != null, Plex = IconFile(store, "plex") != null, V = IconVersion(store) },
                 Pending = pending,
                 DataFolder = store.DataDirectory,
@@ -263,6 +300,39 @@ public static class RelayHost
             engine.Discard(key) ? Results.Ok() : Results.NotFound());
 
         app.MapPost("/api/pending/retry", () => { engine.NudgeQueue(); return Results.Ok(); });
+    }
+
+    // ---------- health notes (Players tab) ----------
+
+    /// <summary>Things worth knowing before they cost a resume point. Each has a stable key (the page lets you dismiss it).</summary>
+    private sealed record HealthNote(string Key, string Text);
+
+    private static List<HealthNote> Health(Store store, RelayEngine engine, ProgressService progress)
+    {
+        var notes = new List<HealthNote>();
+        void Add(string key, string text) => notes.Add(new HealthNote(key, text));
+        var now = DateTime.UtcNow;
+        var pending = store.Pending();
+        foreach (var d in store.Devices().Where(d => d.Enabled))
+        {
+            var live = engine.LiveOf(d.Id);
+            if (!d.IsPlex && d.HtVersionCode is > 0 and < 5111)
+                Add("ht-old:" + d.Id, $"{d.Name}'s HT app is v{d.HtVersion} ({d.HtVersionCode}). Resume Relay needs 5.1.11 (5111) or newer: update the HT app on that player.");
+            var old = pending.Where(p => p.TargetId == d.Id && now - p.CreatedUtc > TimeSpan.FromDays(2)).ToList();
+            if (old.Count > 0)
+                Add("waiting:" + d.Id, $"{old.Count} cop{(old.Count == 1 ? "y has" : "ies have")} waited {Math.Floor((now - old.Min(p => p.CreatedUtc)).TotalDays):N0} days for {d.Name}. " +
+                    (d.IsPlex ? "Is the Plex server running?" : "Is it unplugged, or is its HT app closed?"));
+            if (!d.IsPlex && !live.Online && live.OfflineSinceUtc is { } off && now - off > TimeSpan.FromDays(3))
+                Add("unseen:" + d.Id, $"{d.Name} hasn't answered for {Math.Floor((now - off).TotalDays):N0} days. If it's gone for good, remove it so copies don't wait for it.");
+            if (d.IsPlex && !live.Online && live.OfflineSinceUtc is { } poff && now - poff > TimeSpan.FromMinutes(10))
+                Add("plex-down", $"The Plex server hasn't answered for {(int)(now - poff).TotalMinutes:N0} minutes, so Plex users aren't syncing.");
+            if (progress.ClockAhead(d.Id))
+                Add("clock:" + d.Id, $"{d.Name}'s clock seems to be ahead: it recorded watch times in the future. Check its date, time and time zone settings, or Catch Up may pick the wrong player.");
+        }
+        if (store.Plex().Ready && engine.PlexUnmapped() is { Count: > 0 } um)
+            Add("plex-unmapped", $"{um.Count:N0} Plex file{(um.Count == 1 ? " is" : "s are")} outside the folders on the Plex card (Settings), so {(um.Count == 1 ? "it" : "they")} can't sync" +
+                (um.Folders.Count > 0 ? $", for example in {um.Folders[0]}." : "."));
+        return notes.DistinctBy(n => n.Key).ToList();
     }
 
     // ---------- badge icons (Settings: "Activity badges") ----------
@@ -382,6 +452,8 @@ public static class RelayHost
     private sealed record ProgressKeyRequest(string? Key);
     private sealed record ProgressCopyItem(string? Key, string? From, List<string>? To);
     private sealed record WatchSetRequest(string? Key, List<string>? DeviceIds, bool Watched);
+    private sealed record BackupIcon(string Ext, string Data);
+    private sealed record Backup(string App, string Version, DateTime CreatedUtc, List<Device> Devices, Settings Settings, PlexConfig? Plex, Dictionary<string, BackupIcon>? Icons);
     private sealed record ProgressBatchRequest(string? From, List<string>? To, List<string>? Keys, bool IncludeNotStarted, bool DryRun);
     private sealed record WatchBatchRequest(string? From, List<string>? To, string? Show, string? Players, string? Q, bool DryRun);
     private sealed record TidyRequest(List<string>? DeviceIds, bool DryRun);

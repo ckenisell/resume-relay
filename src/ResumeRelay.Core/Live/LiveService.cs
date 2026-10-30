@@ -76,6 +76,8 @@ public sealed class LiveService : BackgroundService
         public bool WantNext;
         /// <summary>The slideshow up is the start of a round still being made.</summary>
         public bool Partial;
+        /// <summary>While a round is being made: slides ready, and how many it will have (for the card's progress bar).</summary>
+        public int MadeSlides, TotalSlides;
         public DateTime TestUntil;
         /// <summary>A test picture was asked for: it shows for this long once it's made (making it can take a moment).</summary>
         public int TestSeconds;
@@ -238,6 +240,7 @@ public sealed class LiveService : BackgroundService
         var now = NowPlayingFor(s, rt, cfg);
         if (now != null && cfg.NowPlaying.Enabled)
         {
+            rt.MadeSlides = rt.TotalSlides = 0;
             var bg = Background(cfg, cfg.NowPlaying.BackgroundId);
             var req = new PosterRequest(now.SourceUrl, now.PlexFile, now.DeviceId, now.IsEpisode, now.Season, false, now.Title, now.PlexKey);
             var poster = PosterTask(req);
@@ -372,6 +375,9 @@ public sealed class LiveService : BackgroundService
         var rt = RuntimeOf(screenId);
         rt.Round++;
         rt.WantNext = true;
+        // The round up now may be replaced by the new one's first slides as soon as they're ready (not only at its end).
+        rt.Partial = true;
+        rt.RoundTitles = new();
     }
 
     private void Slideshow(LiveScreen s, ScreenRuntime rt, LiveConfig cfg)
@@ -406,6 +412,8 @@ public sealed class LiveService : BackgroundService
                 if (!pending) { firstSlides.Add(slide.Result); firstTitles.Add(it.Title); }
             }
         }
+        rt.MadeSlides = pending ? slides.Count : 0;
+        rt.TotalSlides = pending ? slides.Count + items.Count(it => it.File != null || it.Request != null) - titles.Count : 0;
         string key = string.Join("|", slides.Select(Path.GetFileName));
         // A new reel replaces the one up only between rounds (or when none is up), never in the middle of one.
         bool canSwap = rt.IdleUrl.Length == 0 || rt.WantNext || rt.Mode != "idle";

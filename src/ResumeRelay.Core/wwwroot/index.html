@@ -342,6 +342,8 @@ a.btn { text-decoration: none; color: var(--text); display: inline-flex; align-i
 .lp-meta { font-size: 12.5px; color: var(--muted); margin: 2px 0 8px; }
 .lp-now { font-size: 13.5px; margin: 0 0 10px; }
 .lp-now small { display: block; color: var(--muted); font-size: 12px; }
+.lp-bar { height: 6px; border-radius: 3px; background: var(--panel-2); border: 1px solid var(--line); overflow: hidden; margin: 6px 0 2px; max-width: 320px; }
+.lp-bar i { display: block; height: 100%; background: var(--amber); transition: width .6s; }
 .lp-now .btn.quiet { padding: 0 6px; font-size: 12px; vertical-align: 1px; color: var(--amber); }
 .lp-field { display: block; font-size: 12.5px; font-weight: 600; margin: 8px 0 4px; color: var(--muted); }
 .lp-players { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -2264,7 +2266,7 @@ function renderLive() {
     <div>
       <h4><span class="lp-dot${s.online ? " on" : ""}" title="${s.online ? "Online" : "Not seen recently"}"></span><input value="${esc(s.name)}" data-lp-rename aria-label="Screen name"></h4>
       <div class="lp-meta">${s.online ? "Online" : s.lastSeenUtc ? "Last seen " + ago(s.lastSeenUtc) : "Not seen yet"} · ${esc([s.platform, s.model].filter(Boolean).join(", "))}</div>
-      <div class="lp-now">${s.mode === "playing" ? `<b>Now playing:</b> ${esc(s.title)}<small>Poster: ${esc(s.posterSource)}</small>`
+      <div class="lp-now">${s.making ? `<small>Making the next slideshow: ${s.making.done} of ${s.making.total} slides</small><div class="lp-bar" role="progressbar" aria-valuemin="0" aria-valuemax="${s.making.total}" aria-valuenow="${s.making.done}"><i style="width:${Math.round(100 * s.making.done / Math.max(1, s.making.total))}%"></i></div>` : ""}${s.mode === "playing" ? `<b>Now playing:</b> ${esc(s.title)}<small>Poster: ${esc(s.posterSource)}</small>`
         : s.mode === "idle" ? `<b>${esc(s.title || "Slideshow")}</b> <button class="btn quiet" data-lp-rebuild title="Make a new round now (with any new Coming Soon posters)">Rebuild slideshow</button>${s.roundTitles?.length ? `<small>${esc((lpShowAll.has(s.id) ? s.roundTitles : s.roundTitles.slice(0, 6)).join(" · "))}${s.roundTitles.length > 6 ? ` <button class="btn quiet" data-lp-all>${lpShowAll.has(s.id) ? "show fewer" : `… show all ${s.roundTitles.length}`}</button>` : ""}</small>` : ""}${s.note ? `<small>${esc(s.note)}</small>` : ""}`
         : s.mode === "test" ? `<b>Test picture</b><small>The arrow should point up.</small>`
         : `<small>${esc(s.note || "Starting…")}</small>`}${s.appSays ? `<small style="color:${/error/i.test(s.appSays) ? "var(--bad)" : "var(--muted)"}">Screen app: ${esc(s.appSays)}</small>` : ""}</div>

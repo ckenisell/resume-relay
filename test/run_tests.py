@@ -893,6 +893,10 @@ check("a screen app's playback report shows on its card", "error -3" in screen_o
 check("an Android screen gets HEVC by default (Rokus need it for 4K)", screen_of(sid)["videoCodec"] == "hevc")
 state_of(st["version"])
 check("a screen saying the round ended keeps getting a slideshow", wait_for(lambda: state_of()["mode"] == "idle", 10))
+v0 = state_of()["version"]
+http("POST", RELAY + f"/api/live/screens/{sid}/rebuild")
+check("Rebuild slideshow: a new round goes up without waiting for the current one to end",
+      wait_for(lambda: state_of()["version"] != v0 and state_of()["mode"] == "idle", 300), str(state_of()))
 cfg = live()["config"]
 for k in ("comingSoon", "recentlyWatched", "acclaimed"):
     cfg[k]["enabled"] = k == "comingSoon"

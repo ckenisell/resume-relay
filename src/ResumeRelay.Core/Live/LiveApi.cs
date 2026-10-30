@@ -42,6 +42,7 @@ public static class LiveApi
                     {
                         s.Id, s.Name, s.Platform, s.Model, s.AppVersion, s.Players, s.Mount, s.Resolution, s.Codec, VideoCodec = LiveService.CodecOf(s),
                         AppSays = rt.AppSays, rt.AppSaysUtc,
+                        Making = rt.TotalSlides > 0 ? new { Done = rt.MadeSlides, Total = rt.TotalSlides } : null,
                         Online = rt.LastSeenUtc is { } seen && DateTime.UtcNow - seen < TimeSpan.FromSeconds(20),
                         rt.LastSeenUtc, rt.Mode, rt.Title, rt.PosterSource, rt.Note, rt.RoundTitles, Version = rt.Url,
                     };

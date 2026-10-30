@@ -12,6 +12,7 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <!-- The page is compiled in, so a single program file is all that ships. -->
     <EmbeddedResource Include="wwwroot\index.html" LogicalName="index.html" />
+    <EmbeddedResource Include="wwwroot\screen.html" LogicalName="screen.html" />
   </ItemGroup>
 
 </Project>

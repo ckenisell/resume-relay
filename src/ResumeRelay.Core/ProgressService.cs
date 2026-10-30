@@ -1181,6 +1181,13 @@ internal static class J
 
     public static int Int(JsonElement e, string n, int def = 0) => (int)Math.Clamp(Long(e, n, def), int.MinValue, int.MaxValue);
 
+    public static double Dbl(JsonElement e, string n, double def = 0)
+    {
+        if (e.ValueKind != JsonValueKind.Object || !e.TryGetProperty(n, out var v)) return def;
+        if (v.ValueKind == JsonValueKind.Number && v.TryGetDouble(out double d)) return d;
+        return v.ValueKind == JsonValueKind.String && double.TryParse(v.GetString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double s) ? s : def;
+    }
+
     public static string Str(JsonElement e, string n) =>
         e.ValueKind == JsonValueKind.Object && e.TryGetProperty(n, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
 

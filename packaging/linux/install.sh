@@ -50,6 +50,20 @@ fi
 DOTNET="$(command -v dotnet)"
 command -v curl >/dev/null || apt-get install -y curl   # used below to confirm the service answers
 
+# 1b. ffmpeg, which makes Live Poster's videos, and Intel's video driver so it can encode on the video hardware
+# (Quick Sync, the same hardware Plex transcodes with). Optional: Resume Relay works without them.
+step "Installing ffmpeg (for Live Poster)"
+if command -v ffmpeg >/dev/null; then
+  echo "Already installed."
+else
+  apt-get update -qq || true
+  apt-get install -y ffmpeg || echo "Couldn't install ffmpeg; Live Poster will say so. Install it later with: sudo apt install ffmpeg"
+fi
+if [[ "$(dpkg --print-architecture)" == "amd64" ]] && grep -qi "GenuineIntel" /proc/cpuinfo; then
+  dpkg -s intel-media-va-driver-non-free >/dev/null 2>&1 || dpkg -s intel-media-va-driver >/dev/null 2>&1 \
+    || apt-get install -y intel-media-va-driver-non-free 2>/dev/null || apt-get install -y intel-media-va-driver 2>/dev/null || true
+fi
+
 # 2. A dedicated account with no login, so the service can only touch its own folder.
 step "Creating the service account"
 if id "$SVC_USER" >/dev/null 2>&1; then
@@ -58,6 +72,8 @@ else
   useradd --system --no-create-home --home-dir "$DATA_DIR" --shell /usr/sbin/nologin "$SVC_USER"
   echo "Created '$SVC_USER'."
 fi
+# The video hardware (/dev/dri) belongs to the render and video groups.
+for g in render video; do getent group "$g" >/dev/null && usermod -aG "$g" "$SVC_USER"; done
 
 # 3. Program files and data folder.
 step "Copying the program to $APP_DIR"
@@ -80,6 +96,7 @@ Wants=network-online.target
 [Service]
 User=$SVC_USER
 Group=$SVC_USER
+SupplementaryGroups=$(for g in render video; do getent group "$g" >/dev/null && printf '%s ' "$g"; done)
 WorkingDirectory=$APP_DIR
 ExecStart=$DOTNET $APP_DIR/ResumeRelay.dll
 Environment=RESUMERELAY_DATA=$DATA_DIR

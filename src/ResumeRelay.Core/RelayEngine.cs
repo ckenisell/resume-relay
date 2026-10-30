@@ -473,6 +473,7 @@ public sealed partial class RelayEngine : BackgroundService
             FileName = PathMapper.FileName(last.Path),
             SourceUrl = last.SourceUrl,
             FromName = source.Name,
+            FromDeviceId = source.Id,
             FromKind = KindOf(source),
             PositionMs = position,
             DurationMs = last.DurationMs,

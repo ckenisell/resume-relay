@@ -325,6 +325,82 @@ a.btn { text-decoration: none; color: var(--text); display: inline-flex; align-i
 .set-sec .row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; color: var(--muted); font-size: 13px; }
 .set-sec label.sw { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; color: var(--text); margin-bottom: 8px; }
 .set-sec label.sw input { accent-color: var(--amber); }
+/* ---------- Live Poster ---------- */
+.lp-status { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; font-size: 13px; color: var(--muted); margin: 0 0 16px; }
+.lp-status.warn { color: var(--warn); }
+.lp-sec { margin: 26px 0 0; max-width: 1100px; }
+.lp-sec > h3 { font-size: 16px; margin: 0 0 4px; display: flex; align-items: center; gap: 4px; }
+.lp-sec > p { color: var(--muted); font-size: 13px; margin: 0 0 12px; max-width: 80ch; }
+.lp-screens { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 470px), 1fr)); gap: 14px; }
+.lp-screen { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 14px; display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 14px; }
+.lp-prev { width: 120px; aspect-ratio: 9 / 16; border-radius: 8px; background: #000 center / cover no-repeat; border: 1px solid var(--line); }
+.lp-screen h4 { margin: 0; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+.lp-screen h4 input { font-weight: 700; font-size: 16px; border: 1px solid transparent; background: transparent; padding: 2px 6px; margin-left: -7px; border-radius: 6px; min-width: 0; width: 100%; }
+.lp-screen h4 input:hover, .lp-screen h4 input:focus { border-color: var(--line); background: var(--panel-2); }
+.lp-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--muted); }
+.lp-dot.on { background: var(--ok); }
+.lp-meta { font-size: 12.5px; color: var(--muted); margin: 2px 0 8px; }
+.lp-now { font-size: 13.5px; margin: 0 0 10px; }
+.lp-now small { display: block; color: var(--muted); font-size: 12px; }
+.lp-field { display: block; font-size: 12.5px; font-weight: 600; margin: 8px 0 4px; color: var(--muted); }
+.lp-players { display: flex; flex-wrap: wrap; gap: 6px; }
+.lp-players label { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px 3px 8px; font-size: 13px; cursor: pointer; background: var(--panel-2); }
+.lp-players label:has(input:checked) { border-color: var(--amber); }
+.lp-players input { accent-color: var(--amber); margin: 0; }
+.lp-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.lp-row select, .lp-sec select, .lp-sec input[type=number], .lp-sec input[type=text], .lp-pair input {
+  padding: 6px 8px; border-radius: var(--radius-sm); border: 1px solid var(--line); background: var(--panel-2); color: var(--text); font: inherit; font-size: 13.5px; }
+.lp-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.lp-acts .btn { font-size: 13px; padding: 5px 12px; }
+.lp-pair { background: var(--panel); border: 1px dashed color-mix(in srgb, var(--amber) 60%, var(--line)); border-radius: var(--radius-lg); padding: 14px 16px; max-width: 1100px; }
+.lp-pair h4 { margin: 0 0 6px; font-size: 15px; }
+.lp-pair p { margin: 0 0 10px; font-size: 13px; color: var(--muted); }
+.lp-pair .code { width: 6.5em; font-size: 18px; letter-spacing: .15em; font-weight: 700; text-align: center; }
+.lp-waiting { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; }
+.lp-waiting button { font-size: 13px; }
+.lp-sets { display: grid; gap: 12px; }
+.lp-set { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 12px 16px; }
+.lp-set.off { opacity: .72; }
+.lp-set-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.lp-set-head h4 { margin: 0; font-size: 15px; flex: 1 1 180px; display: flex; align-items: center; gap: 10px; }
+.lp-sw { appearance: none; width: 40px; height: 22px; border-radius: 11px; position: relative; cursor: pointer; margin: 0; flex: none;
+  background: var(--panel-2); border: 1px solid var(--line); }
+.lp-sw::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: var(--muted); transition: transform .15s; }
+.lp-sw:checked { background: color-mix(in srgb, var(--ok) 35%, var(--panel-2)); border-color: var(--ok); }
+.lp-sw:checked::after { transform: translateX(18px); background: var(--ok); }
+.lp-set-body { margin-top: 10px; font-size: 13px; color: var(--muted); }
+.lp-bgpick { display: inline-flex; align-items: center; gap: 8px; }
+.lp-bgpick img { width: 27px; height: 48px; object-fit: cover; border-radius: 4px; border: 1px solid var(--line); background: #000; }
+.lp-coming { display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0 0; }
+.lp-coming figure, .lp-bgs figure { margin: 0; width: 110px; }
+.lp-coming img { width: 110px; height: 165px; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); display: block; background: #000; }
+.lp-coming input { width: 100%; margin-top: 4px; font-size: 12px !important; padding: 3px 6px !important; }
+.lp-coming .lp-mini, .lp-bgs .lp-mini { display: flex; justify-content: space-between; gap: 2px; margin-top: 2px; }
+.lp-mini button { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 13px; padding: 2px 4px; }
+.lp-mini button:hover { color: var(--text); }
+.lp-mini button.del:hover { color: var(--bad); }
+.lp-add { width: 110px; height: 165px; border: 1px dashed var(--line); border-radius: 6px; display: grid; place-items: center; text-align: center; font-size: 12.5px; color: var(--muted); cursor: pointer; padding: 8px; }
+.lp-add:hover { border-color: var(--amber); color: var(--text); }
+.lp-bgs { display: flex; flex-wrap: wrap; gap: 12px; }
+.lp-bgs .thumb { width: 110px; aspect-ratio: 9 / 16; border-radius: 6px; border: 1px solid var(--line); background: #000 center / cover no-repeat; position: relative; }
+.lp-bgs .thumb span { position: absolute; left: 4px; bottom: 4px; font-size: 10.5px; background: rgba(0,0,0,.65); color: #fff; padding: 0 5px; border-radius: 4px; }
+.lp-bgs figcaption { font-size: 12px; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lp-bgs .lp-add { height: auto; aspect-ratio: 9 / 16; }
+.lp-progress { font-size: 12.5px; color: var(--muted); margin: 8px 0 0; }
+.lp-folders { display: grid; gap: 6px; max-width: 900px; }
+.lp-folders .lp-row input { flex: 1 1 220px; }
+.lp-note { font-size: 12.5px; color: var(--muted); margin-top: 28px; max-width: 80ch; }
+.lp-acc { max-height: 60vh; overflow: auto; font-size: 13.5px; }
+.lp-acc table { border-collapse: collapse; width: 100%; }
+.lp-acc td { padding: 4px 8px; border-bottom: 1px solid var(--line); }
+.lp-acc td.n { text-align: right; font-variant-numeric: tabular-nums; }
+.tab .short { display: none; }
+@media (max-width: 600px) {
+  .lp-screen { grid-template-columns: 84px minmax(0, 1fr); gap: 10px; padding: 12px; }
+  .lp-prev { width: 84px; }
+  .tab .full { display: none; }
+  .tab .short { display: inline; }
+}
 /* Update notice */
 .update-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 0 0 18px; padding: 10px 14px; border-radius: var(--radius-lg);
   background: color-mix(in srgb, var(--amber) 10%, var(--panel)); border: 1px solid color-mix(in srgb, var(--amber) 55%, var(--line)); font-size: 14px; }
@@ -469,7 +545,7 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
   .mode input::after { width: 14px; height: 14px; }
   .mode input:checked::after { transform: translateX(18px); }
   .tabs { padding-top: 10px; }
-  /* Five tabs must fit a phone's width: tighter padding and type. */
+  /* Six tabs must fit a phone's width: tighter padding and type, and shorter names (see .tab .short). */
   .tabs { gap: 0; padding-left: 4px; padding-right: 4px; }
   .tab { padding: 9px 7px; font-size: 13px; gap: 4px; letter-spacing: -0.01em; }
   .tab svg { width: 16px; height: 16px; }
@@ -496,8 +572,9 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
 <nav class="tabs" role="tablist" aria-label="Sections">
   <button class="tab" role="tab" id="tab-players" aria-controls="players" data-tab="players">Players <span class="badge" id="badge-players" hidden></span></button>
   <button class="tab" role="tab" id="tab-activity" aria-controls="activity" data-tab="activity">Activity <span class="badge bad" id="badge-activity" hidden></span></button>
-  <button class="tab" role="tab" id="tab-progress" aria-controls="progress" data-tab="progress">Progress Reset</button>
-  <button class="tab" role="tab" id="tab-watch" aria-controls="watch" data-tab="watch">Watch Sync</button>
+  <button class="tab" role="tab" id="tab-progress" aria-controls="progress" data-tab="progress"><span class="full">Progress Reset</span><span class="short">Progress</span></button>
+  <button class="tab" role="tab" id="tab-watch" aria-controls="watch" data-tab="watch"><span class="full">Watch Sync</span><span class="short">Watched</span></button>
+  <button class="tab" role="tab" id="tab-live" aria-controls="live" data-tab="live"><span class="full">Live Poster</span><span class="short">Poster</span></button>
   <button class="tab" role="tab" id="tab-settings" aria-controls="settings" data-tab="settings" aria-label="Settings" title="Settings">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
   </button>
@@ -580,6 +657,61 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
     <p class="msg" id="ws-msg" role="status"></p>
     <div id="ws-status" class="pr-status" aria-live="polite"></div>
     <div id="ws-list"></div>
+  </section>
+
+  <section id="live" role="tabpanel" aria-labelledby="tab-live" hidden>
+    <h2>Live Poster<button class="help" data-help="live" aria-label="About Live Poster">?</button></h2>
+    <p class="hint">A TV or tablet outside a room shows the poster of what that room is playing, over a background, and a slideshow when nothing is. Resume Relay makes each picture into a 4K video, and the screen app plays it.</p>
+    <div class="lp-status" id="lp-status" role="status"></div>
+
+    <div class="lp-sec">
+      <h3>Screens</h3>
+      <div class="lp-pair" id="lp-pair">
+        <h4>Add a screen</h4>
+        <p>Install the <b>Resume Relay</b> app on the TV, stick or tablet (or open <b id="lp-screen-url"></b> in its web browser), and enter the code it shows here.</p>
+        <div class="lp-waiting" id="lp-waiting"></div>
+        <div class="lp-row">
+          <input class="code" id="lp-code" inputmode="numeric" maxlength="4" placeholder="0000" aria-label="Code shown on the screen">
+          <input type="text" id="lp-name" placeholder="Name, e.g. Theater Hall" aria-label="Screen name">
+          <button class="btn" id="lp-add">Add screen</button>
+        </div>
+        <p class="msg" id="lp-pair-msg" role="status" style="margin:8px 0 0"></p>
+      </div>
+      <div class="lp-screens" id="lp-screens" style="margin-top:14px"></div>
+    </div>
+
+    <div class="lp-sec">
+      <h3>Now Playing</h3>
+      <p>When something plays on a screen's players, its poster goes up over this background. TV episodes show the season's poster.</p>
+      <div class="lp-set"><div class="lp-set-head">
+        <h4>Background</h4>
+        <span class="lp-bgpick" id="lp-np-bg"></span>
+        <label class="lp-row">After a stop, keep the poster up for <input type="number" id="lp-wait" min="0" max="3600" style="width:5em"> seconds</label>
+      </div></div>
+    </div>
+
+    <div class="lp-sec">
+      <h3>Slideshow<button class="help" data-help="slideshow" aria-label="About the slideshow">?</button></h3>
+      <p>When nothing is playing, the sets that are on take turns.</p>
+      <div class="lp-row" style="margin-bottom:10px"><label class="lp-row">Each poster shows for <input type="number" id="lp-slide" min="5" max="120" style="width:5em"> seconds</label></div>
+      <div class="lp-sets" id="lp-sets"></div>
+    </div>
+
+    <div class="lp-sec">
+      <h3>Backgrounds<button class="help" data-help="backgrounds" aria-label="About backgrounds">?</button></h3>
+      <p>Portrait, 2160×3840. Leave the middle 2000×3000 for the poster (80 px from the sides, 420 px from the top and bottom). Images: PNG, JPG or WebP. Videos: MP4, 10 to 20 seconds, made to loop.</p>
+      <div class="lp-bgs" id="lp-bgs"></div>
+      <p class="lp-progress" id="lp-bg-progress" role="status"></p>
+    </div>
+
+    <div class="lp-sec">
+      <h3>Poster folders<button class="help" data-help="posterfolders" aria-label="About poster folders">?</button></h3>
+      <p id="lp-folders-hint"></p>
+      <div class="lp-folders" id="lp-folders"></div>
+      <div class="lp-row" style="margin-top:8px"><button class="btn quiet" id="lp-folder-add">+ Add folder</button><button class="btn" id="lp-folders-save">Save folders</button><button class="btn quiet" id="lp-forget">Look for posters again</button></div>
+    </div>
+
+    <p class="lp-note">Screens show the same picture for hours. Avoid TVs that can get burn-in (OLED and plasma).</p>
   </section>
 
   <section id="settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
@@ -702,7 +834,7 @@ async function api(method, url, body) {
 function say(el, text, kind) { el.textContent = text; el.className = "msg" + (kind ? " " + kind : ""); }
 
 // ---------------- tabs ----------------
-const TABS = ["players", "activity", "progress", "watch", "settings"];
+const TABS = ["players", "activity", "progress", "watch", "live", "settings"];
 function showTab(name, focus) {
   if (!TABS.includes(name)) name = "players";
   for (const t of TABS) {
@@ -716,6 +848,7 @@ function showTab(name, focus) {
   if (name === "activity") { markActivitySeen(); }
   if (name === "progress" && typeof loadProgress === "function" && state) loadProgress();
   if (name === "watch" && typeof loadWatch === "function" && state) loadWatch(true);
+  if (name === "live" && typeof loadLive === "function") loadLive();
 }
 document.querySelector(".tabs").addEventListener("click", e => { const b = e.target.closest(".tab"); if (b) showTab(b.dataset.tab); });
 document.querySelector(".tabs").addEventListener("keydown", e => {
@@ -1950,6 +2083,15 @@ const HELP = {
     <p><b>Include beta versions</b> also offers test versions (always on while you're running a beta).</p>`],
   plexfolders: ["Folders", `<p>Plex and the Zidoos reach the same files by different paths: for example Plex sees <code>/shares/Entertainment/Movies/…</code> where the Zidoos see <code>smb://10.0.0.56/Entertainment/Movies/…</code>. Each line says which Plex folder is which Zidoo folder; files are then matched by the rest of their path.</p>
     <p><b>Test</b> counts how many Plex files the folders cover and checks a few of them on a Zidoo.</p>`],
+  live: ["Live Poster", `<p>Each <b>screen</b> is a TV, stick or tablet running the Resume Relay app (or the web page at <code>/screen</code>). Tick the players it follows: when one of them plays something, the screen shows that title's poster; when none is, it shows the slideshow.</p>
+    <p><b>Mounted:</b> TVs and sticks always send a landscape picture, so a TV hung upright is turned on its side. Tell Resume Relay which way (where the top of the TV is now), and press <b>Test picture</b>: the arrow should point up. A tablet held upright is "Upright".</p>
+    <p><b>4K:</b> stick and TV apps draw their own pictures at 1080p but play video at 4K, so Resume Relay sends every picture as a short 4K video. Making one takes a few seconds (longer with a video background); each is made once and kept. Use 1080p for screens that can't play 4K video.</p>`],
+  slideshow: ["Slideshow", `<p><b>Coming Soon</b>: the posters you add here. <b>Recently Watched</b>: the last 10 titles stopped on the screen's players. <b>Highly Acclaimed</b>: movies and whole series rated at least the minimum (the IMDb rating when Plex has it), 10 per round so they don't crowd out the others.</p>
+    <p>Each set that's on gets its turn, with its own background. Posters fade in and out over the background.</p>`],
+  backgrounds: ["Backgrounds", `<p>A background fills the whole screen behind the poster. Design it at <b>2160×3840</b> (portrait) and keep the poster's place clear: the poster is <b>2000×3000</b>, centered, which leaves <b>80 px</b> at each side and <b>420 px</b> at the top and bottom for "NOW SHOWING" and the like.</p>
+    <p>Images: PNG, JPG or WebP. Videos: MP4, 10 to 20 seconds, made to loop seamlessly (the end flows into the start). Other sizes are scaled to cover the screen.</p>`],
+  posterfolders: ["Poster folders", `<p>Posters are taken from the movie's or show's folder first (<code>Movie-poster.jpg</code>, <code>poster.jpg</code>, <code>season01-poster.jpg</code>…), then from Plex, then from the Zidoo (which keeps them at only 500×750).</p>
+    <p>To open those folders, Resume Relay needs to know where this computer reaches the share the Zidoos use. If Plex runs on this computer, its folders (Settings → Plex) are used. Otherwise add a line here: the Zidoos' folder (like <code>smb://10.0.0.56/Entertainment</code>) and the same folder on this computer (like <code>/mnt/media</code>). On Windows, the share's own address works without a line.</p>`],
   plexusers: ["Plex users", `<p>Each Plex user you add becomes a player: their resume points and watched marks sync with the Zidoos in both directions. Users with a PIN need it once, to add them.</p>`],
 };
 document.addEventListener("click", e => {
@@ -2049,6 +2191,200 @@ $("#set-restore").addEventListener("change", async e => {
     `This replaces this Resume Relay's players, names, settings, Plex setup and badge pictures with the ones in <b>${esc(f.name)}</b> (made ${esc(made)}, version ${esc(b.version || "?")}, ${(b.devices || []).length} player(s)). The Activity tab is kept.`,
     async () => { const r = await api("POST", "/api/restore", b); toast(`Restored ${r.players} player(s) from the backup.`); cardCache.clear(); plexSig = ""; refresh(); });
   e.target.value = "";
+});
+
+// ---------------- Live Poster ----------------
+let live = null, liveTimer = 0;
+const MOUNTS = [["right", "TV on its side, top on the right"], ["left", "TV on its side, top on the left"], ["portrait", "Upright (tablet, phone)"]];
+const SETS = [["comingSoon", "Coming Soon"], ["recentlyWatched", "Recently Watched"], ["acclaimed", "Highly Acclaimed"]];
+const busyIn = el => el && el.contains(document.activeElement) && document.activeElement !== document.body;
+function setHtml(el, html) { if (el.dataset.html !== html && !busyIn(el)) { el.innerHTML = html; el.dataset.html = html; } }
+async function loadLive() {
+  clearTimeout(liveTimer);
+  try { live = await api("GET", "/api/live"); renderLive(); } catch { }
+  if (!$("#live").hidden) liveTimer = setTimeout(loadLive, 3000);
+}
+function bgOptions(selected) {
+  return live.backgrounds.map(b => `<option value="${esc(b.id)}"${b.id === selected ? " selected" : ""}>${esc(b.name)}${b.kind === "video" ? " (video)" : ""}</option>`).join("");
+}
+function bgPicker(set, key) {
+  return `<span class="lp-bgpick"><img alt="" src="/api/live/backgrounds/${encodeURIComponent(set.backgroundId)}/preview"><select data-lp-bg="${key}" aria-label="Background">${bgOptions(set.backgroundId)}</select></span>`;
+}
+function renderLive() {
+  const L = live, r = L.renderer;
+  $("#lp-screen-url").textContent = location.origin + "/screen";
+  // Status: the video maker.
+  $("#lp-status").className = "lp-status" + (r.ready ? "" : " warn");
+  setHtml($("#lp-status"), r.ready
+    ? `<span>${esc(r.status)}</span>${r.working ? `<span>Making: ${esc(r.working)}${r.queued ? ` (${r.queued} more waiting)` : ""}</span>` : ""}${r.lastError ? `<span style="color:var(--bad)">${esc(r.lastError)}</span>` : ""}`
+    : `<span>${esc(r.status)}</span>${r.canDownload ? `<button class="btn" id="lp-ffmpeg"${r.downloading ? " disabled" : ""}>${r.downloading ? "Downloading…" : "Download ffmpeg"}</button>` : ""}`);
+  // Screens waiting to be paired.
+  setHtml($("#lp-waiting"), L.pairs.map(p => `<button class="btn quiet" data-lp-code="${esc(p.code)}">A screen is waiting: <b>${esc(p.code)}</b> (${esc(p.model || p.platform)})</button>`).join(""));
+  // Paired screens.
+  const players = L.players;
+  setHtml($("#lp-screens"), L.screens.map(s => `<article class="lp-screen" data-lp-screen="${esc(s.id)}">
+    <div class="lp-prev"${s.version ? ` style="background-image:url('/api/live/screens/${encodeURIComponent(s.id)}/preview?v=${encodeURIComponent(s.version)}')"` : ""} role="img" aria-label="What ${esc(s.name)} shows now"></div>
+    <div>
+      <h4><span class="lp-dot${s.online ? " on" : ""}" title="${s.online ? "Online" : "Not seen recently"}"></span><input value="${esc(s.name)}" data-lp-rename aria-label="Screen name"></h4>
+      <div class="lp-meta">${s.online ? "Online" : s.lastSeenUtc ? "Last seen " + ago(s.lastSeenUtc) : "Not seen yet"} · ${esc([s.platform, s.model].filter(Boolean).join(", "))}</div>
+      <div class="lp-now">${s.mode === "playing" ? `<b>Now playing:</b> ${esc(s.title)}<small>Poster: ${esc(s.posterSource)}</small>`
+        : s.mode === "idle" ? `<b>${esc(s.title || "Slideshow")}</b>${s.roundTitles?.length ? `<small>${esc(s.roundTitles.slice(0, 6).join(" · "))}${s.roundTitles.length > 6 ? " …" : ""}</small>` : ""}${s.note ? `<small>${esc(s.note)}</small>` : ""}`
+        : s.mode === "test" ? `<b>Test picture</b><small>The arrow should point up.</small>`
+        : `<small>${esc(s.note || "Starting…")}</small>`}</div>
+      <span class="lp-field">Shows what's playing on</span>
+      <div class="lp-players">${players.map(p => `<label><input type="checkbox" data-lp-player="${esc(p.id)}"${s.players.includes(p.id) ? " checked" : ""}>${kindBadge(p.kind, true)}${esc(p.name)}</label>`).join("") || `<small>No players yet.</small>`}</div>
+      <span class="lp-field">Mounted</span>
+      <div class="lp-row"><select data-lp-mount aria-label="How it's mounted">${MOUNTS.map(([v, t]) => `<option value="${v}"${s.mount === v ? " selected" : ""}>${t}</option>`).join("")}</select>
+        <select data-lp-res aria-label="Resolution"><option value="4k"${s.resolution === "4k" ? " selected" : ""}>4K</option><option value="1080"${s.resolution === "1080" ? " selected" : ""}>1080p</option></select></div>
+      <div class="lp-acts"><button class="btn" data-lp-test>Test picture</button><button class="btn quiet" data-lp-remove>Remove</button></div>
+    </div></article>`).join(""));
+  // Now Playing and the slideshow sets.
+  const c = L.config;
+  setHtml($("#lp-np-bg"), bgPicker(c.nowPlaying, "nowPlaying"));
+  if (document.activeElement !== $("#lp-wait")) $("#lp-wait").value = c.stopWaitSeconds;
+  if (document.activeElement !== $("#lp-slide")) $("#lp-slide").value = c.slideSeconds;
+  setHtml($("#lp-sets"), SETS.map(([key, name]) => {
+    const set = c[key];
+    const body = key === "comingSoon"
+      ? `Posters you add (2:3, like 2000×3000), in this order.<div class="lp-coming">${L.coming.map((p, i) => `<figure data-lp-coming="${esc(p.id)}">
+          <img alt="" src="/api/live/coming/${encodeURIComponent(p.id)}/image">
+          <input type="text" value="${esc(p.title)}" data-lp-ctitle aria-label="Title">
+          <div class="lp-mini"><span><button data-lp-up${i === 0 ? " disabled" : ""} title="Earlier" aria-label="Move earlier">◀</button><button data-lp-down${i === L.coming.length - 1 ? " disabled" : ""} title="Later" aria-label="Move later">▶</button></span><button class="del" data-lp-cdel title="Remove" aria-label="Remove">✕</button></div></figure>`).join("")}
+          <label class="lp-add">+ Add posters<input type="file" id="lp-coming-file" accept="image/png,image/jpeg,image/webp" multiple hidden></label></div><p class="lp-progress" id="lp-coming-progress"></p>`
+      : key === "recentlyWatched"
+      ? `The last 10 titles stopped on each screen's players (a TV show once per season).`
+      : `Movies and whole series rated at least <input type="number" id="lp-min" min="0" max="10" step="0.1" value="${c.acclaimedMin}" style="width:4.5em" aria-label="Minimum rating">. ${esc(L.acclaimedNote || "")}
+         <span class="lp-row" style="margin-top:6px"><button class="btn quiet" id="lp-acc-list">See the titles</button><button class="btn quiet" id="lp-acc-refresh">Read the ratings again</button></span>`;
+    return `<div class="lp-set${set.enabled ? "" : " off"}"><div class="lp-set-head">
+      <h4><input type="checkbox" class="lp-sw" data-lp-set="${key}"${set.enabled ? " checked" : ""} aria-label="${name} on or off">${name}</h4>${bgPicker(set, key)}</div>
+      <div class="lp-set-body">${body}</div></div>`;
+  }).join(""));
+  // Backgrounds.
+  setHtml($("#lp-bgs"), L.backgrounds.map(b => `<figure data-lp-bgid="${esc(b.id)}">
+      <div class="thumb" style="background-image:url('/api/live/backgrounds/${encodeURIComponent(b.id)}/preview')"><span>${b.kind === "video" ? "Video " + Math.round(b.durationMs / 1000) + " s" : `${b.width}×${b.height}`}</span></div>
+      <figcaption title="${esc(b.name)}">${esc(b.name)}</figcaption>
+      ${b.builtIn ? "" : `<div class="lp-mini"><button data-lp-bgrename>Rename</button><button class="del" data-lp-bgdel>Delete</button></div>`}</figure>`).join("")
+    + `<label class="lp-add">+ Add backgrounds<input type="file" id="lp-bg-file" accept="image/png,image/jpeg,image/webp,video/mp4" multiple hidden></label>`);
+  // Poster folders.
+  const plexDefault = L.plexFolders.filter(f => f.zidooFolder && f.localFolder);
+  $("#lp-folders-hint").innerHTML = plexDefault.length
+    ? `Folders are opened through Plex's folders (Settings → Plex): ${plexDefault.map(f => `<code>${esc(f.zidooFolder)}</code> = <code>${esc(f.localFolder)}</code>`).join(", ")}. Add a line only if this computer reaches the share somewhere else.`
+    : `Where this computer reaches the share the Zidoos use. On Windows the share's own address works without a line.`;
+  if (!busyIn($("#lp-folders")) && !$("#lp-folders").dataset.dirty) {
+    const rows = c.folders.length ? c.folders : [];
+    setHtml($("#lp-folders"), rows.map(folderRow).join("") || `<small style="color:var(--muted)">No extra folders.</small>`);
+  }
+}
+const folderRow = f => `<div class="lp-row" data-lp-folder><input type="text" value="${esc(f.zidooFolder)}" placeholder="smb://10.0.0.56/Entertainment" aria-label="Zidoo folder"> = <input type="text" value="${esc(f.localFolder)}" placeholder="/mnt/media or \\\\server\\share" aria-label="Folder on this computer"><button class="btn quiet" data-lp-folder-del aria-label="Remove">✕</button></div>`;
+
+async function saveLiveSettings(change) {
+  const c = structuredClone(live.config);
+  change(c);
+  try { await api("POST", "/api/live/settings", c); } catch (err) { toast(err.message, true); }
+  loadLive();
+}
+async function patchScreen(id, body) {
+  try { await api("PATCH", `/api/live/screens/${encodeURIComponent(id)}`, body); } catch (err) { toast(err.message, true); }
+  loadLive();
+}
+// Uploads go one file at a time with a progress line (4K videos can be large).
+function upload(url, file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest();
+    x.open("POST", url);
+    x.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+    x.upload.onprogress = e => e.lengthComputable && onProgress(e.loaded / e.total);
+    x.onload = () => { let j = null; try { j = JSON.parse(x.responseText); } catch { } x.status < 300 ? resolve(j) : reject(new Error((j && (j.error || j.Error)) || `Upload failed (${x.status})`)); };
+    x.onerror = () => reject(new Error("Upload failed: Resume Relay didn't answer."));
+    x.send(file);
+  });
+}
+async function uploadAll(files, urlOf, progressEl) {
+  let i = 0;
+  for (const f of files) {
+    i++;
+    const name = f.name.replace(/\.[^.]+$/, "");
+    try {
+      await upload(urlOf(name), f, p => progressEl.textContent = `Uploading ${f.name} (${i} of ${files.length}): ${Math.round(p * 100)}%`);
+    } catch (err) { toast(`${f.name}: ${err.message}`, true); }
+  }
+  progressEl.textContent = "";
+  loadLive();
+}
+$("#live").addEventListener("change", async e => {
+  const t = e.target, card = t.closest("[data-lp-screen]"), id = card?.dataset.lpScreen;
+  if (t.matches("[data-lp-rename]")) return patchScreen(id, { name: t.value });
+  if (t.matches("[data-lp-player]")) return patchScreen(id, { players: [...card.querySelectorAll("[data-lp-player]:checked")].map(x => x.dataset.lpPlayer) });
+  if (t.matches("[data-lp-mount]")) return patchScreen(id, { mount: t.value });
+  if (t.matches("[data-lp-res]")) return patchScreen(id, { resolution: t.value });
+  if (t.matches("[data-lp-bg]")) return saveLiveSettings(c => c[t.dataset.lpBg].backgroundId = t.value);
+  if (t.matches("[data-lp-set]")) return saveLiveSettings(c => c[t.dataset.lpSet].enabled = t.checked);
+  if (t.id === "lp-wait") return saveLiveSettings(c => c.stopWaitSeconds = +t.value || 0);
+  if (t.id === "lp-slide") return saveLiveSettings(c => c.slideSeconds = +t.value || 15);
+  if (t.id === "lp-min") return saveLiveSettings(c => c.acclaimedMin = +t.value || 0);
+  if (t.matches("[data-lp-ctitle]")) {
+    try { await api("PATCH", `/api/live/coming/${encodeURIComponent(t.closest("[data-lp-coming]").dataset.lpComing)}`, { title: t.value }); } catch (err) { toast(err.message, true); }
+    return loadLive();
+  }
+  if (t.id === "lp-coming-file") return uploadAll([...t.files], n => `/api/live/coming?title=${encodeURIComponent(n)}`, $("#lp-coming-progress"));
+  if (t.id === "lp-bg-file") return uploadAll([...t.files], n => `/api/live/backgrounds?name=${encodeURIComponent(n)}`, $("#lp-bg-progress"));
+});
+$("#lp-folders").addEventListener("input", () => { $("#lp-folders").dataset.dirty = "1"; });
+$("#live").addEventListener("click", async e => {
+  const b = e.target.closest("button"); if (!b) return;
+  const card = b.closest("[data-lp-screen]"), id = card?.dataset.lpScreen;
+  if (b.id === "lp-ffmpeg") { await api("POST", "/api/live/ffmpeg/download"); return loadLive(); }
+  if (b.dataset.lpCode) { $("#lp-code").value = b.dataset.lpCode; $("#lp-name").focus(); return; }
+  if (b.id === "lp-add") {
+    const code = $("#lp-code").value.trim(), name = $("#lp-name").value.trim();
+    if (!/^\d{4}$/.test(code)) return say($("#lp-pair-msg"), "Enter the 4-digit code the screen shows.", "err");
+    try {
+      await api("POST", "/api/live/pair", { code, name: name || "Screen", players: [], mount: "", resolution: "4k" });
+      $("#lp-code").value = ""; $("#lp-name").value = "";
+      say($("#lp-pair-msg"), `Added. Tick the players it follows below, and check the test picture on the screen: the arrow should point up.`, "ok");
+    } catch (err) { say($("#lp-pair-msg"), err.message, "err"); }
+    return loadLive();
+  }
+  if (b.matches("[data-lp-test]")) { await api("POST", `/api/live/screens/${encodeURIComponent(id)}/test`); toast("The test picture shows on the screen for 30 seconds."); return loadLive(); }
+  if (b.matches("[data-lp-remove]")) return confirmReset("Remove screen", `Remove <b>${esc(card.querySelector("[data-lp-rename]").value)}</b>? Its app goes back to showing a code, and can be added again.`,
+    async () => { await api("DELETE", `/api/live/screens/${encodeURIComponent(id)}`); loadLive(); });
+  const fig = b.closest("[data-lp-coming]");
+  if (fig) {
+    const ids = live.coming.map(c => c.id), i = ids.indexOf(fig.dataset.lpComing);
+    if (b.matches("[data-lp-cdel]")) return confirmReset("Remove poster", "Remove this poster from Coming Soon?", async () => { await api("DELETE", `/api/live/coming/${encodeURIComponent(ids[i])}`); loadLive(); });
+    if (b.matches("[data-lp-up]") && i > 0) [ids[i - 1], ids[i]] = [ids[i], ids[i - 1]];
+    if (b.matches("[data-lp-down]") && i < ids.length - 1) [ids[i + 1], ids[i]] = [ids[i], ids[i + 1]];
+    await api("POST", "/api/live/coming/order", { ids }); return loadLive();
+  }
+  const bgf = b.closest("[data-lp-bgid]");
+  if (bgf) {
+    const bid = bgf.dataset.lpBgid, bg = live.backgrounds.find(x => x.id === bid);
+    if (b.matches("[data-lp-bgdel]")) return confirmReset("Delete background", `Delete <b>${esc(bg.name)}</b>? Sets using it go back to their placeholder.`,
+      async () => { await api("DELETE", `/api/live/backgrounds/${encodeURIComponent(bid)}`); loadLive(); });
+    if (b.matches("[data-lp-bgrename]")) {
+      const n = prompt("Name for this background", bg.name);
+      if (n && n.trim()) { await api("PATCH", `/api/live/backgrounds/${encodeURIComponent(bid)}`, { title: n.trim() }); loadLive(); }
+      return;
+    }
+  }
+  if (b.id === "lp-acc-refresh") { b.disabled = true; b.textContent = "Reading…"; await api("POST", "/api/live/acclaimed/refresh").catch(err => toast(err.message, true)); return loadLive(); }
+  if (b.id === "lp-acc-list") {
+    const a = await api("GET", "/api/live/acclaimed");
+    return info("Highly Acclaimed", `<p>${esc(a.note)}</p><div class="lp-acc"><table>${a.titles.map(t => `<tr><td>${esc(t.title)}</td><td>${t.kind === "show" ? "Series" : "Movie"}</td><td class="n">${t.score.toFixed(1)}</td><td>${esc(t.source)}</td></tr>`).join("")}</table></div>`);
+  }
+  if (b.id === "lp-folder-add") {
+    if (!$("#lp-folders").querySelector("[data-lp-folder]")) $("#lp-folders").innerHTML = "";
+    $("#lp-folders").insertAdjacentHTML("beforeend", folderRow({ zidooFolder: "", localFolder: "" }));
+    $("#lp-folders").dataset.dirty = "1"; return;
+  }
+  if (b.matches("[data-lp-folder-del]")) { b.closest("[data-lp-folder]").remove(); $("#lp-folders").dataset.dirty = "1"; return; }
+  if (b.id === "lp-folders-save") {
+    const folders = [...$("#lp-folders").querySelectorAll("[data-lp-folder]")].map(r => { const [z, l] = r.querySelectorAll("input"); return { zidooFolder: z.value.trim(), localFolder: l.value.trim() }; })
+      .filter(f => f.zidooFolder && f.localFolder);
+    delete $("#lp-folders").dataset.dirty; $("#lp-folders").dataset.html = "";
+    await saveLiveSettings(c => c.folders = folders); toast("Saved. Posters are looked for again."); return;
+  }
+  if (b.id === "lp-forget") { await api("POST", "/api/live/posters/forget"); toast("Posters will be looked for again."); return loadLive(); }
 });
 
 async function refresh() {

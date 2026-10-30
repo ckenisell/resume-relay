@@ -771,6 +771,113 @@ except urllib.error.HTTPError as e:
     bad = e.code == 400
 check("a file that isn't a backup is refused", bad)
 
+# ---------------------------------------------------------------- 49. Live Poster
+import os, struct, tempfile, zlib
+
+
+def png(w, h, rgb):
+    def chunk(t, d):
+        return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xffffffff)
+    row = b"\x00" + bytes(rgb) * w
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(row * h)) + chunk(b"IEND", b""))
+
+
+def live():
+    return http("GET", RELAY + "/api/live")
+
+
+def screen_of(sid):
+    return next((x for x in live()["screens"] if x["id"] == sid), None)
+
+
+lv = wait_for(lambda: (lambda l: l if l["renderer"]["ready"] else None)(live()), 30)
+check("Live Poster: ffmpeg is found and an encoder works", lv, str(live()["renderer"]))
+nas = tempfile.mkdtemp(prefix="rr-nas-")
+os.makedirs(os.path.join(nas, "Movies", "Braveheart"))
+os.makedirs(os.path.join(nas, "TV", "Andor", "Season 01"))
+open(os.path.join(nas, "Movies", "Braveheart", "Braveheart (1995).4K.(1#Theatrical Movie)-poster.png"), "wb").write(png(200, 300, (200, 30, 30)))
+open(os.path.join(nas, "Movies", "Braveheart", "Braveheart (1995).4K.(1#Theatrical Movie)-OLDposter.png"), "wb").write(png(200, 300, (9, 9, 9)))
+open(os.path.join(nas, "TV", "Andor", "Season 01", "folder.png"), "wb").write(png(200, 300, (30, 200, 30)))
+open(os.path.join(nas, "TV", "Andor", "poster.png"), "wb").write(png(200, 300, (30, 30, 200)))
+cfg = live()["config"]
+cfg.update(folders=[{"zidooFolder": SHARE, "localFolder": nas}], stopWaitSeconds=3, slideSeconds=5, acclaimedMin=8.0)
+http("POST", RELAY + "/api/live/settings", cfg)
+pq = http("GET", RELAY + "/api/live/poster?url=" + urllib.parse.quote(BRAVE))
+check("a movie's poster comes from its folder (<file>-poster, not -OLDposter)", pq.get("source", "").endswith("-poster.png") and "OLD" not in pq["source"] and pq["width"] == 200, str(pq))
+pq = http("GET", RELAY + "/api/live/poster?url=" + urllib.parse.quote(E03))
+check("an episode's poster is its season's (inside a Season folder)", pq.get("source") == "Folder: folder.png", str(pq))
+pq = http("GET", RELAY + "/api/live/poster?url=" + urllib.parse.quote(E03) + "&series=true")
+check("a whole series gets the show's poster", pq.get("source") == "Folder: poster.png", str(pq))
+
+hello = lambda: http("POST", RELAY + "/api/screen/hello", {"deviceKey": "test-screen-1", "platform": "android", "model": "Test TV", "version": "1"})
+h = hello()
+check("a new screen app gets a 4-digit code", not h["paired"] and len(h["code"]) == 4 and any(p["code"] == h["code"] for p in live()["pairs"]), str(h))
+try:
+    http("POST", RELAY + "/api/live/pair", {"code": "0000" if h["code"] != "0000" else "1111", "name": "x", "players": []})
+    bad = False
+except urllib.error.HTTPError as e:
+    bad = e.code == 400
+check("a wrong code is refused", bad)
+sid = http("POST", RELAY + "/api/live/pair", {"code": h["code"], "name": "Theater Hall", "players": [ids[LR]], "mount": "right", "resolution": "1080"})["id"]
+h = hello()
+check("...and once paired it gets its token", h["paired"] and len(h["token"]) == 32 and h["name"] == "Theater Hall", str(h))
+TOK = h["token"]
+state_of = lambda ended="": http("GET", RELAY + f"/api/screen/state?token={TOK}" + (f"&ended={ended}" if ended else ""))
+st = wait_for(lambda: (lambda s: s if s["mode"] == "test" and s["url"] else None)(state_of()), 60)
+check("a new screen first shows the test picture", st, str(state_of()))
+mock(LR, "play", url=BRAVE, pos=60000)
+st = wait_for(lambda: (lambda s: s if s["mode"] == "playing" and s["title"] == "Braveheart" else None)(state_of()), 90)
+check("Now Playing: the screen switches to the playing title", st, str(state_of()))
+sc = wait_for(lambda: (lambda x: x if x["posterSource"].endswith("-poster.png") else None)(screen_of(sid)), 90)
+check("...with the poster from the movie's folder", sc, str(screen_of(sid)))
+req = urllib.request.Request(RELAY + state_of()["url"], headers={"Range": "bytes=0-99"})
+with urllib.request.urlopen(req, timeout=20) as r:
+    head = r.read()
+    check("the video is served to the screen (with byte ranges)", r.status == 206 and head[4:8] == b"ftyp", str((r.status, head[:12])))
+with urllib.request.urlopen(RELAY + f"/api/live/screens/{sid}/preview", timeout=60) as r:
+    check("the dashboard gets a preview picture", r.headers.get("Content-Type") == "image/jpeg" and len(r.read()) > 1000)
+mock(LR, "stop")
+time.sleep(1.5)
+check("after a stop the poster stays up for the wait time", state_of()["mode"] == "playing")
+mock(LR, "play", url=E03, pos=60000)
+sc = wait_for(lambda: (lambda x: x if x["mode"] == "playing" and x["posterSource"] == "Folder: folder.png" else None)(screen_of(sid)), 90)
+check("a TV episode shows its season's poster", sc, str(screen_of(sid)))
+mock(LR, "stop")
+st = wait_for(lambda: (lambda s: s if s["mode"] == "idle" else None)(state_of()), 30)
+check("...and when the wait is over, the slideshow", st, str(state_of()))
+
+with urllib.request.urlopen(urllib.request.Request(RELAY + "/api/live/coming?title=Test%20Coming", data=png(200, 300, (220, 200, 40)),
+                                                   headers={"Content-Type": "image/png"}, method="POST"), timeout=20) as r:
+    cid = json.loads(r.read())["id"]
+http("POST", RELAY + "/api/live/acclaimed/refresh")
+acc = http("GET", RELAY + "/api/live/acclaimed")
+names = {t["title"]: t for t in acc["titles"]}
+check("Highly Acclaimed: movies and series rated 8.0+ by IMDb (as Plex keeps it), not below",
+      "Braveheart (2016)" in names and names["Braveheart (2016)"]["source"] == "IMDb" and "Andor" in names and names["Andor"]["kind"] == "show"
+      and not any(t.startswith("Arrival") for t in names), str(acc))
+sc = wait_for(lambda: (lambda x: x if x["mode"] == "idle" and "Test Coming" in x["roundTitles"] and "Andor" in x["roundTitles"]
+                       and any(t.startswith("Braveheart") for t in x["roundTitles"]) else None)(screen_of(sid)), 240)
+check("the slideshow round has Coming Soon, Recently Watched and Highly Acclaimed", sc, str(screen_of(sid)))
+st = state_of()
+check("...as one video the screen plays through (not looped)", st["mode"] == "idle" and not st["loop"] and st["url"], str(st))
+state_of(st["version"])
+check("a screen saying the round ended keeps getting a slideshow", wait_for(lambda: state_of()["mode"] == "idle", 10))
+cfg = live()["config"]
+for k in ("comingSoon", "recentlyWatched", "acclaimed"):
+    cfg[k]["enabled"] = k == "comingSoon"
+http("POST", RELAY + "/api/live/settings", cfg)
+sc = wait_for(lambda: (lambda x: x if x["roundTitles"] == ["Test Coming"] else None)(screen_of(sid)), 120)
+check("sets that are off are left out", sc, str(screen_of(sid)))
+http("DELETE", RELAY + f"/api/live/coming/{cid}")
+http("DELETE", RELAY + f"/api/live/screens/{sid}")
+try:
+    state_of()
+    gone = False
+except urllib.error.HTTPError as e:
+    gone = e.code == 401
+check("a removed screen is told it's no longer paired", gone)
+
 passed = sum(1 for _, ok in results if ok)
 print(f"\n{passed}/{len(results)} passed")
 sys.exit(0 if passed == len(results) else 1)

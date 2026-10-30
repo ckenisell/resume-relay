@@ -119,6 +119,9 @@ public sealed record PlexSession(PlexItem Item, string State, string UserId, str
 public sealed record PlexSection(string Key, string Type, string Title, List<string> Locations);
 
 /// <summary>A Plex Media Server, with one user's token. Calls never throw for network problems; they return null.</summary>
+/// <summary>A movie or series with its rating (Highly Acclaimed).</summary>
+public sealed record PlexRated(int Key, string Type, string Title, int Year, double Score, string Source, string Thumb, List<string> Files);
+
 public sealed class PlexClient
 {
     private static readonly HttpClient Http = new(new SocketsHttpHandler
@@ -307,6 +310,75 @@ public sealed class PlexClient
     {
         using var d = await GetAsync($"/:/unscrobble?key={key}&identifier={Library}", Normal, ct);
         return d != null;
+    }
+
+    /// <summary>A poster at the size Plex keeps it (usually the original), or null.</summary>
+    public async Task<byte[]?> OriginalImageAsync(string thumbPath, CancellationToken ct = default)
+    {
+        if (thumbPath.Length == 0) return null;
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(20));
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get, _base + thumbPath);
+            req.Headers.Add("X-Plex-Token", _token);
+            using var resp = await Http.SendAsync(req, cts.Token);
+            if (!resp.IsSuccessStatusCode) return null;
+            var bytes = await resp.Content.ReadAsByteArrayAsync(cts.Token);
+            return bytes.Length > 0 ? bytes : null;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// Every movie and every TV series with its rating, for Highly Acclaimed. Plex keeps the rating its "ratings source"
+    /// setting picked (IMDb, TMDB or Rotten Tomatoes); the image name says which (imdb://image.rating…).
+    /// </summary>
+    public async Task<List<PlexRated>?> RatedTitlesAsync(CancellationToken ct = default)
+    {
+        var sections = await SectionsAsync(ct);
+        if (sections == null) return null;
+        var all = new List<PlexRated>();
+        foreach (var s in sections.Where(s => s.Type is "movie" or "show"))
+        {
+            using var d = await GetAsync($"/library/sections/{Uri.EscapeDataString(s.Key)}/all?type={(s.Type == "movie" ? 1 : 2)}", Long, ct);
+            if (d == null) return null;
+            foreach (var m in Arr(Container(d), "Metadata"))
+            {
+                var (score, source) = Rating(m);
+                var item = ParseItem(m);
+                all.Add(new PlexRated(item.Key, s.Type == "movie" ? "movie" : "show", item.Title, item.Year, score, source, item.Thumb, item.Files));
+            }
+        }
+        return all;
+    }
+
+    /// <summary>The best rating Plex has for an item: IMDb first, then the audience rating, then the critic rating.</summary>
+    public static (double Score, string Source) Rating(JsonElement m)
+    {
+        static string Src(string image) =>
+            image.StartsWith("imdb", StringComparison.OrdinalIgnoreCase) ? "IMDb"
+            : image.StartsWith("themoviedb", StringComparison.OrdinalIgnoreCase) || image.StartsWith("tmdb", StringComparison.OrdinalIgnoreCase) ? "TMDB"
+            : image.StartsWith("rottentomatoes", StringComparison.OrdinalIgnoreCase) ? "Rotten Tomatoes" : image.Length > 0 ? image.Split(':')[0] : "Plex";
+        double aud = J.Dbl(m, "audienceRating"), crit = J.Dbl(m, "rating");
+        string audImg = J.Str(m, "audienceRatingImage"), critImg = J.Str(m, "ratingImage");
+        // Ratings Plex keeps per source, when the server lists them (newer servers): IMDb wins.
+        if (m.ValueKind == JsonValueKind.Object && m.TryGetProperty("Rating", out var rs) && rs.ValueKind == JsonValueKind.Array)
+            foreach (var r in rs.EnumerateArray())
+                if (J.Str(r, "image").StartsWith("imdb", StringComparison.OrdinalIgnoreCase) && J.Dbl(r, "value") > 0) return (J.Dbl(r, "value"), "IMDb");
+        if (audImg.StartsWith("imdb", StringComparison.OrdinalIgnoreCase) && aud > 0) return (aud, "IMDb");
+        if (critImg.StartsWith("imdb", StringComparison.OrdinalIgnoreCase) && crit > 0) return (crit, "IMDb");
+        if (aud > 0) return (aud, Src(audImg));
+        if (crit > 0) return (crit, Src(critImg));
+        return (0, "");
+    }
+
+    /// <summary>One file of a show (to find the show's folder), or null.</summary>
+    public async Task<string?> AnyEpisodeFileAsync(int showKey, CancellationToken ct = default)
+    {
+        var eps = await ShowEpisodesAsync(showKey, ct);
+        return eps?.SelectMany(e => e.Files).FirstOrDefault();
     }
 
     /// <summary>A poster, resized by the server.</summary>

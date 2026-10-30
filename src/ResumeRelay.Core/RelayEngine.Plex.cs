@@ -113,6 +113,24 @@ public sealed partial class RelayEngine
         return item?.Files.Select(f => PlexPaths.ToSourceUrl(f, cfg.Mappings)).FirstOrDefault(u => u != null);
     }
 
+    /// <summary>Live Poster: a file's Plex item by the Zidoos' path, from the cached listing of any Plex user (null when
+    /// Plex isn't set up, doesn't have it, or doesn't answer).</summary>
+    public async Task<PlexItem?> PlexItemForUrlAsync(string sourceUrl, CancellationToken ct = default)
+    {
+        string? rel = PlexPaths.RelOfUrl(sourceUrl);
+        var d = _store.Devices().FirstOrDefault(x => x.IsPlex && x.Enabled);
+        if (rel == null || d == null) return null;
+        var idx = await PlexIndexAsync(d, PlexIndexMaxAge, ct);
+        return idx != null && idx.ByKey.TryGetValue(PlexPaths.Key(rel), out var hit) ? hit : null;
+    }
+
+    /// <summary>A client for the Plex server with the owner's token (null when Plex isn't set up).</summary>
+    public PlexClient? PlexServer()
+    {
+        var cfg = _store.Plex();
+        return cfg.Ready ? PlexOwner(cfg) : null;
+    }
+
     /// <summary>Forgets cached listings (after the folder mapping or the users change).</summary>
     public void ForgetPlexIndex() => _plexIndex.Clear();
 

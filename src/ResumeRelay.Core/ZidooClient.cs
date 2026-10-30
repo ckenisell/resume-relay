@@ -204,6 +204,41 @@ public sealed class ZidooClient
         return list;
     }
 
+    /// <summary>A poster at the size the player keeps it (500×750 on HT 5.1.x: TMDB's "w500"), or null.</summary>
+    public async Task<byte[]?> GetStoredPosterAsync(int id, CancellationToken ct = default)
+    {
+        foreach (var path in new[] { $"/ZidooPoster/v2/getPoster?id={id}", $"/ZidooPoster/v2/getPoster?id={id}&w=500&h=750" })
+        {
+            var bytes = await GetBytesAsync(path, TimeSpan.FromSeconds(10), ct);
+            if (bytes != null && IsImage(bytes)) return bytes;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// For a file, the library entries that carry posters: the film (type 1) or the season (4), and the series (3).
+    /// Walks up from the file entry the same way the Activity cards do. Null when the player doesn't have the file.
+    /// </summary>
+    public async Task<(int TitleId, int SeasonId, int SeriesId, int Season, int Episode)?> PosterIdsAsync(string sourceUrl, CancellationToken ct = default)
+    {
+        var (lookup, hit) = await GetIdByPathnameAsync(sourceUrl, ct);
+        if (lookup != Lookup.Found || hit == null) return null;
+        var file = await GetEntryAsync(hit.Id, ct);
+        int film = 0, season = 0, series = 0, parent = file?.ParentId ?? 0, seasonNo = file?.Season ?? 0, epNo = file?.Episode ?? 0;
+        for (int level = 0; level < 5 && parent > 1; level++)
+        {
+            var e = await GetEntryAsync(parent, ct);
+            if (e == null) break;
+            if (e.Type == 1 && film == 0) film = e.Id;
+            else if (e.Type == 4 && season == 0) { season = e.Id; if (seasonNo == 0) seasonNo = e.Season; }
+            else if (e.Type == 3 && series == 0) series = e.Id;
+            else if (e.Type == 5) { if (seasonNo == 0) seasonNo = e.Season; if (epNo == 0) epNo = e.Episode; }
+            parent = e.ParentId;
+        }
+        if (film == 0 && season == 0 && series == 0 && hit.Matched && hit.TitleId > 0 && hit.TitleId != hit.Id) film = hit.TitleId;
+        return (film, season, series, seasonNo, epNo);
+    }
+
     /// <summary>A poster image, or null. Tries the same endpoints Z-Keeper uses, newest API first.</summary>
     public async Task<byte[]?> GetPosterAsync(int id, int width = 240, int height = 360, CancellationToken ct = default)
     {

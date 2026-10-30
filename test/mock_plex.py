@@ -55,6 +55,9 @@ def setup(files):
                             file=PLEX_ROOT + rel, duration=dur, showKey=0)
 
 
+RATINGS = {"Braveheart": 8.3, "Arrival": 7.9, "Andor": 8.4}   # IMDb, as Plex keeps them (Highly Acclaimed)
+
+
 def st(user, key):
     return STATE.setdefault((user, key), dict(viewOffset=0, viewCount=0, lastViewedAt=0))
 
@@ -68,6 +71,8 @@ def meta(user, key):
         m.update(grandparentTitle=it["show"], parentIndex=it["season"], index=it["episode"],
                  grandparentRatingKey=str(it["showKey"]), parentThumb=f"/library/metadata/{it['showKey']}1/thumb/1",
                  grandparentThumb=f"/library/metadata/{it['showKey']}/thumb/1")
+    if it["type"] == "movie" and it["title"] in RATINGS:
+        m.update(audienceRating=RATINGS[it["title"]], audienceRatingImage="imdb://image.rating", rating=9.1, ratingImage="rottentomatoes://image.rating.ripe")
     if s["viewOffset"] > 0:
         m["viewOffset"] = s["viewOffset"]
     if s["viewCount"] > 0:
@@ -136,6 +141,14 @@ class Server(Base):
                 ])))
             if path.startswith("/library/sections/") and path.endswith("/all"):
                 sec = path.split("/")[3]
+                if sec == "2" and q.get("type") == "2":   # the shows themselves (Highly Acclaimed)
+                    shows = {}
+                    for k, it in sorted(ITEMS.items()):
+                        if it["type"] == "episode" and it["showKey"] not in shows:
+                            shows[it["showKey"]] = dict(ratingKey=str(it["showKey"]), type="show", title=it["show"], year=2022,
+                                                        thumb=f"/library/metadata/{it['showKey']}/thumb/1",
+                                                        audienceRating=RATINGS.get(it["show"], 6.0), audienceRatingImage="imdb://image.rating")
+                    return self.send(dict(MediaContainer=dict(Metadata=list(shows.values()))))
                 want = "movie" if sec == "1" else "episode"
                 return self.send(dict(MediaContainer=dict(Metadata=[meta(user, k) for k, it in sorted(ITEMS.items()) if it["type"] == want])))
             if path.startswith("/library/metadata/"):

@@ -105,6 +105,8 @@ public sealed class StopEvent
     /// <summary>The file's name, e.g. "50 First Dates (2004).4K.(1#Theatrical Movie).mkv": a title can have several files.</summary>
     public string FileName { get; set; } = "";
     public string FromName { get; set; } = "";
+    /// <summary>The player the stop happened on (0.6+; older cards only have FromName).</summary>
+    public string FromDeviceId { get; set; } = "";
     /// <summary>Where the stop happened: "zidoo", "plex", or "" for a reset pressed in Resume Relay.</summary>
     public string FromKind { get; set; } = "";
     public int PositionMs { get; set; }

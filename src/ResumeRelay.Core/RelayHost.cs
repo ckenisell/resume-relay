@@ -74,6 +74,11 @@ public static class RelayHost
         builder.Services.AddSingleton<CatchUpService>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<CatchUpService>());
         builder.Services.AddHostedService(sp => sp.GetRequiredService<UpdateService>());
+        builder.Services.AddSingleton<Live.LiveStore>();
+        builder.Services.AddSingleton<Live.PosterFinder>();
+        builder.Services.AddSingleton<Live.Renderer>();
+        builder.Services.AddSingleton<Live.LiveService>();
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<Live.LiveService>());
 
         var app = builder.Build();
         var updates = app.Services.GetRequiredService<UpdateService>();
@@ -82,6 +87,8 @@ public static class RelayHost
         MapProgressApi(app, app.Services.GetRequiredService<ProgressService>(), app.Lifetime.ApplicationStopping);
         PlexApi.Map(app, store, app.Services.GetRequiredService<RelayEngine>());
         MapIcons(app, store);
+        Live.LiveApi.Map(app, store, app.Services.GetRequiredService<Live.LiveStore>(), app.Services.GetRequiredService<Live.LiveService>(),
+            app.Services.GetRequiredService<RelayEngine>());
         return app;
     }
 

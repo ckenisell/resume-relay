@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>Live Poster</title>
+<style>
+  :root { --bg: #000; --text: #f2efe9; --muted: #9a958c; --amber: #f2a33a; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); overflow: hidden; cursor: none;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  video { position: fixed; inset: 0; width: 100vw; height: 100vh; object-fit: contain; background: #000; opacity: 0; transition: opacity .6s; }
+  video.on { opacity: 1; }
+  #setup { position: fixed; inset: 0; display: grid; place-items: center; text-align: center; padding: 24px; cursor: default; }
+  #setup[hidden] { display: none; }
+  #setup h1 { font-size: clamp(20px, 4vw, 40px); margin: 0 0 8px; font-weight: 700; }
+  #setup p { color: var(--muted); font-size: clamp(14px, 2.2vw, 22px); margin: 6px 0; max-width: 40ch; }
+  #code { font-size: clamp(56px, 16vw, 180px); letter-spacing: .12em; color: var(--amber); font-weight: 800; margin: 12px 0; font-variant-numeric: tabular-nums; }
+  #status { position: fixed; left: 12px; bottom: 10px; font-size: 12px; color: #555; }
+</style>
+</head>
+<body>
+<video id="a" muted playsinline autoplay></video>
+<video id="b" muted playsinline autoplay></video>
+<div id="setup">
+  <div>
+    <h1 id="setup-h">Resume Relay Live Poster</h1>
+    <div id="code">····</div>
+    <p id="setup-p">On a computer or phone, open Resume Relay, go to the <b>Live Poster</b> tab and enter this code.</p>
+  </div>
+</div>
+<div id="status"></div>
+<script>
+// A browser screen for Live Poster (handy on a tablet, or for testing). It does what the TV apps do: say hello,
+// show a pairing code until paired, then ask every 2 seconds what to play and loop it.
+const $ = s => document.querySelector(s);
+const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch { } } };
+let key = store.get("rr.screenKey");
+if (!key) { key = "web-" + Math.random().toString(36).slice(2) + Date.now().toString(36); store.set("rr.screenKey", key); }
+let token = "", current = "", loop = true, front = $("#a"), back = $("#b");
+
+async function hello() {
+  try {
+    const r = await fetch("/api/screen/hello", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ deviceKey: key, platform: innerHeight > innerWidth ? "web-portrait" : "web", model: navigator.platform || "browser", version: "web" }) });
+    const j = await r.json();
+    if (j.paired) { token = j.token; $("#setup").hidden = true; poll(); return; }
+    $("#code").textContent = j.code; $("#setup").hidden = false;
+  } catch { $("#code").textContent = "····"; $("#setup-p").textContent = "Can't reach Resume Relay. Retrying…"; }
+  setTimeout(hello, 3000);
+}
+
+async function state(ended) {
+  const r = await fetch(`/api/screen/state?token=${encodeURIComponent(token)}${ended ? "&ended=" + encodeURIComponent(ended) : ""}`);
+  if (r.status === 401) { token = ""; current = ""; hello(); return null; }
+  return r.json();
+}
+
+async function poll() {
+  if (!token) return;
+  try {
+    const s = await state();
+    if (!s) return;
+    $("#status").textContent = s.name + " · " + s.mode;
+    if (s.url && s.version !== current) play(s);
+  } catch { }
+  setTimeout(poll, 2000);
+}
+
+// Two video elements, so a new video fades in over the old one instead of flashing black.
+function play(s) {
+  current = s.version; loop = s.loop;
+  back.loop = s.loop; back.src = s.url;
+  back.oncanplay = () => {
+    back.oncanplay = null;
+    back.play().catch(() => { });
+    back.classList.add("on"); front.classList.remove("on");
+    const old = front; front = back; back = old;
+    setTimeout(() => { if (back !== front) { back.removeAttribute("src"); back.load(); } }, 800);
+  };
+}
+// A slideshow round has ended: ask for the next one (or the same one again).
+for (const v of [$("#a"), $("#b")])
+  v.addEventListener("ended", async () => {
+    if (v !== front) return;
+    try { const s = await state(current); if (s && s.url) { if (s.version === current) { v.currentTime = 0; v.play(); } else play(s); } }
+    catch { v.currentTime = 0; v.play(); }
+  });
+document.addEventListener("click", () => document.documentElement.requestFullscreen?.().catch(() => { }));
+hello();
+</script>
+</body>
+</html>

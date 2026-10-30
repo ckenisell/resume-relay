@@ -124,6 +124,50 @@ public sealed class ProgressService
         lock (_lock) return _devices.TryGetValue(deviceId, out var d) && d.Cells.Values.Any(c => c.LastWatchMs > soon);
     }
 
+    /// <summary>A player's watched marks as last read (file → watched), with when; null if it hasn't been read cleanly.</summary>
+    public (Dictionary<string, bool> Marks, DateTime ReadUtc)? WatchedSnapshot(string deviceId)
+    {
+        lock (_lock)
+        {
+            if (!_devices.TryGetValue(deviceId, out var d) || d.ReadUtc == null || d.Error.Length > 0) return null;
+            return (d.Cells.Where(c => c.Value.FileId > 0).ToDictionary(c => c.Key, c => c.Value.Watched, StringComparer.Ordinal), d.ReadUtc.Value);
+        }
+    }
+
+    /// <summary>
+    /// Watched marks someone changed on one player (found by WatchedSyncService): those files get the same mark on every
+    /// other player that has them (watched: with no resume point, as everywhere else). One Activity card, with Undo.
+    /// </summary>
+    public string? SyncWatchedFrom(string fromId, IReadOnlyCollection<string> keys)
+    {
+        var source = _store.Device(fromId);
+        if (source == null) return "That player is no longer there.";
+        var targets = _store.Devices().Where(d => d.Enabled && d.Id != fromId).Select(d => d.Id).ToList();
+        List<(string Key, List<string> Devices, bool Watched)> Plan()
+        {
+            lock (_lock)
+            {
+                if (!_devices.TryGetValue(fromId, out var src)) return new();
+                return keys.Where(k => src.Cells.TryGetValue(k, out var c) && c.FileId > 0)
+                    .Select(k =>
+                    {
+                        bool w = src.Cells[k].Watched;
+                        var devs = targets.Where(id => _devices.TryGetValue(id, out var d) && d.Cells.TryGetValue(k, out var c) && c.FileId > 0
+                                                       && (c.Watched != w || (w && c.PlayPointMs > 0))).ToList();
+                        return (k, devs, w);
+                    })
+                    .Where(x => x.devs.Count > 0).ToList();
+            }
+        }
+        if (Plan().Count == 0) return null;
+        return Enqueue(new BulkJob
+        {
+            Key = "sync:" + fromId + ":" + Guid.NewGuid().ToString("N")[..6], Watched = true, Label = $"Copying watched marks set on {source.Name}", Plan = Plan,
+            Card = ($"Watched marks from {source.Name}", $"Marked on {source.Name}", source.Name, source.IsPlex ? "plex" : "zidoo"),
+            Summary = (n, failed) => $"Watched marks set on {source.Name} were copied to the other players ({n:N0} change{(n == 1 ? "" : "s")})" + (failed > 0 ? $"; {failed} didn't take." : "."),
+        });
+    }
+
     /// <summary>When each player was last read successfully (for Catch Up and the health notes).</summary>
     public DateTime? ReadUtcOf(string deviceId) { lock (_lock) return _devices.GetValueOrDefault(deviceId)?.ReadUtc; }
 

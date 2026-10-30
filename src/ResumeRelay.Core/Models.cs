@@ -46,6 +46,10 @@ public sealed class Settings
 
     /// <summary>After Resume Relay has been down, read the players and copy whatever was watched meanwhile.</summary>
     public bool CatchUpAuto { get; set; } = true;
+    /// <summary>Watched marks set or cleared on a player (in the HT app, or in Plex) are copied to the other players.
+    /// Players don't announce these, so each is read every WatchedSyncMinutes and compared with the last read.</summary>
+    public bool WatchedSync { get; set; } = true;
+    public int WatchedSyncMinutes { get; set; } = 15;
     /// <summary>The getting-started checklist was hidden (or finished).</summary>
     public bool SetupHidden { get; set; }
     /// <summary>"Skip" on the checklist's optional Plex step.</summary>

@@ -177,8 +177,9 @@ public sealed class Renderer
             arrow += $",drawbox=x={cx - w / 2}:y={y}:w={w}:h={unit}:color=white:t=fill";
         }
         arrow += $",drawbox=x=0:y=0:w={l.W}:h={l.H}:color=0xF2A33A:t={Math.Max(8, unit / 3)}";
+        // Drawn once, then the finished frame is repeated (see MakeAsync).
         return Enqueue(key, output, "test picture", 0, o =>
-            $"{Pre(enc)}-f lavfi -i color=c=0x101826:s={l.W}x{l.H}:r={Fps}:d=30 -vf \"{arrow}{Turn(mount)}{Final(enc)}\" -t 30 {EncodeArgs(enc, still: true)} \"{o}\"");
+            $"{Pre(enc)}-f lavfi -i color=c=0x101826:s={l.W}x{l.H}:r={Fps}:d=1 -vf \"trim=end_frame=1,{arrow}{Turn(mount)},{Repeat(30)}{Final(enc)}\" -t 30 {EncodeArgs(enc, still: true)} \"{o}\"");
     }
 
     private Task<string?> MakeAsync(string kind, LiveBackground? bg, string? poster, string mount, string resolution, string codec, double seconds, bool fade, int priority)
@@ -186,25 +187,42 @@ public sealed class Renderer
         var l = LayoutFor(resolution);
         string enc = EncoderFor(codec);
         string bgPath = bg == null ? "" : _live.BackgroundPath(bg);
-        string key = Hash($"{kind}|{Stamp(bgPath)}|{Stamp(poster)}|{mount}|{resolution}|{seconds.ToString(CultureInfo.InvariantCulture)}|{enc}|v2");
+        string key = Hash($"{kind}|{Stamp(bgPath)}|{Stamp(poster)}|{mount}|{resolution}|{seconds.ToString(CultureInfo.InvariantCulture)}|{enc}|v3");
         string output = Path.Combine(_live.RenderDir, key + ".mp4");
         string label = kind == "hold" ? "Now Playing" : "slide";
         bool still = bg == null || bg.Kind != "video";
         string s = seconds.ToString("0.###", CultureInfo.InvariantCulture);
+        string fades = fade
+            ? $",fade=t=in:st=0:d=0.8,fade=t=out:st={(seconds - 0.8).ToString("0.###", CultureInfo.InvariantCulture)}:d=0.8"
+            : "";
+        if (still)
+            // A still background: the picture is built ONCE (read, resized, poster placed, turned on its side), and that
+            // finished frame is repeated in memory; only the fades and the encoding happen per frame. (Building it for
+            // every frame was what made slides take most of a minute each.)
+            return Enqueue(key, output, label, priority, o =>
+            {
+                var a = new StringBuilder(Pre(enc));
+                a.Append(bg == null ? $"-f lavfi -i color=c=black:s={l.W}x{l.H}:r={Fps}:d=1 " : $"-i \"{bgPath}\" ");
+                if (poster != null) a.Append($"-i \"{poster}\" ");
+                string graph = $"[0:v]trim=end_frame=1,scale={l.W}:{l.H}:force_original_aspect_ratio=increase,crop={l.W}:{l.H},setsar=1[bg]";
+                graph += poster != null
+                    ? $";[1:v]scale={l.PW}:{l.PH},setsar=1[p];[bg][p]overlay={l.PX}:{l.PY}:format=auto{Turn(mount)},{Repeat(seconds)}{fades}{Final(enc)}[v]"
+                    : $";[bg]null{Turn(mount)},{Repeat(seconds)}{fades}{Final(enc)}[v]";
+                a.Append($"-filter_complex \"{graph}\" -map \"[v]\" -t {s} {EncodeArgs(enc, still)} \"{o}\"");
+                return a.ToString();
+            });
+        // A video background changes every frame, so each frame is built; the poster is still read only once.
         return Enqueue(key, output, label, priority, o =>
         {
             var a = new StringBuilder(Pre(enc));
             if (bg == null) a.Append($"-f lavfi -t {s} -i color=c=black:s={l.W}x{l.H}:r={Fps} ");
             else if (bg.Kind == "video") a.Append($"-stream_loop -1 -t {s} -i \"{bgPath}\" ");
             else a.Append($"-loop 1 -framerate {Fps} -t {s} -i \"{bgPath}\" ");
-            if (poster != null) a.Append($"-loop 1 -framerate {Fps} -t {s} -i \"{poster}\" ");
+            if (poster != null) a.Append($"-i \"{poster}\" ");
             // Slides: the finished picture fades up from black and back down to black.
-            string fades = fade
-                ? $",fade=t=in:st=0:d=0.8,fade=t=out:st={(seconds - 0.8).ToString("0.###", CultureInfo.InvariantCulture)}:d=0.8"
-                : "";
             string graph = $"[0:v]scale={l.W}:{l.H}:force_original_aspect_ratio=increase,crop={l.W}:{l.H},setsar=1,fps={Fps}[bg]";
             graph += poster != null
-                ? $";[1:v]scale={l.PW}:{l.PH},setsar=1[p];[bg][p]overlay={l.PX}:{l.PY}:format=auto{fades}{Turn(mount)}{Final(enc)}[v]"
+                ? $";[1:v]trim=end_frame=1,scale={l.PW}:{l.PH},setsar=1,{Repeat(seconds)}[p];[bg][p]overlay={l.PX}:{l.PY}:format=auto:shortest=1{fades}{Turn(mount)}{Final(enc)}[v]"
                 : $";[bg]null{fades}{Turn(mount)}{Final(enc)}[v]";
             a.Append($"-filter_complex \"{graph}\" -map \"[v]\" -t {s} {EncodeArgs(enc, still)} \"{o}\"");
             return a.ToString();
@@ -269,6 +287,13 @@ public sealed class Renderer
         var v = Regex.Match(err, @"Video:.*?\b(\d{2,5})x(\d{2,5})\b");
         if (v.Success) { w = int.Parse(v.Groups[1].Value); h = int.Parse(v.Groups[2].Value); }
         return (w, h, ms);
+    }
+
+    /// <summary>Repeats the one frame it's given for the whole length, at the frame rate (the loop filter keeps it in memory).</summary>
+    private static string Repeat(double seconds)
+    {
+        int frames = (int)Math.Round(seconds * Fps);
+        return $"loop=loop={frames - 1}:size=1:start=0,setpts=N/({Fps}*TB),fps={Fps}";
     }
 
     /// <summary>VA-API needs its device named before the inputs, and the frames handed to it at the end of the graph.</summary>

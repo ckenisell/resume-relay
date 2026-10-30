@@ -738,6 +738,13 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
       <div class="row"><button class="btn" id="set-catchnow">Catch up now</button><span id="set-catchstatus"></span></div>
     </div>
     <div class="set-sec">
+      <h3>Watched marks<button class="help" data-help="watchedsync" aria-label="About watched-mark syncing">?</button></h3>
+      <p>When a title is marked watched or unwatched on a player (in the Zidoo's HT app, or in Plex), Resume Relay copies the mark to the other players. Players don't announce these, so Resume Relay checks for them every few minutes.</p>
+      <label class="sw"><input type="checkbox" id="set-wsync"> Copy watched marks set on a player to the other players</label>
+      <div class="row"><label>Check every <input type="number" id="set-wsync-min" min="2" max="1440" style="width:5em"> minutes</label>
+        <button class="btn" id="set-wsync-now">Check now</button><span id="set-wsync-status"></span></div>
+    </div>
+    <div class="set-sec">
       <h3>Back up and restore<button class="help" data-help="backup" aria-label="About backups">?</button></h3>
       <p>One file with your players, their names, these settings, the Plex setup and your badge pictures. Use it to move Resume Relay to another computer or a NAS, or after reinstalling.</p>
       <div class="row"><a class="btn" id="set-backup" href="/api/backup" download>Back up settings</a>
@@ -2075,6 +2082,8 @@ const HELP = {
   watch: ["Watch Sync", `<p>Where each movie and episode is marked watched, on every player. Click a cell to change one player, use <b>Set on all</b>, <b>Watched All</b> on a show, or <b>Copy all</b> from one player's column.</p>`],
   copyall: ["Target and Copy all", `<p>Tick <b>Target</b> on the players that should receive. Then press <b>Copy all</b> under the player to copy from.</p>
     <p>It covers every file in the list <b>as filtered</b> (the Show option and the search), on every page, not just what's on screen. It shows the counts first, and each batch can be undone from its card on the Activity tab.</p>`],
+  watchedsync: ["Watched marks", `<p>Stops are copied the moment they happen, because Resume Relay asks each player what it's playing every few seconds. Marking a title watched or unwatched plays nothing, and neither the Zidoo's HT app nor Plex announces it, so Resume Relay finds these by reading the players every few minutes (15 by default) and comparing each file's mark with the last read.</p>
+    <p>A changed file gets the same mark on the other players (watched: with no resume point). Each batch gets an Activity card with Undo. A Zidoo that's playing is read next time instead, and a file marked watched on one player and unwatched on another in between is left alone.</p>`],
   catchup: ["Catch Up", `<p>Resume Relay copies stops as they happen, so it can only miss something while it's off. When it starts after being off for more than a few minutes, it reads the players and, for every file watched meanwhile, copies the newest player's state to the others. Players that are off then are read when they come back on.</p>
     <p><b>Catch up now</b> does the same for the last 14 days: use it after changing things where Resume Relay can't see them, such as Z-Keeper. It can't see a Plex "mark as unplayed" (Plex keeps no time for it), and it needs the players' clocks to be right.</p>
     <p>Its card on the Activity tab has <b>Undo</b>.</p>`],
@@ -2169,6 +2178,17 @@ $("#setup").addEventListener("click", async e => {
 $("#set-setup").onclick = async () => { setupForced = true; await api("POST", "/api/settings", { ...state.settings, setupHidden: false }); showTab("players"); refresh(); };
 
 // ---------------- Settings: Catch Up, backup ----------------
+function renderWatchedSync() {
+  const w = state?.watchedSync; if (!w) return;
+  if (document.activeElement !== $("#set-wsync")) $("#set-wsync").checked = state.settings.watchedSync;
+  if (document.activeElement !== $("#set-wsync-min")) $("#set-wsync-min").value = state.settings.watchedSyncMinutes;
+  const html = w.status ? esc(w.status) : w.lastRunUtc ? `Last checked ${ago(w.lastRunUtc)}: ${esc(w.lastResult)}` : "";
+  if ($("#set-wsync-status").innerHTML !== html) $("#set-wsync-status").innerHTML = html;
+}
+$("#set-wsync").addEventListener("change", async () => { await api("POST", "/api/settings", { ...state.settings, watchedSync: $("#set-wsync").checked }); refresh(); });
+$("#set-wsync-min").addEventListener("change", async () => { await api("POST", "/api/settings", { ...state.settings, watchedSyncMinutes: Math.max(2, +$("#set-wsync-min").value || 15) }); refresh(); });
+$("#set-wsync-now").onclick = async () => { await api("POST", "/api/watchedsync/check"); toast("Checking the players for changed watched marks. It takes a minute or two."); };
+
 function renderCatchUp() {
   const c = state?.catchUp; if (!c) return;
   if (document.activeElement !== $("#set-catchup")) $("#set-catchup").checked = state.settings.catchUpAuto;
@@ -2417,7 +2437,7 @@ async function refresh() {
     state = s; events = ev; systemRows = sys;
     for (const [id, t] of launching) if (Date.now() - t > 60000) launching.delete(id);
     renderMode(s.settings); renderRooms(s.devices); renderPlex(); renderFeed(); renderSettings(s.settings); renderIcons(); renderBadges();
-    renderUpdate(); renderUpdateSettings(s.settings); renderHealth(); renderSetup(); renderCatchUp();
+    renderUpdate(); renderUpdateSettings(s.settings); renderHealth(); renderSetup(); renderCatchUp(); renderWatchedSync();
     if (!$("#progress").hidden || progress?.reading) await loadProgress(); else renderProgressControls();
     if (!$("#watch").hidden) await loadWatch(false); else renderWatchControls();
     $("#autostart-row").hidden = s.autostart === null || s.autostart === undefined;

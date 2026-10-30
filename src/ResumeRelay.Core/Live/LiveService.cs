@@ -74,6 +74,8 @@ public sealed class LiveService : BackgroundService
         public List<string> RoundTitles = new();
         public bool AdvanceAfterEnd;
         public bool WantNext;
+        /// <summary>The slideshow up is the start of a round still being made.</summary>
+        public bool Partial;
         public DateTime TestUntil;
         /// <summary>A test picture was asked for: it shows for this long once it's made (making it can take a moment).</summary>
         public int TestSeconds;
@@ -375,12 +377,16 @@ public sealed class LiveService : BackgroundService
     private void Slideshow(LiveScreen s, ScreenRuntime rt, LiveConfig cfg)
     {
         // The screen finished a round: the next one goes up as soon as it's made (the screen replays this one meanwhile).
-        if (rt.AdvanceAfterEnd) { rt.AdvanceAfterEnd = false; rt.Round++; rt.WantNext = true; }
+        // (After a partial round, the same round comes back complete, or longer, instead of a new one.)
+        if (rt.AdvanceAfterEnd) { rt.AdvanceAfterEnd = false; if (!rt.Partial) rt.Round++; rt.WantNext = true; }
         var items = RoundItems(s, cfg, rt.Round);
         // Each title's poster and slide; the round's reel once they're all made.
         var slides = new List<string>();
         bool pending = false;
         var titles = new List<string>();
+        // The slides ready from the start of the round, in order (up to the first one still being made).
+        var firstSlides = new List<string>();
+        var firstTitles = new List<string>();
         foreach (var it in items)
         {
             string? poster = it.File;
@@ -394,7 +400,11 @@ public sealed class LiveService : BackgroundService
             var setCfg = it.Set switch { "coming" => cfg.ComingSoon, "recent" => cfg.RecentlyWatched, _ => cfg.Acclaimed };
             var slide = _renderer.SlideAsync(Background(cfg, setCfg.BackgroundId), poster, s.Mount, s.Resolution, CodecOf(s), cfg.SlideSeconds);
             if (!slide.IsCompleted) { pending = true; continue; }
-            if (slide.IsCompletedSuccessfully && slide.Result != null) { slides.Add(slide.Result); titles.Add(it.Title); }
+            if (slide.IsCompletedSuccessfully && slide.Result != null)
+            {
+                slides.Add(slide.Result); titles.Add(it.Title);
+                if (!pending) { firstSlides.Add(slide.Result); firstTitles.Add(it.Title); }
+            }
         }
         string key = string.Join("|", slides.Select(Path.GetFileName));
         // A new reel replaces the one up only between rounds (or when none is up), never in the middle of one.
@@ -411,7 +421,23 @@ public sealed class LiveService : BackgroundService
                     rt.IdleKey = key;
                     rt.RoundTitles = titles;
                     rt.WantNext = false;
+                    rt.Partial = false;
                 }
+            }
+        }
+        // Still being made and nothing (or only a shorter start) is up: the first slides go up as soon as there are three,
+        // rather than waiting for the whole round. The rest follows when this part ends.
+        else if (pending && canSwap && (rt.IdleUrl.Length == 0 || rt.Partial) && firstSlides.Count >= Math.Min(3, items.Count)
+                 && firstSlides.Count > (rt.Partial && rt.IdleUrl.Length > 0 ? rt.RoundTitles.Count : 0))
+        {
+            var reel = _renderer.ReelAsync(firstSlides);
+            if (reel.IsCompletedSuccessfully && reel.Result != null)
+            {
+                rt.IdleUrl = _renderer.Rel(reel.Result);
+                rt.IdleKey = string.Join("|", firstSlides.Select(Path.GetFileName));
+                rt.RoundTitles = firstTitles;
+                rt.WantNext = false;
+                rt.Partial = true;
             }
         }
         if (rt.IdleUrl.Length > 0 && File.Exists(Path.Combine(_live.RenderDir, rt.IdleUrl)))

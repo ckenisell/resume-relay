@@ -74,6 +74,8 @@ public static class RelayHost
         builder.Services.AddSingleton<CatchUpService>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<CatchUpService>());
         builder.Services.AddHostedService(sp => sp.GetRequiredService<UpdateService>());
+        builder.Services.AddSingleton<WatchedSyncService>();
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<WatchedSyncService>());
         builder.Services.AddSingleton<Live.LiveStore>();
         builder.Services.AddSingleton<Live.PosterFinder>();
         builder.Services.AddSingleton<Live.Renderer>();
@@ -121,6 +123,8 @@ public static class RelayHost
         });
 
         // "Catch up now" (Settings).
+        var watchedSync = app.Services.GetRequiredService<WatchedSyncService>();
+        app.MapPost("/api/watchedsync/check", () => { watchedSync.CheckSoon(); return Results.Ok(); });
         app.MapPost("/api/catchup", () => catchUp.StartNow() is { } err ? Results.BadRequest(new { Error = err }) : Results.Ok());
         // Check GitHub for a newer version now (Settings: "Check now").
         app.MapPost("/api/update/check", async (CancellationToken ct) =>
@@ -198,6 +202,7 @@ public static class RelayHost
                     catchUp.Running, catchUp.Status, catchUp.LastRunUtc, catchUp.LastResult,
                     Waiting = catchUp.WaitingFor.Select(id => store.Device(id)?.Name).Where(n => n != null),
                 },
+                WatchedSync = new { watchedSync.Status, watchedSync.LastRunUtc, watchedSync.LastResult },
                 Icons = new { Zidoo = IconFile(store, "zidoo") != null, Plex = IconFile(store, "plex") != null, V = IconVersion(store) },
                 Pending = pending,
                 DataFolder = store.DataDirectory,

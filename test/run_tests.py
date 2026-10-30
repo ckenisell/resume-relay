@@ -65,6 +65,7 @@ def play_then_stop(ip, url, pos):
 # ---------------------------------------------------------------- setup
 state = http("GET", RELAY + "/api/state")
 ids = {d["ip"]: d["id"] for d in state["devices"]}
+settings(watchedSync=False)   # turned on in its own scenario (its background reads would get in the way of others)
 for ip, name in ((LR, "Living Room"), (BR, "Bedroom"), (HT, "Home Theater Room")):
     http("PATCH", RELAY + "/api/devices/" + urllib.parse.quote(ids[ip]), {"name": name})
 names = {d["ip"]: d["name"] for d in http("GET", RELAY + "/api/state")["devices"]}
@@ -770,6 +771,27 @@ try:
 except urllib.error.HTTPError as e:
     bad = e.code == 400
 check("a file that isn't a backup is refused", bad)
+
+# ---------------------------------------------------------------- 48b. watched marks set on a player are copied
+def wsync():
+    return http("GET", RELAY + "/api/state")["watchedSync"]
+for ip in (LR, BR, HT):
+    mock(ip, "setlwt", url=E04, lwt=-1, pp=0, watched=0)
+http("POST", RELAY + "/api/progress/read", {"deviceIds": [ids[LR], ids[BR], ids[HT]]})
+wait_for(lambda: not http("GET", RELAY + "/api/progress")["reading"], 90)
+settings(watchedSync=True, watchedSyncMinutes=15)
+http("POST", RELAY + "/api/watchedsync/check")
+first = wait_for(lambda: (lambda w: w if w["lastRunUtc"] and not w["status"] else None)(wsync()), 180)
+check("watched-mark sync: a first check just takes note", first and "No watched marks" in first["lastResult"], str(wsync()))
+mock(LR, "setlwt", url=E04, lwt=int(time.time() * 1000), pp=0, watched=1)   # marked watched in the HT app (nothing played)
+last = first["lastRunUtc"] if first else ""
+http("POST", RELAY + "/api/watchedsync/check")
+check("a title marked watched in the HT app is marked watched on the other Zidoos",
+      wait_for(lambda: bookmark(BR, E04).get("watched") and bookmark(HT, E04).get("watched"), 240), str((bookmark(BR, E04), wsync())))
+check("...and played on Plex", wait_for(lambda: plexitem("1001", keys["Andor - S01E04.mkv"])["viewCount"] >= 1, 60))
+wc = next((e for e in events() if e.get("batch") and e["title"] == "Watched marks from Living Room"), None)
+check("...with an Activity card for it", wc is not None, str([e["title"] for e in events()[:5]]))
+settings(watchedSync=False)
 
 # ---------------------------------------------------------------- 49. Live Poster
 import os, struct, tempfile, zlib

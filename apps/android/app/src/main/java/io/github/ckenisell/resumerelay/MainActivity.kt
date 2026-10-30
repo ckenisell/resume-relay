@@ -56,7 +56,7 @@ class MainActivity : Activity() {
     private lateinit var player: ExoPlayer
     private lateinit var playerView: PlayerView
     private lateinit var overlay: LinearLayout
-    private lateinit var title: TextView
+    private lateinit var titleView: TextView
     private lateinit var code: TextView
     private lateinit var message: TextView
     private lateinit var address: EditText
@@ -102,7 +102,7 @@ class MainActivity : Activity() {
             player = this@MainActivity.player
         }
 
-        title = text(32f, Color.WHITE, bold = true)
+        titleView = text(32f, Color.WHITE, bold = true)
         code = text(110f, Color.rgb(0xF0, 0xB4, 0x4C), bold = true).apply { letterSpacing = 0.15f }
         message = text(20f, Color.rgb(0xC8, 0xC4, 0xD8))
         address = EditText(this).apply {
@@ -122,16 +122,16 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
             setPadding(dp(32), dp(32), dp(32), dp(32))
             setBackgroundColor(Color.rgb(0x15, 0x1A, 0x2E))
-            addView(title); addView(code); addView(message); addView(address); addView(buttons)
+            addView(titleView); addView(code); addView(message); addView(address); addView(buttons)
         }
         status = text(14f, Color.rgb(0x9C, 0x99, 0xB5)).apply {
             setBackgroundColor(Color.argb(170, 0, 0, 0)); setPadding(dp(10), dp(4), dp(10), dp(4)); visibility = View.GONE
         }
         val root = FrameLayout(this).apply {
             setBackgroundColor(Color.BLACK)
-            addView(playerView, FrameLayout.LayoutParams(-1, -1))
-            addView(overlay, FrameLayout.LayoutParams(-1, -1))
-            addView(status, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.START).apply { setMargins(dp(12), 0, 0, dp(12)) })
+            addView(this@MainActivity.playerView, FrameLayout.LayoutParams(-1, -1))
+            addView(this@MainActivity.overlay, FrameLayout.LayoutParams(-1, -1))
+            addView(this@MainActivity.status, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.START).apply { setMargins(dp(12), 0, 0, dp(12)) })
         }
         setContentView(root)
         server = prefs.getString("server", "") ?: ""
@@ -343,7 +343,7 @@ class MainActivity : Activity() {
 
     private fun showSetup(t: String, c: String, m: String) {
         overlay.visibility = View.VISIBLE
-        title.text = t
+        titleView.text = t
         code.text = c; code.visibility = if (c.isEmpty()) View.GONE else View.VISIBLE
         message.text = m
         address.visibility = View.GONE

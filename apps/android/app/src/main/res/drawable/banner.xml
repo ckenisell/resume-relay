@@ -1,0 +1,8 @@
+<!-- The TV home screen tile (320×180): navy with the poster mark on the left. The name is shown by the launcher. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item><shape android:shape="rectangle"><solid android:color="#151A2E" /></shape></item>
+    <item android:left="20dp" android:right="190dp" android:top="20dp" android:bottom="20dp" android:drawable="@drawable/ic_fg" />
+    <item android:left="135dp" android:right="20dp" android:top="78dp" android:bottom="78dp">
+        <shape android:shape="rectangle"><solid android:color="#7B2D3F" /><corners android:radius="12dp" /></shape>
+    </item>
+</layer-list>

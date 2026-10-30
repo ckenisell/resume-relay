@@ -87,10 +87,40 @@ jobs:
           name: windows
           path: artifacts/*.exe
 
+  android:
+    name: Screen app for Android (Fire TV, Google TV, phones and tablets)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: "8.7"
+      - name: Build the APK
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KS_PW: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          V="$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' Directory.Build.props)"
+          export RR_VERSION="${RELEASE_TAG#v}"; [[ -n "$RR_VERSION" ]] || RR_VERSION="$V-dev"
+          # Signed with the project's key when it's set up (repository secrets), so updates install over each other.
+          if [[ -n "$KS_B64" ]]; then echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/rr.jks"; export RR_KEYSTORE="$RUNNER_TEMP/rr.jks" RR_KEYSTORE_PASSWORD="$KS_PW"; fi
+          gradle -p apps/android --no-daemon assembleRelease
+          mkdir -p artifacts
+          cp apps/android/app/build/outputs/apk/release/app-release.apk "artifacts/ResumeRelay-Screen-$RR_VERSION-android.apk"
+          ls -la artifacts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: artifacts/*.apk
+
   release:
     name: Publish release
     if: startsWith(github.ref, 'refs/tags/v') || inputs.release != ''
-    needs: [linux, windows]
+    needs: [linux, windows, android]
     runs-on: ubuntu-latest
     env:
       TAG: ${{ inputs.release != '' && inputs.release || github.ref_name }}

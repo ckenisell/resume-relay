@@ -116,6 +116,7 @@ sub hello()
         m.reg.Write("token", m.token)
         m.reg.Flush()
         m.top.screenName = r.json.name
+        m.top.message = ""
         m.top.phase = "playing"
     else
         m.top.code = r.json.code

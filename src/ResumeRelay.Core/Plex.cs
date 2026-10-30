@@ -354,24 +354,31 @@ public sealed class PlexClient
         return all;
     }
 
-    /// <summary>The best rating Plex has for an item: IMDb first, then the audience rating, then the critic rating.</summary>
+    /// <summary>
+    /// The rating Plex has for an item: IMDb first, then TMDB (or another source). Rotten Tomatoes is never used
+    /// (Chet's call): an item Plex rates only that way gets 0, and its Zidoo rating is used instead. Which source Plex
+    /// keeps is the library's "Ratings source" setting (Plex: edit the library → Advanced).
+    /// </summary>
     public static (double Score, string Source) Rating(JsonElement m)
     {
+        static bool Rt(string image) => image.StartsWith("rottentomatoes", StringComparison.OrdinalIgnoreCase);
         static string Src(string image) =>
             image.StartsWith("imdb", StringComparison.OrdinalIgnoreCase) ? "IMDb"
             : image.StartsWith("themoviedb", StringComparison.OrdinalIgnoreCase) || image.StartsWith("tmdb", StringComparison.OrdinalIgnoreCase) ? "TMDB"
-            : image.StartsWith("rottentomatoes", StringComparison.OrdinalIgnoreCase) ? "Rotten Tomatoes" : image.Length > 0 ? image.Split(':')[0] : "Plex";
-        double aud = J.Dbl(m, "audienceRating"), crit = J.Dbl(m, "rating");
-        string audImg = J.Str(m, "audienceRatingImage"), critImg = J.Str(m, "ratingImage");
-        // Ratings Plex keeps per source, when the server lists them (newer servers): IMDb wins.
+            : image.Length > 0 ? image.Split(':')[0] : "Plex";
+        var found = new List<(double Value, string Image)>();
+        // Ratings Plex keeps per source, when the server lists them.
         if (m.ValueKind == JsonValueKind.Object && m.TryGetProperty("Rating", out var rs) && rs.ValueKind == JsonValueKind.Array)
-            foreach (var r in rs.EnumerateArray())
-                if (J.Str(r, "image").StartsWith("imdb", StringComparison.OrdinalIgnoreCase) && J.Dbl(r, "value") > 0) return (J.Dbl(r, "value"), "IMDb");
-        if (audImg.StartsWith("imdb", StringComparison.OrdinalIgnoreCase) && aud > 0) return (aud, "IMDb");
-        if (critImg.StartsWith("imdb", StringComparison.OrdinalIgnoreCase) && crit > 0) return (crit, "IMDb");
-        if (aud > 0) return (aud, Src(audImg));
-        if (crit > 0) return (crit, Src(critImg));
-        return (0, "");
+            foreach (var r in rs.EnumerateArray()) found.Add((J.Dbl(r, "value"), J.Str(r, "image")));
+        found.Add((J.Dbl(m, "audienceRating"), J.Str(m, "audienceRatingImage")));
+        found.Add((J.Dbl(m, "rating"), J.Str(m, "ratingImage")));
+        var usable = found.Where(f => f.Value > 0 && !Rt(f.Image) && f.Image.Length > 0).ToList();
+        var imdb = usable.FirstOrDefault(f => Src(f.Image) == "IMDb");
+        if (imdb.Value > 0) return (imdb.Value, "IMDb");
+        var tmdb = usable.FirstOrDefault(f => Src(f.Image) == "TMDB");
+        if (tmdb.Value > 0) return (tmdb.Value, "TMDB");
+        var other = usable.FirstOrDefault();
+        return other.Value > 0 ? (other.Value, Src(other.Image)) : (0, "");
     }
 
     /// <summary>One file of a show (to find the show's folder), or null.</summary>

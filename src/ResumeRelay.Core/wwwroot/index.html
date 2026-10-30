@@ -342,6 +342,7 @@ a.btn { text-decoration: none; color: var(--text); display: inline-flex; align-i
 .lp-meta { font-size: 12.5px; color: var(--muted); margin: 2px 0 8px; }
 .lp-now { font-size: 13.5px; margin: 0 0 10px; }
 .lp-now small { display: block; color: var(--muted); font-size: 12px; }
+.lp-now .btn.quiet { padding: 0 6px; font-size: 12px; vertical-align: 1px; color: var(--amber); }
 .lp-field { display: block; font-size: 12.5px; font-weight: 600; margin: 8px 0 4px; color: var(--muted); }
 .lp-players { display: flex; flex-wrap: wrap; gap: 6px; }
 .lp-players label { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px 3px 8px; font-size: 13px; cursor: pointer; background: var(--panel-2); }
@@ -2195,9 +2196,25 @@ $("#set-restore").addEventListener("change", async e => {
 
 // ---------------- Live Poster ----------------
 let live = null, liveTimer = 0;
+const lpShowAll = new Set();
+// The preview steps through the slideshow's posters, one every 4 seconds (Now Playing: its one picture).
+let lpTick = 0;
+setInterval(() => { lpTick++; if (!$("#live").hidden) lpPreviews(); }, 4000);
+function lpPreviews() {
+  for (const el of document.querySelectorAll("[data-lp-prev]")) {
+    const v = el.dataset.v, n = +el.dataset.n || 1;
+    const url = v ? `/api/live/screens/${encodeURIComponent(el.dataset.lpPrev)}/preview?v=${encodeURIComponent(v)}&i=${lpTick % n}` : "";
+    if (el.dataset.url === url) continue;
+    el.dataset.url = url;
+    if (!url) { el.style.backgroundImage = ""; continue; }
+    const img = new Image();
+    img.onload = () => { if (el.dataset.url === url) el.style.backgroundImage = `url('${url}')`; };
+    img.src = url;
+  }
+}
 const MOUNTS = [["right", "TV on its side, top on the right"], ["left", "TV on its side, top on the left"], ["portrait", "Upright (tablet, phone)"]];
 const SETS = [["comingSoon", "Coming Soon"], ["recentlyWatched", "Recently Watched"], ["acclaimed", "Highly Acclaimed"]];
-const busyIn = el => el && el.contains(document.activeElement) && document.activeElement !== document.body;
+const busyIn = el => el && el.contains(document.activeElement) && document.activeElement.matches("input, select, textarea");
 function setHtml(el, html) { if (el.dataset.html !== html && !busyIn(el)) { el.innerHTML = html; el.dataset.html = html; } }
 async function loadLive() {
   clearTimeout(liveTimer);
@@ -2223,12 +2240,12 @@ function renderLive() {
   // Paired screens.
   const players = L.players;
   setHtml($("#lp-screens"), L.screens.map(s => `<article class="lp-screen" data-lp-screen="${esc(s.id)}">
-    <div class="lp-prev"${s.version ? ` style="background-image:url('/api/live/screens/${encodeURIComponent(s.id)}/preview?v=${encodeURIComponent(s.version)}')"` : ""} role="img" aria-label="What ${esc(s.name)} shows now"></div>
+    <div class="lp-prev" data-lp-prev="${esc(s.id)}" data-v="${esc(s.version || "")}" data-n="${s.mode === "idle" ? (s.roundTitles?.length || 1) : 1}" role="img" aria-label="What ${esc(s.name)} shows now"></div>
     <div>
       <h4><span class="lp-dot${s.online ? " on" : ""}" title="${s.online ? "Online" : "Not seen recently"}"></span><input value="${esc(s.name)}" data-lp-rename aria-label="Screen name"></h4>
       <div class="lp-meta">${s.online ? "Online" : s.lastSeenUtc ? "Last seen " + ago(s.lastSeenUtc) : "Not seen yet"} · ${esc([s.platform, s.model].filter(Boolean).join(", "))}</div>
       <div class="lp-now">${s.mode === "playing" ? `<b>Now playing:</b> ${esc(s.title)}<small>Poster: ${esc(s.posterSource)}</small>`
-        : s.mode === "idle" ? `<b>${esc(s.title || "Slideshow")}</b>${s.roundTitles?.length ? `<small>${esc(s.roundTitles.slice(0, 6).join(" · "))}${s.roundTitles.length > 6 ? " …" : ""}</small>` : ""}${s.note ? `<small>${esc(s.note)}</small>` : ""}`
+        : s.mode === "idle" ? `<b>${esc(s.title || "Slideshow")}</b> <button class="btn quiet" data-lp-rebuild title="Make a new round now (with any new Coming Soon posters)">Rebuild slideshow</button>${s.roundTitles?.length ? `<small>${esc((lpShowAll.has(s.id) ? s.roundTitles : s.roundTitles.slice(0, 6)).join(" · "))}${s.roundTitles.length > 6 ? ` <button class="btn quiet" data-lp-all>${lpShowAll.has(s.id) ? "show fewer" : `… show all ${s.roundTitles.length}`}</button>` : ""}</small>` : ""}${s.note ? `<small>${esc(s.note)}</small>` : ""}`
         : s.mode === "test" ? `<b>Test picture</b><small>The arrow should point up.</small>`
         : `<small>${esc(s.note || "Starting…")}</small>`}${s.appSays ? `<small style="color:${/error/i.test(s.appSays) ? "var(--bad)" : "var(--muted)"}">Screen app: ${esc(s.appSays)}</small>` : ""}</div>
       <span class="lp-field">Shows what's playing on</span>
@@ -2239,6 +2256,7 @@ function renderLive() {
         <select data-lp-codec aria-label="Video format" title="HEVC: every 4K TV and stick (Rokus need it for 4K). H.264: web browsers.">${[["auto", `Automatic (${s.videoCodec === "hevc" ? "HEVC" : "H.264"})`], ["hevc", "HEVC"], ["h264", "H.264"]].map(([v, t]) => `<option value="${v}"${(s.codec || "auto") === v ? " selected" : ""}>${t}</option>`).join("")}</select></div>
       <div class="lp-acts"><button class="btn" data-lp-test>Test picture</button><button class="btn quiet" data-lp-remove>Remove</button></div>
     </div></article>`).join(""));
+  lpPreviews();
   // Now Playing and the slideshow sets.
   const c = L.config;
   setHtml($("#lp-np-bg"), bgPicker(c.nowPlaying, "nowPlaying"));
@@ -2348,6 +2366,8 @@ $("#live").addEventListener("click", async e => {
     } catch (err) { say($("#lp-pair-msg"), err.message, "err"); }
     return loadLive();
   }
+  if (b.matches("[data-lp-rebuild]")) { await api("POST", `/api/live/screens/${encodeURIComponent(id)}/rebuild`); toast("Making a new slideshow round. It goes up on the screen as soon as it's ready."); return loadLive(); }
+  if (b.matches("[data-lp-all]")) { lpShowAll.has(id) ? lpShowAll.delete(id) : lpShowAll.add(id); $("#lp-screens").dataset.html = ""; return renderLive(); }
   if (b.matches("[data-lp-test]")) { await api("POST", `/api/live/screens/${encodeURIComponent(id)}/test`); toast("The test picture shows on the screen for 30 seconds."); return loadLive(); }
   if (b.matches("[data-lp-remove]")) return confirmReset("Remove screen", `Remove <b>${esc(card.querySelector("[data-lp-rename]").value)}</b>? Its app goes back to showing a code, and can be added again.`,
     async () => { await api("DELETE", `/api/live/screens/${encodeURIComponent(id)}`); loadLive(); });

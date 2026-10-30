@@ -75,6 +75,8 @@ public sealed class LiveService : BackgroundService
         public bool AdvanceAfterEnd;
         public bool WantNext;
         public DateTime TestUntil;
+        /// <summary>A test picture was asked for: it shows for this long once it's made (making it can take a moment).</summary>
+        public int TestSeconds;
         /// <summary>What the screen app last said about playing (for the dashboard): "playing", or an error.</summary>
         public string AppSays = "";
         public DateTime AppSaysUtc;
@@ -149,7 +151,7 @@ public sealed class LiveService : BackgroundService
         };
         _live.Update(c => { c.Screens.RemoveAll(s => s.DeviceKey == p.DeviceKey); c.Screens.Add(screen); });
         _pairs.TryRemove(p.DeviceKey, out _);
-        RuntimeOf(screen.Id).TestUntil = DateTime.UtcNow.AddSeconds(20); // show the "this way up" picture first
+        RuntimeOf(screen.Id).TestSeconds = 30; // show the "this way up" picture first
         _store.Log(ActivityLevel.Ok, $"Live Poster: paired the screen \"{screen.Name}\" ({screen.Platform}{(screen.Model.Length > 0 ? ", " + screen.Model : "")}).");
         return (screen, "");
     }
@@ -219,6 +221,11 @@ public sealed class LiveService : BackgroundService
         var rt = RuntimeOf(s.Id);
         if (!_renderer.Ready) { rt.Mode = "waiting"; rt.Url = ""; rt.Note = _renderer.Status; return; }
 
+        if (rt.TestSeconds > 0)
+        {
+            var ready = _renderer.TestPatternAsync(s.Mount, s.Resolution, CodecOf(s));
+            if (ready.IsCompleted) { rt.TestUntil = DateTime.UtcNow.AddSeconds(rt.TestSeconds); rt.TestSeconds = 0; }
+        }
         if (rt.TestUntil > DateTime.UtcNow)
         {
             var test = _renderer.TestPatternAsync(s.Mount, s.Resolution, CodecOf(s));
@@ -331,13 +338,13 @@ public sealed class LiveService : BackgroundService
     /// then the next 10 Highly Acclaimed. Only sets that are on.</summary>
     public List<SlideItem> RoundItems(LiveScreen s, LiveConfig cfg, int round)
     {
-        var items = new List<SlideItem>();
+        var sets = new List<List<SlideItem>>();
         if (cfg.ComingSoon.Enabled)
-            items.AddRange(cfg.Coming.Where(c => File.Exists(_live.ComingPath(c))).Select(c => new SlideItem("coming", c.Title, null, _live.ComingPath(c))));
+            sets.Add(cfg.Coming.Where(c => File.Exists(_live.ComingPath(c))).Select(c => new SlideItem("coming", c.Title, null, _live.ComingPath(c))).ToList());
         if (cfg.RecentlyWatched.Enabled)
         {
             var names = _store.Devices().Where(d => s.Players.Contains(d.Id)).Select(d => d.Name).ToHashSet();
-            items.AddRange(RecentFor(s.Players, names));
+            sets.Add(RecentFor(s.Players, names));
         }
         if (cfg.Acclaimed.Enabled && _acclaimed.Count > 0)
         {
@@ -345,9 +352,24 @@ public sealed class LiveService : BackgroundService
             // the screen and the round, so it stays the same while the round is being made and played.
             var rnd = new Random(HashCode.Combine(s.Id, round, _salt));
             var all = _acclaimed;
-            items.AddRange(Enumerable.Range(0, all.Count).OrderBy(_ => rnd.Next()).Take(AcclaimedPerRound).Select(i => all[i]));
+            sets.Add(Enumerable.Range(0, all.Count).OrderBy(_ => rnd.Next()).Take(AcclaimedPerRound).Select(i => all[i]).ToList());
         }
+        // The sets take turns, one poster each (Coming Soon 1, Recently Watched 1, Highly Acclaimed 1, Coming Soon 2…);
+        // a set that runs out drops out of the turns.
+        var items = new List<SlideItem>();
+        for (int i = 0; sets.Any(x => i < x.Count); i++)
+            foreach (var set in sets) if (i < set.Count) items.Add(set[i]);
         return items;
+    }
+
+    /// <summary>"Rebuild slideshow": the next round is made now (with any new Coming Soon posters) and goes up as soon
+    /// as it's ready, without waiting for the current round to finish.</summary>
+    public void Rebuild(string screenId)
+    {
+        _recentAt = DateTime.MinValue;
+        var rt = RuntimeOf(screenId);
+        rt.Round++;
+        rt.WantNext = true;
     }
 
     private void Slideshow(LiveScreen s, ScreenRuntime rt, LiveConfig cfg)
@@ -461,6 +483,17 @@ public sealed class LiveService : BackgroundService
             var keys = new HashSet<string>(StringComparer.Ordinal);
             int fromPlex = 0, fromZidoo = 0;
             bool plexFailed = false, zidooRead = false;
+            // The Zidoo's ratings first: IMDb for movies (by file), TMDB for series.
+            var zidooRated = new Dictionary<string, ZidooRatings.Rated>(StringComparer.Ordinal);
+            var zidooList = new List<ZidooRatings.Rated>();
+            var zidoo = _store.Devices().FirstOrDefault(d => !d.IsPlex && d.Enabled && _engine.LiveOf(d.Id).Online);
+            if (zidoo != null)
+            {
+                zidooList = await ZidooRatings.ReadAsync(new ZidooClient(zidoo.Ip, zidoo.Port), min, ct);
+                zidooRead = true;
+                foreach (var r in zidooList)
+                    if (PlexPaths.RelOfUrl(r.SourceUrl) is { } rel) zidooRated[PlexPaths.Key(rel)] = r;
+            }
             var plex = _engine.PlexServer();
             if (plex != null)
             {
@@ -469,13 +502,20 @@ public sealed class LiveService : BackgroundService
                 else
                 {
                     var mappings = _store.Plex().Mappings;
-                    foreach (var r in rated.Where(r => r.Score >= min - 1e-9))
+                    // Rotten Tomatoes ratings are never used (Rating() leaves them out); a movie Plex rates only that way
+                    // comes from the Zidoo below instead.
+                    foreach (var r in rated.Where(r => r.Score > 0))
                     {
                         string file = r.Files.FirstOrDefault() ?? "";
-                        if (r.Type == "show") file = await plex.AnyEpisodeFileAsync(r.Key, ct) ?? "";
                         string url = file.Length > 0 ? PlexPaths.ToSourceUrl(file, mappings) ?? "" : "";
+                        string? key = url.Length > 0 && PlexPaths.RelOfUrl(url) is { } rel ? PlexPaths.Key(rel) : null;
+                        // A movie Plex rates by TMDB, that the Zidoo rates by IMDb: the Zidoo's (IMDb) wins.
+                        if (r.Type == "movie" && r.Source != "IMDb" && key != null && zidooRated.ContainsKey(key)) continue;
+                        if (r.Score < min - 1e-9) { if (key != null && r.Source == "IMDb") keys.Add(key); continue; }
+                        if (r.Type == "show") { file = await plex.AnyEpisodeFileAsync(r.Key, ct) ?? ""; url = file.Length > 0 ? PlexPaths.ToSourceUrl(file, mappings) ?? "" : ""; }
                         string title = r.Year > 0 && r.Type == "movie" ? $"{r.Title} ({r.Year})" : r.Title;
-                        if (url.Length > 0 && PlexPaths.RelOfUrl(url) is { } rel) keys.Add(PlexPaths.Key(rel));
+                        if (key != null) keys.Add(key);
+                        if (r.Type == "show" && url.Length > 0 && PlexPaths.RelOfUrl(url) is { } srel) keys.Add(PlexPaths.Key(srel));
                         keys.Add(r.Type + "|" + r.Title.ToLowerInvariant());
                         list.Add(new SlideItem("acclaimed", title, new PosterRequest(url, file, "", false, 0, r.Type == "show", title, r.Key, r.Thumb), null)
                             { Score = r.Score, Source = r.Source, Kind = r.Type });
@@ -483,13 +523,9 @@ public sealed class LiveService : BackgroundService
                     }
                 }
             }
-            // The Zidoo's own ratings: everything when there's no Plex, else the titles Plex doesn't have.
-            var zidoo = _store.Devices().FirstOrDefault(d => !d.IsPlex && d.Enabled && _engine.LiveOf(d.Id).Online);
+            // Then the Zidoo's: everything when there's no Plex, else what Plex doesn't rate (or rates only by TMDB).
             if (zidoo != null)
-            {
-                var rated = await ZidooRatings.ReadAsync(new ZidooClient(zidoo.Ip, zidoo.Port), min, ct);
-                zidooRead = true;
-                foreach (var r in rated)
+                foreach (var r in zidooList)
                 {
                     string? rel = PlexPaths.RelOfUrl(r.SourceUrl);
                     if ((rel != null && keys.Contains(PlexPaths.Key(rel))) || keys.Contains(r.Kind + "|" + r.Title.ToLowerInvariant())) continue;
@@ -498,11 +534,10 @@ public sealed class LiveService : BackgroundService
                         { Score = r.Score, Source = r.Source, Kind = r.Kind });
                     fromZidoo++;
                 }
-            }
             if (plexFailed && !zidooRead) { _acclaimedNote = "The Plex server didn't answer; trying again in 10 minutes."; _acclaimedAt = DateTime.UtcNow.AddMinutes(-50); return; }
             if (plex == null && !zidooRead) { _acclaimedNote = "No player is on to read ratings from; trying again in 10 minutes."; _acclaimedAt = DateTime.UtcNow.AddMinutes(-50); return; }
             _acclaimed = list.OrderBy(i => i.Title, StringComparer.OrdinalIgnoreCase).ToList();
-            string where = fromPlex > 0 && fromZidoo > 0 ? $" ({fromPlex:N0} from Plex, {fromZidoo:N0} only on the Zidoos)"
+            string where = fromPlex > 0 && fromZidoo > 0 ? $" ({fromPlex:N0} rated by Plex, {fromZidoo:N0} by the Zidoo)"
                 : fromZidoo > 0 ? " (from the Zidoo: IMDb for movies, TMDB for series)" : "";
             _acclaimedNote = $"{list.Count:N0} title{(list.Count == 1 ? "" : "s")} rated {min:0.0} or higher{where}. 10 picked at random each round.";
         }

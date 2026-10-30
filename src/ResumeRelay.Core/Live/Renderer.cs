@@ -145,17 +145,19 @@ public sealed class Renderer
     // ------------------------------------------------------------------ videos
 
     /// <summary>
-    /// A video that loops seamlessly with the poster held: Now Playing. With a still background it's 2 seconds (the
-    /// player loops it); with a video background it's the background's own length. No poster: the background alone.
+    /// A video that loops seamlessly with the poster held: Now Playing. With a still background it's 30 seconds (the
+    /// player loops it; Rokus show black when made to loop very short videos); with a video background it's the
+    /// background's own length, repeated to at least 30 seconds. No poster: the background alone.
     /// </summary>
     public Task<string?> HoldAsync(LiveBackground? bg, string? poster, string mount, string resolution, string codec, int priority = 0)
     {
-        double seconds = bg is { Kind: "video", DurationMs: > 0 } ? Math.Clamp(bg.DurationMs / 1000.0, 2, 60) : 2;
+        double seconds = 30;
+        if (bg is { Kind: "video", DurationMs: > 0 }) { double one = bg.DurationMs / 1000.0; seconds = one * Math.Max(1, Math.Ceiling(30 / one)); }
         return MakeAsync("hold", bg, poster, mount, resolution, codec, seconds, fade: false, priority);
     }
 
-    /// <summary>One slideshow poster: the poster fades in over the background, holds, and fades out again, so slides
-    /// played one after another dissolve through the background.</summary>
+    /// <summary>One slideshow poster: the whole picture (background and poster) fades up from black, holds, and fades
+    /// down to black, so slides played one after another go through black.</summary>
     public Task<string?> SlideAsync(LiveBackground? bg, string poster, string mount, string resolution, string codec, int seconds, int priority = 5) =>
         MakeAsync("slide", bg, poster, mount, resolution, codec, Math.Clamp(seconds, 4, 120), fade: true, priority);
 
@@ -164,7 +166,7 @@ public sealed class Renderer
     {
         var l = LayoutFor(resolution);
         string enc = EncoderFor(codec);
-        string key = Hash($"test|{mount}|{resolution}|{enc}|2");
+        string key = Hash($"test|{mount}|{resolution}|{enc}|30");
         string output = Path.Combine(_live.RenderDir, key + ".mp4");
         // An arrow made of boxes (no fonts needed): a shaft and a head pointing to the top of the portrait canvas.
         int cx = l.W / 2, unit = l.W / 18;
@@ -176,7 +178,7 @@ public sealed class Renderer
         }
         arrow += $",drawbox=x=0:y=0:w={l.W}:h={l.H}:color=0xF2A33A:t={Math.Max(8, unit / 3)}";
         return Enqueue(key, output, "test picture", 0, o =>
-            $"{Pre(enc)}-f lavfi -i color=c=0x101826:s={l.W}x{l.H}:r={Fps}:d=2 -vf \"{arrow}{Turn(mount)}{Final(enc)}\" -t 2 {EncodeArgs(enc, still: true)} \"{o}\"");
+            $"{Pre(enc)}-f lavfi -i color=c=0x101826:s={l.W}x{l.H}:r={Fps}:d=30 -vf \"{arrow}{Turn(mount)}{Final(enc)}\" -t 30 {EncodeArgs(enc, still: true)} \"{o}\"");
     }
 
     private Task<string?> MakeAsync(string kind, LiveBackground? bg, string? poster, string mount, string resolution, string codec, double seconds, bool fade, int priority)
@@ -184,7 +186,7 @@ public sealed class Renderer
         var l = LayoutFor(resolution);
         string enc = EncoderFor(codec);
         string bgPath = bg == null ? "" : _live.BackgroundPath(bg);
-        string key = Hash($"{kind}|{Stamp(bgPath)}|{Stamp(poster)}|{mount}|{resolution}|{seconds.ToString(CultureInfo.InvariantCulture)}|{enc}|v1");
+        string key = Hash($"{kind}|{Stamp(bgPath)}|{Stamp(poster)}|{mount}|{resolution}|{seconds.ToString(CultureInfo.InvariantCulture)}|{enc}|v2");
         string output = Path.Combine(_live.RenderDir, key + ".mp4");
         string label = kind == "hold" ? "Now Playing" : "slide";
         bool still = bg == null || bg.Kind != "video";
@@ -196,13 +198,14 @@ public sealed class Renderer
             else if (bg.Kind == "video") a.Append($"-stream_loop -1 -t {s} -i \"{bgPath}\" ");
             else a.Append($"-loop 1 -framerate {Fps} -t {s} -i \"{bgPath}\" ");
             if (poster != null) a.Append($"-loop 1 -framerate {Fps} -t {s} -i \"{poster}\" ");
+            // Slides: the finished picture fades up from black and back down to black.
             string fades = fade
-                ? $",fade=t=in:st=0:d=0.8:alpha=1,fade=t=out:st={(seconds - 0.8).ToString("0.###", CultureInfo.InvariantCulture)}:d=0.8:alpha=1"
+                ? $",fade=t=in:st=0:d=0.8,fade=t=out:st={(seconds - 0.8).ToString("0.###", CultureInfo.InvariantCulture)}:d=0.8"
                 : "";
             string graph = $"[0:v]scale={l.W}:{l.H}:force_original_aspect_ratio=increase,crop={l.W}:{l.H},setsar=1,fps={Fps}[bg]";
             graph += poster != null
-                ? $";[1:v]scale={l.PW}:{l.PH},setsar=1,format=yuva420p{fades}[p];[bg][p]overlay={l.PX}:{l.PY}:format=auto{Turn(mount)}{Final(enc)}[v]"
-                : $";[bg]null{Turn(mount)}{Final(enc)}[v]";
+                ? $";[1:v]scale={l.PW}:{l.PH},setsar=1[p];[bg][p]overlay={l.PX}:{l.PY}:format=auto{fades}{Turn(mount)}{Final(enc)}[v]"
+                : $";[bg]null{fades}{Turn(mount)}{Final(enc)}[v]";
             a.Append($"-filter_complex \"{graph}\" -map \"[v]\" -t {s} {EncodeArgs(enc, still)} \"{o}\"");
             return a.ToString();
         });

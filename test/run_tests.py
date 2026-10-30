@@ -824,12 +824,12 @@ h = hello()
 check("...and once paired it gets its token", h["paired"] and len(h["token"]) == 32 and h["name"] == "Theater Hall", str(h))
 TOK = h["token"]
 state_of = lambda ended="": http("GET", RELAY + f"/api/screen/state?token={TOK}" + (f"&ended={ended}" if ended else ""))
-st = wait_for(lambda: (lambda s: s if s["mode"] == "test" and s["url"] else None)(state_of()), 60)
+st = wait_for(lambda: (lambda s: s if s["mode"] == "test" and s["url"] else None)(state_of()), 180)
 check("a new screen first shows the test picture", st, str(state_of()))
 mock(LR, "play", url=BRAVE, pos=60000)
-st = wait_for(lambda: (lambda s: s if s["mode"] == "playing" and s["title"] == "Braveheart" else None)(state_of()), 90)
+st = wait_for(lambda: (lambda s: s if s["mode"] == "playing" and s["title"] == "Braveheart" else None)(state_of()), 240)
 check("Now Playing: the screen switches to the playing title", st, str(state_of()))
-sc = wait_for(lambda: (lambda x: x if x["posterSource"].endswith("-poster.png") else None)(screen_of(sid)), 90)
+sc = wait_for(lambda: (lambda x: x if x["posterSource"].endswith("-poster.png") else None)(screen_of(sid)), 240)
 check("...with the poster from the movie's folder", sc, str(screen_of(sid)))
 req = urllib.request.Request(RELAY + state_of()["url"], headers={"Range": "bytes=0-99"})
 with urllib.request.urlopen(req, timeout=20) as r:
@@ -841,7 +841,7 @@ mock(LR, "stop")
 time.sleep(1.5)
 check("after a stop the poster stays up for the wait time", state_of()["mode"] == "playing")
 mock(LR, "play", url=E03, pos=60000)
-sc = wait_for(lambda: (lambda x: x if x["mode"] == "playing" and x["posterSource"] == "Folder: folder.png" else None)(screen_of(sid)), 90)
+sc = wait_for(lambda: (lambda x: x if x["mode"] == "playing" and x["posterSource"] == "Folder: folder.png" else None)(screen_of(sid)), 240)
 check("a TV episode shows its season's poster", sc, str(screen_of(sid)))
 mock(LR, "stop")
 st = wait_for(lambda: (lambda s: s if s["mode"] == "idle" else None)(state_of()), 30)
@@ -857,10 +857,12 @@ check("Highly Acclaimed: movies and series rated 8.0+ by IMDb (as Plex keeps it)
       "Braveheart (2016)" in names and names["Braveheart (2016)"]["source"] == "IMDb" and "Andor" in names and names["Andor"]["kind"] == "show"
       and not any(t.startswith("Arrival") for t in names), str(acc))
 sc = wait_for(lambda: (lambda x: x if x["mode"] == "idle" and "Test Coming" in x["roundTitles"] and "Andor" in x["roundTitles"]
-                       and any(t.startswith("Braveheart") for t in x["roundTitles"]) else None)(screen_of(sid)), 240)
+                       and any(t.startswith("Braveheart") for t in x["roundTitles"]) else None)(screen_of(sid)), 400)
 check("the slideshow round has Coming Soon, Recently Watched and Highly Acclaimed", sc, str(screen_of(sid)))
 st = state_of()
 check("...as one video the screen plays through (not looped)", st["mode"] == "idle" and not st["loop"] and st["url"], str(st))
+rt0 = screen_of(sid)["roundTitles"]
+check("the sets take turns (Coming Soon, Recently Watched, Highly Acclaimed, …)", rt0[0] == "Test Coming" and rt0[2] in ("Andor", "Braveheart (2016)"), str(rt0))
 rt_titles = screen_of(sid)["roundTitles"]
 check("Recently Watched lists a TV show once, by its name (not per episode or season)",
       rt_titles.count("Andor") <= 2 and not any("(season" in t for t in rt_titles), str(rt_titles))   # once in Recently Watched, once in Highly Acclaimed
@@ -873,7 +875,7 @@ cfg = live()["config"]
 for k in ("comingSoon", "recentlyWatched", "acclaimed"):
     cfg[k]["enabled"] = k == "comingSoon"
 http("POST", RELAY + "/api/live/settings", cfg)
-sc = wait_for(lambda: (lambda x: x if x["roundTitles"] == ["Test Coming"] else None)(screen_of(sid)), 120)
+sc = wait_for(lambda: (lambda x: x if x["roundTitles"] == ["Test Coming"] else None)(screen_of(sid)), 240)
 check("sets that are off are left out", sc, str(screen_of(sid)))
 http("DELETE", RELAY + f"/api/live/coming/{cid}")
 http("DELETE", RELAY + f"/api/live/screens/{sid}")

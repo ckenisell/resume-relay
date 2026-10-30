@@ -88,7 +88,7 @@ public static class LiveApi
                 found = true;
                 if (b.Name is { } n && n.Trim().Length > 0) s.Name = n.Trim();
                 if (b.Players != null) s.Players = b.Players.Distinct().ToList();
-                if (b.Mount is "portrait" or "left" or "right" && b.Mount != s.Mount) { s.Mount = b.Mount; svc.RuntimeOf(id).TestUntil = DateTime.UtcNow.AddSeconds(20); }
+                if (b.Mount is "portrait" or "left" or "right" && b.Mount != s.Mount) { s.Mount = b.Mount; svc.RuntimeOf(id).TestSeconds = 30; }
                 if (b.Resolution is "4k" or "1080") s.Resolution = b.Resolution;
                 if (b.Codec is "auto" or "hevc" or "h264") s.Codec = b.Codec;
             });
@@ -100,22 +100,31 @@ public static class LiveApi
             live.Update(c => c.Screens.RemoveAll(s => s.Id == id));
             return Results.Ok();
         });
+        app.MapPost("/api/live/screens/{id}/rebuild", (string id) =>
+        {
+            svc.Rebuild(id);
+            return Results.Ok();
+        });
         app.MapPost("/api/live/screens/{id}/test", (string id) =>
         {
-            svc.RuntimeOf(id).TestUntil = DateTime.UtcNow.AddSeconds(30);
+            svc.RuntimeOf(id).TestSeconds = 30;
             return Results.Ok();
         });
         // What the screen shows now, as a small upright picture.
-        app.MapGet("/api/live/screens/{id}/preview", async (string id, CancellationToken ct) =>
+        // ?i=N: the slideshow's Nth poster (the dashboard steps through them).
+        app.MapGet("/api/live/screens/{id}/preview", async (string id, int? i, CancellationToken ct) =>
         {
-            var s = live.Get().Screens.FirstOrDefault(x => x.Id == id);
+            var cfg = live.Get();
+            var s = cfg.Screens.FirstOrDefault(x => x.Id == id);
             var rt = svc.RuntimeOf(id);
             if (s == null || rt.Url.Length == 0) return Results.NotFound();
-            string key = rt.Url + "|" + s.Mount;
+            int n = rt.Mode == "idle" ? Math.Max(0, i ?? 0) : 0;
+            string key = rt.Url + "|" + s.Mount + "|" + n;
             lock (Previews) if (Previews.TryGetValue(key, out var hit)) return Results.File(hit.Jpg, "image/jpeg");
             string video = Path.Combine(live.RenderDir, rt.Url);
-            // A slideshow is caught with its first poster fully in (just after the fade).
-            var jpg = await renderer.FrameAsync(video, s.Mount, rt.Mode == "idle" ? 2.5 : 0.5, ct);
+            // A slideshow poster is caught halfway through its time (fully faded in); Now Playing a few seconds in.
+            double at = rt.Mode == "idle" ? n * Math.Clamp(cfg.SlideSeconds, 4, 120) + Math.Clamp(cfg.SlideSeconds, 4, 120) / 2.0 : 2;
+            var jpg = await renderer.FrameAsync(video, s.Mount, at, ct);
             if (jpg == null) return Results.NotFound();
             lock (Previews) { if (Previews.Count > 200) Previews.Clear(); Previews[key] = (jpg, DateTime.UtcNow); }
             return Results.File(jpg, "image/jpeg");

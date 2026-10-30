@@ -9,6 +9,10 @@ sub init()
     m.code.font.size = 150
     m.video.enableUI = false
     m.video.observeField("state", "onVideoState")
+    ' Looping is done here: just before a looping video ends it's sent back to the start (seeking keeps the
+    ' picture up, where letting it finish and starting again would show black).
+    m.video.notificationInterval = 0.25
+    m.video.observeField("position", "onPosition")
     m.retry.observeField("fire", "onRetry")
     m.current = invalid
     m.dialog = invalid
@@ -29,7 +33,8 @@ sub onPhase()
     msg = m.net.message
     if p = "playing"
         m.panel.visible = false
-        if msg <> invalid and msg <> ""
+        ' Only a lost connection is shown over the picture (pairing instructions never are).
+        if msg = "Resume Relay isn't answering..."
             m.status.text = msg
             m.status.visible = true
         else if m.status.text = "Resume Relay isn't answering..."
@@ -69,7 +74,7 @@ sub play()
     c = CreateObject("roSGNode", "ContentNode")
     c.url = v.url
     c.streamFormat = "mp4"
-    m.video.loop = v.loop
+    m.video.loop = false
     m.video.content = c
     m.video.control = "play"
 end sub
@@ -79,6 +84,8 @@ sub onVideoState()
     if s = "finished" and m.current <> invalid and not m.current.loop
         ' A slideshow round ended: Resume Relay hands over the next one (or the same one again).
         m.net.ended = m.current.version
+    else if s = "finished" and m.current <> invalid
+        play()   ' a looping video that ran out anyway
     else if s = "error"
         m.net.report = "error " + m.video.errorCode.ToStr() + ": " + m.video.errorMsg + " " + m.video.errorStr
         m.status.text = "Can't play this video (" + m.video.errorMsg + "). Trying again..."
@@ -91,6 +98,12 @@ sub onVideoState()
             m.net.report = "playing"
         end if
     end if
+end sub
+
+sub onPosition()
+    if m.current = invalid or not m.current.loop then return
+    d = m.video.duration
+    if d <> invalid and d > 1 and m.video.position >= d - 0.6 then m.video.seek = 0
 end sub
 
 sub onRetry()

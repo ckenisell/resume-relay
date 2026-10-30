@@ -2253,7 +2253,8 @@ function renderLive() {
           <label class="lp-add">+ Add posters<input type="file" id="lp-coming-file" accept="image/png,image/jpeg,image/webp" multiple hidden></label></div><p class="lp-progress" id="lp-coming-progress"></p>`
       : key === "recentlyWatched"
       ? `The last 10 titles stopped on each screen's players (a TV show once per season).`
-      : `Movies and whole series rated at least <input type="number" id="lp-min" min="0" max="10" step="0.1" value="${c.acclaimedMin}" style="width:4.5em" aria-label="Minimum rating">. ${esc(L.acclaimedNote || "")}
+      : `Movies and whole series rated at least <select id="lp-min" aria-label="Minimum rating">${Array.from({ length: 19 }, (_, i) => 10 - i * 0.5)
+          .map(v => `<option value="${v}"${Math.abs(v - c.acclaimedMin) < 0.01 ? " selected" : ""}>${v.toFixed(1)}</option>`).join("")}</select>. ${esc(L.acclaimedNote || "")}
          <span class="lp-row" style="margin-top:6px"><button class="btn quiet" id="lp-acc-list">See the titles</button><button class="btn quiet" id="lp-acc-refresh">Read the ratings again</button></span>`;
     return `<div class="lp-set${set.enabled ? "" : " off"}"><div class="lp-set-head">
       <h4><input type="checkbox" class="lp-sw" data-lp-set="${key}"${set.enabled ? " checked" : ""} aria-label="${name} on or off">${name}</h4>${bgPicker(set, key)}</div>

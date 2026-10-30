@@ -60,7 +60,7 @@ public static class LiveApi
             {
                 c.StopWaitSeconds = Math.Clamp(b.StopWaitSeconds, 0, 3600);
                 c.SlideSeconds = Math.Clamp(b.SlideSeconds, 5, 120);
-                c.AcclaimedMin = Math.Clamp(Math.Round(b.AcclaimedMin, 1), 0, 10);
+                c.AcclaimedMin = Math.Clamp(Math.Round(b.AcclaimedMin * 2) / 2, 1, 10);   // in steps of 0.5 (the tab's list)
                 c.NowPlaying = b.NowPlaying; c.ComingSoon = b.ComingSoon; c.RecentlyWatched = b.RecentlyWatched; c.Acclaimed = b.Acclaimed;
                 if (b.Folders != null) c.Folders = b.Folders.Where(f => f.ZidooFolder.Trim().Length > 0 && f.LocalFolder.Trim().Length > 0)
                     .Select(f => new LiveFolder { ZidooFolder = f.ZidooFolder.Trim(), LocalFolder = f.LocalFolder.Trim() }).ToList();

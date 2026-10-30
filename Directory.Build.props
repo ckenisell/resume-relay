@@ -1,7 +1,7 @@
 <Project>
   <!-- One version number for every edition. -->
   <PropertyGroup>
-    <Version>0.5.0</Version>
+    <Version>0.6.0</Version>
     <!-- Don't append "+<commit>" to the version the app shows. -->
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Product>Resume Relay</Product>

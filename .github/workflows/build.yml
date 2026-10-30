@@ -99,6 +99,9 @@ jobs:
       - uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: "8.7"
+      - name: Check the Roku app (BrightScript compiler)
+        run: npx -y brighterscript@0.65.27 --rootDir apps/roku --createPackage false --copyToStaging false
+
       - name: Build the APK
         env:
           KS_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}

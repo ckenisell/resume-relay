@@ -99,6 +99,32 @@ The **Plex** card in **Settings** (the gear tab) sets it up:
 Plex counts a file as finished at about 90% (its default), so finishing in Plex marks it watched on the Zidoos. If
 Plex doesn't keep a very early resume point (a stop in the first minute), the Activity chip says so.
 
+## Live Poster
+
+A TV, stick or tablet hung outside a room shows the poster of what that room is playing, over a background of your
+own design ("NOW SHOWING"…), and a slideshow when nothing is: **Coming Soon** (posters you add), **Recently Watched**
+and **Highly Acclaimed** (movies and series rated 8.0 or higher). Set it all up on the **Live Poster** tab.
+
+- **4K:** stick and TV apps draw their own pictures at 1080p but play video at 4K, so Resume Relay turns each picture
+  into a short 4K video (with ffmpeg, on the computer's video hardware when it can) and the screen app plays it.
+- **Posters:** movies come from the movie's folder (`<video file name>-poster.jpg`, `poster.jpg`…), then Plex, then the
+  Zidoo (which keeps them at 500×750). TV shows: the season poster in the show's folder (`season01-poster.jpg`,
+  `Show S01-poster.jpg`, or `poster.jpg` inside a `Season 01` folder), then the series poster, then Plex's, then the
+  Zidoo's.
+- **Backgrounds:** 2160×3840 PNG/JPG/WebP or a 10–20 second MP4 loop. The poster sits in the middle at 2000×3000, which
+  leaves 80 px at the sides and 420 px at the top and bottom.
+- **Screen apps** (beta): Android (Fire TV, Google TV, phones and tablets) and Roku, from the release's downloads, or
+  any web browser at `http://<this computer>:8090/screen`. Until they're in the app stores:
+  - **Roku:** turn on Developer Mode (on the remote: Home 3×, Up 2×, Right, Left, Right, Left, Right; set a password),
+    open the Roku's address in a browser on your computer, and upload `ResumeRelay-Screen-…-roku.zip`.
+  - **Android phone or tablet:** open the `…-android.apk` download on it and allow installing it.
+  - **Fire TV / Google TV:** install it with the *Downloader* app (enter the APK's download link).
+- **Mounting a TV upright:** TVs and sticks always send a landscape picture, so tell Resume Relay which way the TV is
+  turned and check the **Test picture** (the arrow should point up).
+- Avoid TVs that can get burn-in (OLED, plasma): a poster can stay up for hours.
+- **Docker:** pass the video hardware through (`devices: - /dev/dri:/dev/dri`) for hardware encoding; screen apps find
+  Resume Relay with a broadcast on UDP port 47090 (host networking passes it through).
+
 ## Windows app
 
 - Opens in its own window. Closing the window keeps it running in the tray, so bookmarks keep

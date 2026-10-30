@@ -1,8 +1,8 @@
 sub init()
-    m.top.functionName = "run"
+    m.top.functionName = "talk"
 end sub
 
-sub run()
+sub talk()
     m.port = CreateObject("roMessagePort")
     m.top.observeField("ended", m.port)
     m.top.observeField("serverInput", m.port)

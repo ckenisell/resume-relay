@@ -110,7 +110,7 @@ jobs:
           if [[ -n "$KS_B64" ]]; then echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/rr.jks"; export RR_KEYSTORE="$RUNNER_TEMP/rr.jks" RR_KEYSTORE_PASSWORD="$KS_PW"; fi
           # The build's errors are repeated as annotations (readable on the run's summary page).
           if ! gradle -p apps/android --no-daemon assembleRelease > "$RUNNER_TEMP/gradle.log" 2>&1; then
-            grep -E "^e: |error:|What went wrong|> |Could not|FAILED" "$RUNNER_TEMP/gradle.log" | head -40 | while IFS= read -r l; do echo "::error::${l}"; done
+            grep -E "^e: |^ERROR|error:|AAPT|Execution failed|What went wrong" -A2 "$RUNNER_TEMP/gradle.log" | grep -v "^--$" | head -9 | while IFS= read -r l; do echo "::error::${l}"; done
             tail -60 "$RUNNER_TEMP/gradle.log"; exit 1
           fi
           mkdir -p artifacts

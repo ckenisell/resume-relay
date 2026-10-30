@@ -75,6 +75,9 @@ public sealed class LiveService : BackgroundService
         public bool AdvanceAfterEnd;
         public bool WantNext;
         public DateTime TestUntil;
+        /// <summary>What the screen app last said about playing (for the dashboard): "playing", or an error.</summary>
+        public string AppSays = "";
+        public DateTime AppSaysUtc;
     }
 
     public sealed record NowItem(string DeviceId, string Player, string SourceUrl, string PlexFile, string Title, bool IsEpisode, int Season, int PlexKey, bool Paused);
@@ -151,6 +154,19 @@ public sealed class LiveService : BackgroundService
         return (screen, "");
     }
 
+    /// <summary>A screen app reporting how playback is going (shown on its card, to see problems from the dashboard).</summary>
+    public bool Report(string token, string msg)
+    {
+        var screen = _live.Get().Screens.FirstOrDefault(s => s.Token.Length > 0 && s.Token == token);
+        if (screen == null) return false;
+        var rt = RuntimeOf(screen.Id);
+        rt.AppSays = msg.Length > 200 ? msg[..200] : msg;
+        rt.AppSaysUtc = DateTime.UtcNow;
+        if (msg.Contains("error", StringComparison.OrdinalIgnoreCase))
+            _store.Log(ActivityLevel.Warn, $"Live Poster: the screen \"{screen.Name}\" couldn't play its video: {rt.AppSays}");
+        return true;
+    }
+
     /// <summary>What a screen should play now. Null: unknown token (unpaired or removed).</summary>
     public object? StateFor(string token, string ended)
     {
@@ -205,7 +221,7 @@ public sealed class LiveService : BackgroundService
 
         if (rt.TestUntil > DateTime.UtcNow)
         {
-            var test = _renderer.TestPatternAsync(s.Mount, s.Resolution);
+            var test = _renderer.TestPatternAsync(s.Mount, s.Resolution, CodecOf(s));
             if (test.IsCompletedSuccessfully && test.Result != null) { Show(rt, "test", test.Result, loop: true, "Test picture: the arrow should point up"); return; }
         }
 
@@ -219,7 +235,7 @@ public sealed class LiveService : BackgroundService
             if (poster.IsCompleted)
             {
                 var found = poster.IsCompletedSuccessfully ? poster.Result : null;
-                var video = _renderer.HoldAsync(bg, found?.Path, s.Mount, s.Resolution, priority: 0);
+                var video = _renderer.HoldAsync(bg, found?.Path, s.Mount, s.Resolution, CodecOf(s), priority: 0);
                 if (video.IsCompletedSuccessfully && video.Result != null)
                 {
                     rt.PosterSource = found?.Source ?? "no poster found";
@@ -228,7 +244,7 @@ public sealed class LiveService : BackgroundService
                 }
             }
             // While the poster is found and made: the background alone (made once).
-            var plain = _renderer.HoldAsync(bg, null, s.Mount, s.Resolution, priority: 0);
+            var plain = _renderer.HoldAsync(bg, null, s.Mount, s.Resolution, CodecOf(s), priority: 0);
             if (plain.IsCompletedSuccessfully && plain.Result != null) { rt.PosterSource = "finding the poster…"; Show(rt, "playing", plain.Result, loop: true, now.Title); }
             return;
         }
@@ -237,10 +253,15 @@ public sealed class LiveService : BackgroundService
         Slideshow(s, rt, cfg);
     }
 
+    /// <summary>The video format a screen gets: HEVC (Rokus play 4K only as HEVC; every 4K TV and stick plays it), or
+    /// H.264 for web browsers (most can't play HEVC).</summary>
+    public static string CodecOf(LiveScreen s) =>
+        s.Codec is "hevc" or "h264" ? s.Codec : s.Platform.StartsWith("web", StringComparison.Ordinal) ? "h264" : "hevc";
+
     private void Show(ScreenRuntime rt, string mode, string file, bool loop, string title)
     {
         rt.Mode = mode;
-        rt.Url = _renderer.Rel(file);
+        rt.Url = Path.IsPathRooted(file) ? _renderer.Rel(file) : file;   // the slideshow's is already relative
         rt.Loop = loop;
         rt.Title = title;
     }
@@ -349,7 +370,7 @@ public sealed class LiveService : BackgroundService
             }
             if (poster == null) continue; // no poster anywhere: left out
             var setCfg = it.Set switch { "coming" => cfg.ComingSoon, "recent" => cfg.RecentlyWatched, _ => cfg.Acclaimed };
-            var slide = _renderer.SlideAsync(Background(cfg, setCfg.BackgroundId), poster, s.Mount, s.Resolution, cfg.SlideSeconds);
+            var slide = _renderer.SlideAsync(Background(cfg, setCfg.BackgroundId), poster, s.Mount, s.Resolution, CodecOf(s), cfg.SlideSeconds);
             if (!slide.IsCompleted) { pending = true; continue; }
             if (slide.IsCompletedSuccessfully && slide.Result != null) { slides.Add(slide.Result); titles.Add(it.Title); }
         }
@@ -379,7 +400,7 @@ public sealed class LiveService : BackgroundService
         }
         // Nothing made yet (or no posters at all): a background on its own.
         var firstSet = new[] { cfg.ComingSoon, cfg.RecentlyWatched, cfg.Acclaimed }.FirstOrDefault(x => x.Enabled) ?? cfg.NowPlaying;
-        var plain = _renderer.HoldAsync(Background(cfg, firstSet.BackgroundId), null, s.Mount, s.Resolution, priority: 1);
+        var plain = _renderer.HoldAsync(Background(cfg, firstSet.BackgroundId), null, s.Mount, s.Resolution, CodecOf(s), priority: 1);
         if (plain.IsCompletedSuccessfully && plain.Result != null)
         {
             Show(rt, "idle", plain.Result, loop: true, items.Count == 0 ? "Slideshow: no posters to show yet" : "Making the slideshow…");
@@ -393,6 +414,18 @@ public sealed class LiveService : BackgroundService
             .Select(i => new SlideItem("recent", i.Title, i.Request, null))
             .DistinctBy(i => i.Title).Take(10).ToList();
 
+    private static readonly Regex SeasonDir = new(@"^(?:season|series|staffel|saison|temporada|seizoen)[ ._-]*\d+$|^specials$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    /// <summary>A TV show's name from an episode's path: its folder, or the one above a "Season 01" folder.</summary>
+    private static string ShowName(string url, string fallback)
+    {
+        var parts = url.Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2) return fallback;
+        string dir = Uri.UnescapeDataString(parts[^2]);
+        if (SeasonDir.IsMatch(dir) && parts.Length >= 3) dir = Uri.UnescapeDataString(parts[^3]);
+        return dir.Length > 0 ? dir : fallback;
+    }
+
     private void RefreshRecent(LiveConfig cfg)
     {
         if (DateTime.UtcNow - _recentAt < TimeSpan.FromSeconds(30)) return;
@@ -403,7 +436,9 @@ public sealed class LiveService : BackgroundService
             var tag = EpisodeTag.Match(e.Subtitle + " " + e.FileName);
             bool ep = tag.Success;
             int season = ep ? int.Parse(tag.Groups[1].Value) : 0;
-            string title = ep ? $"{e.Title} (season {season})" : e.Title;
+            // A TV show counts once, however many episodes were watched: it's named after its folder (the show's name),
+            // and shows the season poster of the episode watched last.
+            string title = ep ? ShowName(e.SourceUrl, e.Title) : e.Title;
             list.Add(new SlideItem("recent:" + e.FromName, title,
                 new PosterRequest(e.SourceUrl, "", e.FromDeviceId, ep, season, false, title), null));
         }

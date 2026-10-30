@@ -2230,12 +2230,13 @@ function renderLive() {
       <div class="lp-now">${s.mode === "playing" ? `<b>Now playing:</b> ${esc(s.title)}<small>Poster: ${esc(s.posterSource)}</small>`
         : s.mode === "idle" ? `<b>${esc(s.title || "Slideshow")}</b>${s.roundTitles?.length ? `<small>${esc(s.roundTitles.slice(0, 6).join(" · "))}${s.roundTitles.length > 6 ? " …" : ""}</small>` : ""}${s.note ? `<small>${esc(s.note)}</small>` : ""}`
         : s.mode === "test" ? `<b>Test picture</b><small>The arrow should point up.</small>`
-        : `<small>${esc(s.note || "Starting…")}</small>`}</div>
+        : `<small>${esc(s.note || "Starting…")}</small>`}${s.appSays ? `<small style="color:${/error/i.test(s.appSays) ? "var(--bad)" : "var(--muted)"}">Screen app: ${esc(s.appSays)}</small>` : ""}</div>
       <span class="lp-field">Shows what's playing on</span>
       <div class="lp-players">${players.map(p => `<label><input type="checkbox" data-lp-player="${esc(p.id)}"${s.players.includes(p.id) ? " checked" : ""}>${kindBadge(p.kind, true)}${esc(p.name)}</label>`).join("") || `<small>No players yet.</small>`}</div>
       <span class="lp-field">Mounted</span>
       <div class="lp-row"><select data-lp-mount aria-label="How it's mounted">${MOUNTS.map(([v, t]) => `<option value="${v}"${s.mount === v ? " selected" : ""}>${t}</option>`).join("")}</select>
-        <select data-lp-res aria-label="Resolution"><option value="4k"${s.resolution === "4k" ? " selected" : ""}>4K</option><option value="1080"${s.resolution === "1080" ? " selected" : ""}>1080p</option></select></div>
+        <select data-lp-res aria-label="Resolution"><option value="4k"${s.resolution === "4k" ? " selected" : ""}>4K</option><option value="1080"${s.resolution === "1080" ? " selected" : ""}>1080p</option></select>
+        <select data-lp-codec aria-label="Video format" title="HEVC: every 4K TV and stick (Rokus need it for 4K). H.264: web browsers.">${[["auto", `Automatic (${s.videoCodec === "hevc" ? "HEVC" : "H.264"})`], ["hevc", "HEVC"], ["h264", "H.264"]].map(([v, t]) => `<option value="${v}"${(s.codec || "auto") === v ? " selected" : ""}>${t}</option>`).join("")}</select></div>
       <div class="lp-acts"><button class="btn" data-lp-test>Test picture</button><button class="btn quiet" data-lp-remove>Remove</button></div>
     </div></article>`).join(""));
   // Now Playing and the slideshow sets.
@@ -2318,6 +2319,7 @@ $("#live").addEventListener("change", async e => {
   if (t.matches("[data-lp-player]")) return patchScreen(id, { players: [...card.querySelectorAll("[data-lp-player]:checked")].map(x => x.dataset.lpPlayer) });
   if (t.matches("[data-lp-mount]")) return patchScreen(id, { mount: t.value });
   if (t.matches("[data-lp-res]")) return patchScreen(id, { resolution: t.value });
+  if (t.matches("[data-lp-codec]")) return patchScreen(id, { codec: t.value });
   if (t.matches("[data-lp-bg]")) return saveLiveSettings(c => c[t.dataset.lpBg].backgroundId = t.value);
   if (t.matches("[data-lp-set]")) return saveLiveSettings(c => c[t.dataset.lpSet].enabled = t.checked);
   if (t.id === "lp-wait") return saveLiveSettings(c => c.stopWaitSeconds = +t.value || 0);

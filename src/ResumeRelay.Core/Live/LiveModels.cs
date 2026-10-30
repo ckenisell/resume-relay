@@ -61,6 +61,8 @@ public sealed class LiveScreen
     public string Mount { get; set; } = "right";
     /// <summary>"4k" or "1080" (for players that can't play 4K video).</summary>
     public string Resolution { get; set; } = "4k";
+    /// <summary>"auto" (HEVC, except H.264 for web browsers), "hevc" or "h264". Rokus play 4K only as HEVC.</summary>
+    public string Codec { get; set; } = "auto";
     public DateTime AddedUtc { get; set; } = DateTime.UtcNow;
 }
 

@@ -79,6 +79,13 @@ function play(s) {
     setTimeout(() => { if (back !== front) { back.removeAttribute("src"); back.load(); } }, 800);
   };
 }
+// How playback is going, for the screen's card on the Live Poster tab.
+let reported = "";
+const report = msg => token && fetch(`/api/screen/report?token=${encodeURIComponent(token)}&msg=${encodeURIComponent(msg)}`).catch(() => { });
+for (const v of [$("#a"), $("#b")]) {
+  v.addEventListener("playing", () => { if (reported !== current) { reported = current; report("playing"); } });
+  v.addEventListener("error", () => report("error " + (v.error ? v.error.code + ": " + (v.error.message || "") : "") + " (this browser may not play this video format)"));
+}
 // A slideshow round has ended: ask for the next one (or the same one again).
 for (const v of [$("#a"), $("#b")])
   v.addEventListener("ended", async () => {

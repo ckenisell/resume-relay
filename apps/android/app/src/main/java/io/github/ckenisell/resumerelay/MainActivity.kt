@@ -71,6 +71,14 @@ class MainActivity : Activity() {
     private var running = false
     private var failures = 0
     private var showingMenu = false
+    private var reported = ""
+
+    /** Tells Resume Relay how playback is going (shown on this screen's card on the Live Poster tab). */
+    private fun report(msg: String) {
+        val t = token
+        if (t.isEmpty()) return
+        io.execute { request("GET", "/api/screen/report?token=${enc(t)}&msg=${enc(msg)}", null) }
+    }
 
     // ------------------------------------------------------------------ setup
 
@@ -86,11 +94,15 @@ class MainActivity : Activity() {
                     if (state == Player.STATE_ENDED && !looping) roundEnded()
                 }
                 override fun onPlayerError(error: PlaybackException) {
+                    report("error ${error.errorCodeName}: ${error.cause?.message ?: error.message ?: ""}")
                     status.text = "Can't play this video (${error.errorCodeName}). Trying again…"
                     status.visibility = View.VISIBLE
                     main.postDelayed({ val v = version; version = ""; if (v.isNotEmpty()) poll() }, 5000)
                 }
-                override fun onRenderedFirstFrame() { status.visibility = View.GONE }
+                override fun onRenderedFirstFrame() {
+                    status.visibility = View.GONE
+                    if (reported != version) { reported = version; report("playing") }
+                }
             })
         }
         playerView = PlayerView(this).apply {

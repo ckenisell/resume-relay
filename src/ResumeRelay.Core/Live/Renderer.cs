@@ -30,7 +30,11 @@ public sealed class Renderer
     private long _seq;
 
     public string? Ffmpeg { get; private set; }
-    public string Encoder { get; private set; } = "";
+    /// <summary>The H.264 and HEVC encoders found (hardware first). Rokus need HEVC for 4K (their H.264 stops at 1080p);
+    /// web browsers need H.264. Encoder is the H.264 one (or HEVC's when there's no H.264).</summary>
+    public string EncoderH264 { get; private set; } = "";
+    public string EncoderHevc { get; private set; } = "";
+    public string Encoder => EncoderH264.Length > 0 ? EncoderH264 : EncoderHevc;
     public string Status { get; private set; } = "Starting…";
     public bool Ready => Ffmpeg != null && Encoder.Length > 0;
     public int Queued { get { lock (_q) return _queue.Count; } }
@@ -54,23 +58,24 @@ public sealed class Renderer
         Ffmpeg = FindFfmpeg();
         if (Ffmpeg == null)
         {
-            Encoder = "";
+            EncoderH264 = EncoderHevc = "";
             Status = OperatingSystem.IsWindows()
                 ? "ffmpeg isn't installed. Press \"Download ffmpeg\" (about 100 MB, kept in Resume Relay's data folder)."
                 : "ffmpeg isn't installed. On Ubuntu: sudo apt install ffmpeg (the Ubuntu installer does this for you).";
             return;
         }
-        string forced = Environment.GetEnvironmentVariable("RESUMERELAY_ENCODER") ?? "";
-        var candidates = forced.Length > 0 ? new[] { forced }
-            : OperatingSystem.IsWindows() ? new[] { "h264_qsv", "h264_nvenc", "h264_amf", "libx264" }
-            : new[] { "h264_vaapi", "h264_qsv", "libx264" };
-        foreach (var enc in candidates)
-        {
-            if (await TestEncoderAsync(enc, ct)) { Encoder = enc; break; }
-        }
-        Status = Encoder.Length == 0 ? "ffmpeg is installed, but none of its H.264 encoders work."
-            : Encoder == "libx264" ? "Ready (software encoding: this computer's video hardware isn't available to ffmpeg)."
-            : $"Ready (hardware encoding: {Encoder}).";
+        // RESUMERELAY_ENCODER=libx264 (the tests) picks software encoding for both.
+        bool software = (Environment.GetEnvironmentVariable("RESUMERELAY_ENCODER") ?? "") is "libx264" or "software";
+        string[] h264 = software ? new[] { "libx264" }
+            : OperatingSystem.IsWindows() ? new[] { "h264_qsv", "h264_nvenc", "h264_amf", "libx264" } : new[] { "h264_vaapi", "h264_qsv", "libx264" };
+        string[] hevc = software ? new[] { "libx265" }
+            : OperatingSystem.IsWindows() ? new[] { "hevc_qsv", "hevc_nvenc", "hevc_amf", "libx265" } : new[] { "hevc_vaapi", "hevc_qsv", "libx265" };
+        EncoderH264 = EncoderHevc = "";
+        foreach (var enc in h264) if (await TestEncoderAsync(enc, ct)) { EncoderH264 = enc; break; }
+        foreach (var enc in hevc) if (await TestEncoderAsync(enc, ct)) { EncoderHevc = enc; break; }
+        string Kind(string e) => e.StartsWith("lib") ? "software" : "hardware";
+        Status = Encoder.Length == 0 ? "ffmpeg is installed, but none of its H.264 or HEVC encoders work."
+            : $"Ready: HEVC {(EncoderHevc.Length > 0 ? $"{Kind(EncoderHevc)} ({EncoderHevc})" : "not available")}, H.264 {(EncoderH264.Length > 0 ? $"{Kind(EncoderH264)} ({EncoderH264})" : "not available")}.";
         await EnsureBuiltInBackgroundsAsync(ct);
     }
 
@@ -92,9 +97,9 @@ public sealed class Renderer
 
     private async Task<bool> TestEncoderAsync(string enc, CancellationToken ct)
     {
-        if (enc == "h264_vaapi" && !File.Exists(RenderNode)) return false;
-        string pre = enc == "h264_vaapi" ? $"-vaapi_device {RenderNode} " : "";
-        string vf = enc == "h264_vaapi" ? "-vf format=nv12,hwupload " : enc is "h264_qsv" ? "-pix_fmt nv12 " : "-pix_fmt yuv420p ";
+        if (enc.EndsWith("_vaapi") && !File.Exists(RenderNode)) return false;
+        string pre = enc.EndsWith("_vaapi") ? $"-vaapi_device {RenderNode} " : "";
+        string vf = enc.EndsWith("_vaapi") ? "-vf format=nv12,hwupload " : enc.EndsWith("_qsv") ? "-pix_fmt nv12 " : "-pix_fmt yuv420p ";
         var (code, _) = await RunAsync($"-hide_banner -loglevel error {pre}-f lavfi -i color=c=black:s=640x360:r=24:d=0.5 {vf}-c:v {enc} -f null -", TimeSpan.FromSeconds(30), ct, lowPriority: false);
         return code == 0;
     }
@@ -143,22 +148,23 @@ public sealed class Renderer
     /// A video that loops seamlessly with the poster held: Now Playing. With a still background it's 2 seconds (the
     /// player loops it); with a video background it's the background's own length. No poster: the background alone.
     /// </summary>
-    public Task<string?> HoldAsync(LiveBackground? bg, string? poster, string mount, string resolution, int priority = 0)
+    public Task<string?> HoldAsync(LiveBackground? bg, string? poster, string mount, string resolution, string codec, int priority = 0)
     {
         double seconds = bg is { Kind: "video", DurationMs: > 0 } ? Math.Clamp(bg.DurationMs / 1000.0, 2, 60) : 2;
-        return MakeAsync("hold", bg, poster, mount, resolution, seconds, fade: false, priority);
+        return MakeAsync("hold", bg, poster, mount, resolution, codec, seconds, fade: false, priority);
     }
 
     /// <summary>One slideshow poster: the poster fades in over the background, holds, and fades out again, so slides
     /// played one after another dissolve through the background.</summary>
-    public Task<string?> SlideAsync(LiveBackground? bg, string poster, string mount, string resolution, int seconds, int priority = 5) =>
-        MakeAsync("slide", bg, poster, mount, resolution, Math.Clamp(seconds, 4, 120), fade: true, priority);
+    public Task<string?> SlideAsync(LiveBackground? bg, string poster, string mount, string resolution, string codec, int seconds, int priority = 5) =>
+        MakeAsync("slide", bg, poster, mount, resolution, codec, Math.Clamp(seconds, 4, 120), fade: true, priority);
 
     /// <summary>A screen's test picture: an arrow pointing up and the screen's name, to check which way it's turned.</summary>
-    public Task<string?> TestPatternAsync(string mount, string resolution)
+    public Task<string?> TestPatternAsync(string mount, string resolution, string codec)
     {
         var l = LayoutFor(resolution);
-        string key = Hash($"test|{mount}|{resolution}|{Encoder}|2");
+        string enc = EncoderFor(codec);
+        string key = Hash($"test|{mount}|{resolution}|{enc}|2");
         string output = Path.Combine(_live.RenderDir, key + ".mp4");
         // An arrow made of boxes (no fonts needed): a shaft and a head pointing to the top of the portrait canvas.
         int cx = l.W / 2, unit = l.W / 18;
@@ -170,21 +176,22 @@ public sealed class Renderer
         }
         arrow += $",drawbox=x=0:y=0:w={l.W}:h={l.H}:color=0xF2A33A:t={Math.Max(8, unit / 3)}";
         return Enqueue(key, output, "test picture", 0, o =>
-            $"{Pre}-f lavfi -i color=c=0x101826:s={l.W}x{l.H}:r={Fps}:d=2 -vf \"{arrow}{Turn(mount)}{Final}\" -t 2 {EncodeArgs(still: true)} \"{o}\"");
+            $"{Pre(enc)}-f lavfi -i color=c=0x101826:s={l.W}x{l.H}:r={Fps}:d=2 -vf \"{arrow}{Turn(mount)}{Final(enc)}\" -t 2 {EncodeArgs(enc, still: true)} \"{o}\"");
     }
 
-    private Task<string?> MakeAsync(string kind, LiveBackground? bg, string? poster, string mount, string resolution, double seconds, bool fade, int priority)
+    private Task<string?> MakeAsync(string kind, LiveBackground? bg, string? poster, string mount, string resolution, string codec, double seconds, bool fade, int priority)
     {
         var l = LayoutFor(resolution);
+        string enc = EncoderFor(codec);
         string bgPath = bg == null ? "" : _live.BackgroundPath(bg);
-        string key = Hash($"{kind}|{Stamp(bgPath)}|{Stamp(poster)}|{mount}|{resolution}|{seconds.ToString(CultureInfo.InvariantCulture)}|{Encoder}|v1");
+        string key = Hash($"{kind}|{Stamp(bgPath)}|{Stamp(poster)}|{mount}|{resolution}|{seconds.ToString(CultureInfo.InvariantCulture)}|{enc}|v1");
         string output = Path.Combine(_live.RenderDir, key + ".mp4");
         string label = kind == "hold" ? "Now Playing" : "slide";
         bool still = bg == null || bg.Kind != "video";
         string s = seconds.ToString("0.###", CultureInfo.InvariantCulture);
         return Enqueue(key, output, label, priority, o =>
         {
-            var a = new StringBuilder(Pre);
+            var a = new StringBuilder(Pre(enc));
             if (bg == null) a.Append($"-f lavfi -t {s} -i color=c=black:s={l.W}x{l.H}:r={Fps} ");
             else if (bg.Kind == "video") a.Append($"-stream_loop -1 -t {s} -i \"{bgPath}\" ");
             else a.Append($"-loop 1 -framerate {Fps} -t {s} -i \"{bgPath}\" ");
@@ -194,9 +201,9 @@ public sealed class Renderer
                 : "";
             string graph = $"[0:v]scale={l.W}:{l.H}:force_original_aspect_ratio=increase,crop={l.W}:{l.H},setsar=1,fps={Fps}[bg]";
             graph += poster != null
-                ? $";[1:v]scale={l.PW}:{l.PH},setsar=1,format=yuva420p{fades}[p];[bg][p]overlay={l.PX}:{l.PY}:format=auto{Turn(mount)}{Final}[v]"
-                : $";[bg]null{Turn(mount)}{Final}[v]";
-            a.Append($"-filter_complex \"{graph}\" -map \"[v]\" -t {s} {EncodeArgs(still)} \"{o}\"");
+                ? $";[1:v]scale={l.PW}:{l.PH},setsar=1,format=yuva420p{fades}[p];[bg][p]overlay={l.PX}:{l.PY}:format=auto{Turn(mount)}{Final(enc)}[v]"
+                : $";[bg]null{Turn(mount)}{Final(enc)}[v]";
+            a.Append($"-filter_complex \"{graph}\" -map \"[v]\" -t {s} {EncodeArgs(enc, still)} \"{o}\"");
             return a.ToString();
         });
     }
@@ -262,14 +269,25 @@ public sealed class Renderer
     }
 
     /// <summary>VA-API needs its device named before the inputs, and the frames handed to it at the end of the graph.</summary>
-    private string Pre => Encoder == "h264_vaapi" ? $"-vaapi_device {RenderNode} " : "";
-    private string Final => Encoder == "h264_vaapi" ? ",format=nv12,hwupload" : Encoder == "h264_qsv" ? ",format=nv12" : ",format=yuv420p";
+    /// <summary>The encoder for "hevc" or "h264", falling back to the other when this computer can't make one.</summary>
+    public string EncoderFor(string codec) =>
+        codec == "hevc" ? (EncoderHevc.Length > 0 ? EncoderHevc : EncoderH264) : (EncoderH264.Length > 0 ? EncoderH264 : EncoderHevc);
 
-    private string EncodeArgs(bool still)
+    private static string Pre(string enc) => enc.EndsWith("_vaapi") ? $"-vaapi_device {RenderNode} " : "";
+    private static string Final(string enc) => enc.EndsWith("_vaapi") ? ",format=nv12,hwupload" : enc.EndsWith("_qsv") ? ",format=nv12" : ",format=yuv420p";
+
+    private static string EncodeArgs(string enc, bool still)
     {
         string common = $"-an -r {Fps} -g {Fps * 2} -movflags +faststart";
-        return Encoder switch
+        // HEVC is tagged "hvc1", the form Apple, Roku and most players expect in MP4.
+        if (enc.StartsWith("hevc") || enc == "libx265") common += " -tag:v hvc1";
+        return enc switch
         {
+            "hevc_vaapi" => $"-c:v hevc_vaapi -qp 22 -profile:v main {common}",
+            "hevc_qsv" => $"-c:v hevc_qsv -global_quality 22 -profile:v main {common}",
+            "hevc_nvenc" => $"-pix_fmt yuv420p -c:v hevc_nvenc -cq 22 -profile:v main {common}",
+            "hevc_amf" => $"-pix_fmt yuv420p -c:v hevc_amf -qp_i 22 -qp_p 24 -profile:v main {common}",
+            "libx265" => $"-pix_fmt yuv420p -c:v libx265 -preset fast -crf 20 -profile:v main -x265-params log-level=error:pools={Math.Max(1, Environment.ProcessorCount / 2)} {common}",
             "h264_vaapi" => $"-c:v h264_vaapi -qp 20 -profile:v high {common}",
             "h264_qsv" => $"-c:v h264_qsv -global_quality 20 -profile:v high {common}",
             "h264_nvenc" => $"-pix_fmt yuv420p -c:v h264_nvenc -cq 20 -profile:v high {common}",

@@ -7,6 +7,7 @@ sub talk()
     m.top.observeField("ended", m.port)
     m.top.observeField("serverInput", m.port)
     m.top.observeField("command", m.port)
+    m.top.observeField("report", m.port)
     m.reg = CreateObject("roRegistrySection", "rr")
     m.server = m.reg.Read("server")
     m.token = m.reg.Read("token")
@@ -165,6 +166,10 @@ sub sleepFor(ms as integer)
             d = msg.getData()
             if f = "ended" and m.token <> ""
                 poll(d)
+            else if f = "report" and m.token <> ""
+                ' How playback is going, for the screen's card on the Live Poster tab.
+                x = CreateObject("roUrlTransfer")
+                http("GET", "/api/screen/report?token=" + m.token + "&msg=" + x.Escape(d), "")
             else if f = "serverInput"
                 setServer(d)
                 m.fails = 0

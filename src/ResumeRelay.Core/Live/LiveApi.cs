@@ -11,7 +11,7 @@ public static class LiveApi
     private static readonly Dictionary<string, (byte[] Jpg, DateTime At)> Previews = new();
 
     public record PairBody(string Code, string Name, List<string>? Players, string? Mount, string? Resolution);
-    public record ScreenBody(string? Name, List<string>? Players, string? Mount, string? Resolution);
+    public record ScreenBody(string? Name, List<string>? Players, string? Mount, string? Resolution, string? Codec);
     public record HelloBody(string DeviceKey, string? Platform, string? Model, string? Version);
     public record SettingsBody(int StopWaitSeconds, int SlideSeconds, double AcclaimedMin, LiveSet NowPlaying, LiveSet ComingSoon, LiveSet RecentlyWatched, LiveSet Acclaimed, List<LiveFolder>? Folders);
     public record OrderBody(List<string> Ids);
@@ -40,7 +40,8 @@ public static class LiveApi
                     var rt = svc.RuntimeOf(s.Id);
                     return new
                     {
-                        s.Id, s.Name, s.Platform, s.Model, s.AppVersion, s.Players, s.Mount, s.Resolution,
+                        s.Id, s.Name, s.Platform, s.Model, s.AppVersion, s.Players, s.Mount, s.Resolution, s.Codec, VideoCodec = LiveService.CodecOf(s),
+                        AppSays = rt.AppSays, rt.AppSaysUtc,
                         Online = rt.LastSeenUtc is { } seen && DateTime.UtcNow - seen < TimeSpan.FromSeconds(20),
                         rt.LastSeenUtc, rt.Mode, rt.Title, rt.PosterSource, rt.Note, rt.RoundTitles, Version = rt.Url,
                     };
@@ -89,6 +90,7 @@ public static class LiveApi
                 if (b.Players != null) s.Players = b.Players.Distinct().ToList();
                 if (b.Mount is "portrait" or "left" or "right" && b.Mount != s.Mount) { s.Mount = b.Mount; svc.RuntimeOf(id).TestUntil = DateTime.UtcNow.AddSeconds(20); }
                 if (b.Resolution is "4k" or "1080") s.Resolution = b.Resolution;
+                if (b.Codec is "auto" or "hevc" or "h264") s.Codec = b.Codec;
             });
             if (found) { var rt = svc.RuntimeOf(id); rt.IdleUrl = ""; rt.IdleKey = ""; rt.Shown = null; }
             return found ? Results.Ok() : Results.NotFound();
@@ -259,6 +261,8 @@ public static class LiveApi
             var state = svc.StateFor(token ?? "", ended ?? "");
             return state == null ? Results.Json(new { Paired = false }, statusCode: 401) : Results.Ok(state);
         });
+        app.MapGet("/api/screen/report", (string token, string msg) =>
+            svc.Report(token ?? "", msg ?? "") ? Results.Ok() : Results.Json(new { Paired = false }, statusCode: 401));
         app.MapGet("/live/media/{**file}", (string file) =>
         {
             if (!MediaName.IsMatch(file)) return Results.NotFound();

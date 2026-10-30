@@ -861,6 +861,12 @@ sc = wait_for(lambda: (lambda x: x if x["mode"] == "idle" and "Test Coming" in x
 check("the slideshow round has Coming Soon, Recently Watched and Highly Acclaimed", sc, str(screen_of(sid)))
 st = state_of()
 check("...as one video the screen plays through (not looped)", st["mode"] == "idle" and not st["loop"] and st["url"], str(st))
+rt_titles = screen_of(sid)["roundTitles"]
+check("Recently Watched lists a TV show once, by its name (not per episode or season)",
+      rt_titles.count("Andor") <= 2 and not any("(season" in t for t in rt_titles), str(rt_titles))   # once in Recently Watched, once in Highly Acclaimed
+http("GET", RELAY + f"/api/screen/report?token={TOK}&msg=" + urllib.parse.quote("error -3: test"))
+check("a screen app's playback report shows on its card", "error -3" in screen_of(sid)["appSays"], str(screen_of(sid)))
+check("an Android screen gets HEVC by default (Rokus need it for 4K)", screen_of(sid)["videoCodec"] == "hevc")
 state_of(st["version"])
 check("a screen saying the round ended keeps getting a slideshow", wait_for(lambda: state_of()["mode"] == "idle", 10))
 cfg = live()["config"]

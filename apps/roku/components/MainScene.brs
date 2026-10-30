@@ -12,6 +12,7 @@ sub init()
     m.retry.observeField("fire", "onRetry")
     m.current = invalid
     m.dialog = invalid
+    m.lastReported = ""
 
     m.net = CreateObject("roSGNode", "NetTask")
     m.net.observeField("phase", "onPhase")
@@ -79,11 +80,16 @@ sub onVideoState()
         ' A slideshow round ended: Resume Relay hands over the next one (or the same one again).
         m.net.ended = m.current.version
     else if s = "error"
+        m.net.report = "error " + m.video.errorCode.ToStr() + ": " + m.video.errorMsg + " " + m.video.errorStr
         m.status.text = "Can't play this video (" + m.video.errorMsg + "). Trying again..."
         m.status.visible = true
         m.retry.control = "start"
     else if s = "playing"
         if Left(m.status.text, 15) = "Can't play this" then m.status.visible = false
+        if m.current <> invalid and m.lastReported <> m.current.version
+            m.lastReported = m.current.version
+            m.net.report = "playing"
+        end if
     end if
 end sub
 

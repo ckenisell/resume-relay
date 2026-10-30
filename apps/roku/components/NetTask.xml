@@ -11,6 +11,7 @@
     <field id="ended" type="string" alwaysNotify="true" />
     <field id="serverInput" type="string" alwaysNotify="true" />
     <field id="command" type="string" alwaysNotify="true" />
+    <field id="report" type="string" alwaysNotify="true" />
   </interface>
   <script type="text/brightscript" uri="NetTask.brs" />
 </component>

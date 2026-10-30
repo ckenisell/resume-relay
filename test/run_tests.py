@@ -878,6 +878,15 @@ except urllib.error.HTTPError as e:
     gone = e.code == 401
 check("a removed screen is told it's no longer paired", gone)
 
+# Without Plex, Highly Acclaimed uses the Zidoo's ratings: IMDb for movies, TMDB for series. (Plex is signed out last.)
+http("POST", RELAY + "/api/plex/signout")
+http("POST", RELAY + "/api/live/acclaimed/refresh")
+acc = wait_for(lambda: (lambda a: a if a["titles"] else None)(http("GET", RELAY + "/api/live/acclaimed")), 60) or {}
+names = {t["title"]: t for t in acc.get("titles", [])}
+check("without Plex: Zidoo ratings, IMDb for movies and TMDB for series, 8.0+ only",
+      names.get("Braveheart (2016)", {}).get("source") == "IMDb" and names.get("Andor", {}).get("source") == "TMDB"
+      and names["Andor"]["kind"] == "show" and not any(t.startswith("Arrival") for t in names), str(acc))
+
 passed = sum(1 for _, ok in results if ok)
 print(f"\n{passed}/{len(results)} passed")
 sys.exit(0 if passed == len(results) else 1)

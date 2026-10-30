@@ -6,7 +6,7 @@ namespace ResumeRelay.Live;
 /// <summary>The Live Poster tab's API, and the few calls the screen apps make.</summary>
 public static class LiveApi
 {
-    private static readonly Regex MediaName = new(@"^[0-9a-f]{20}\.mp4$", RegexOptions.Compiled);
+    private static readonly Regex MediaName = new(@"^(reels/)?[0-9a-f]{20}\.mp4$", RegexOptions.Compiled);
     private static readonly Dictionary<string, string> ImageTypes = new() { ["image/png"] = ".png", ["image/jpeg"] = ".jpg", ["image/webp"] = ".webp" };
     private static readonly Dictionary<string, (byte[] Jpg, DateTime At)> Previews = new();
 
@@ -66,6 +66,8 @@ public static class LiveApi
                     .Select(f => new LiveFolder { ZidooFolder = f.ZidooFolder.Trim(), LocalFolder = f.LocalFolder.Trim() }).ToList();
             });
             if (b.Folders != null) svc.ForgetPosters();
+            // Changed settings show at once: each screen takes the new slideshow as soon as it's made.
+            foreach (var sc in cfg.Screens) svc.RuntimeOf(sc.Id).WantNext = true;
             _ = svc.RefreshAcclaimedAsync();
             return Results.Ok(new { cfg.StopWaitSeconds, cfg.SlideSeconds, cfg.AcclaimedMin });
         });
@@ -257,7 +259,7 @@ public static class LiveApi
             var state = svc.StateFor(token ?? "", ended ?? "");
             return state == null ? Results.Json(new { Paired = false }, statusCode: 401) : Results.Ok(state);
         });
-        app.MapGet("/live/media/{file}", (string file) =>
+        app.MapGet("/live/media/{**file}", (string file) =>
         {
             if (!MediaName.IsMatch(file)) return Results.NotFound();
             string path = Path.Combine(live.RenderDir, file);

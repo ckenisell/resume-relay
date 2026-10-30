@@ -34,7 +34,9 @@ public sealed record EntryInfo(int Id, int ParentId, int VideoInfoId, string Nam
 public enum Lookup { Found, NotFound, Failed }
 
 /// <summary>A row of a library listing. Type: 0 file, 1 movie, 2 collection, 3 series, 4 season, 5 episode.</summary>
-public sealed record LibraryRow(int Id, int Type, string Name, int CollectionId, int Year);
+/// <summary>A poster-wall tile or a collection member. Rating: the wall's "voteAverage", which for movies is the IMDb
+/// rating (getDetail's displayRating, displayRatingType 2); 0 for series and seasons.</summary>
+public sealed record LibraryRow(int Id, int Type, string Name, int CollectionId, int Year, double Rating = 0);
 
 /// <summary>
 /// Thin wrapper over the Zidoo Home Theater HTTP API (port 9529). Every call is a plain GET.
@@ -199,8 +201,18 @@ public sealed class ZidooClient
             if (e.ValueKind != JsonValueKind.Object) continue;
             int id = Int(e, "id");
             if (id <= 0) continue;
-            list.Add(new LibraryRow(id, Int(e, "type"), Str(e, "name"), Int(e, "collectionId"), Int(e, "year")));
+            list.Add(new LibraryRow(id, Int(e, "type"), Str(e, "name"), Int(e, "collectionId"), Int(e, "year"), J.Dbl(e, "voteAverage")));
         }
+        return list;
+    }
+
+    /// <summary>An entry's children with their paths (a movie's files, a season's episodes…), for finding a title's folder.</summary>
+    public async Task<List<(int Id, int Type, string Path)>> EntryChildrenAsync(int id, CancellationToken ct = default)
+    {
+        using var doc = await GetLibraryJsonAsync($"/ZidooPoster/v2/getEntry?id={id}&start=0&count=100", ct);
+        var list = new List<(int, int, string)>();
+        if (doc == null || !doc.RootElement.TryGetProperty("children", out var arr) || arr.ValueKind != JsonValueKind.Array) return list;
+        foreach (var e in arr.EnumerateArray()) list.Add((Int(e, "id"), Int(e, "type"), Str(e, "path")));
         return list;
     }
 

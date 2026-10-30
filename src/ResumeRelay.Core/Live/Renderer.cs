@@ -205,7 +205,10 @@ public sealed class Renderer
     public Task<string?> ReelAsync(IReadOnlyList<string> slides, int priority = 6)
     {
         string key = Hash("reel|" + string.Join("|", slides.Select(Path.GetFileName)));
-        string output = Path.Combine(_live.RenderDir, key + ".mp4");
+        // Rounds are joined copies of their slides (one file, so the screen plays them without a gap). They go in
+        // their own folder and are deleted once no screen is playing them (see TidyReels).
+        Directory.CreateDirectory(ReelDir);
+        string output = Path.Combine(ReelDir, key + ".mp4");
         if (slides.Count == 1) return Task.FromResult<string?>(slides[0]);
         return Enqueue(key, output, "slideshow", priority, o =>
         {
@@ -388,16 +391,42 @@ public sealed class Renderer
 
     // ------------------------------------------------------------------ helpers
 
-    /// <summary>Removes made videos nobody has used for 30 days.</summary>
+    public string ReelDir => Path.Combine(_live.RenderDir, "reels");
+
+    /// <summary>Keeps the made videos in check: those not used for 30 days go, and if they still take more than
+    /// 20 GB, the least recently used go first. (A 4K slide is a few MB, so that's thousands of titles.)</summary>
+    public const long MaxBytes = 20L * 1024 * 1024 * 1024;
     public void Tidy()
     {
         try
         {
-            foreach (var f in Directory.GetFiles(_live.RenderDir))
-                if (DateTime.UtcNow - File.GetLastWriteTimeUtc(f) > TimeSpan.FromDays(30)) File.Delete(f);
+            var files = new DirectoryInfo(_live.RenderDir).GetFiles("*.mp4").OrderBy(f => f.LastWriteTimeUtc).ToList();
+            long total = files.Sum(f => f.Length);
+            foreach (var f in files)
+            {
+                bool old = DateTime.UtcNow - f.LastWriteTimeUtc > TimeSpan.FromDays(30);
+                if (!old && total <= MaxBytes) continue;
+                total -= f.Length;
+                f.Delete();
+            }
         }
         catch { }
     }
+
+    /// <summary>Deletes slideshow rounds no screen is playing (made more than 10 minutes ago). All of them at start.</summary>
+    public void TidyReels(IReadOnlyCollection<string> inUse, bool all = false)
+    {
+        try
+        {
+            if (!Directory.Exists(ReelDir)) return;
+            foreach (var f in new DirectoryInfo(ReelDir).GetFiles())
+                if (all || (!inUse.Contains("reels/" + f.Name) && DateTime.UtcNow - f.LastWriteTimeUtc > TimeSpan.FromMinutes(10))) f.Delete();
+        }
+        catch { }
+    }
+
+    /// <summary>The path a screen is given for a made video: relative to the renders folder ("x.mp4", "reels/x.mp4").</summary>
+    public string Rel(string file) => Path.GetRelativePath(_live.RenderDir, file).Replace('\\', '/');
 
     private static void Touch(string f) { try { File.SetLastWriteTimeUtc(f, DateTime.UtcNow); } catch { } }
 

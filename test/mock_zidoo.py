@@ -38,6 +38,11 @@ def now_ms():
     return int(time.time() * 1000)
 
 
+# Ratings as the HT app keeps them: the IMDb rating for movies (the wall's voteAverage), TMDB's for series (getDetail "tv").
+ZRATINGS = {"Braveheart": 8.3, "Arrival": 7.9}
+ZSERIES_TMDB = {"Andor": 8.4}
+
+
 def tiny_png(seed):
     """A valid 2x3 PNG, different per seed (a stand-in poster)."""
     raw = b"".join(b"\x00" + bytes([(seed * 37) % 256, (seed * 91) % 256, 120]) * 2 for _ in range(3))
@@ -97,7 +102,7 @@ class Player:
         """The poster wall: movies not in a collection, collections, series (as getVideoList lists them)."""
         in_coll = {m for c in self.collections.values() for m in c["members"]}
         rows = [dict(id=tid, parentId=t["parentId"], collectionId=tid if t["type"] == 3 else -1, aggregationId=tid + 1,
-                     type=t["type"], name=t["name"], year=2016)
+                     type=t["type"], name=t["name"], year=2016, voteAverage=ZRATINGS.get(t["name"], 0) if t["type"] == 1 else 0)
                 for tid, t in sorted(self.titles.items()) if t["type"] in (1, 3) and tid not in in_coll]
         # Real players open a collection by the tile's own id; collectionId here points at something else
         # (the series), the trap the 0.3.3-beta.3 reader fell into.
@@ -213,7 +218,7 @@ def make_handler():
                 if path == "/ZidooPoster/getCollection":
                     cid = int(q.get("id", 0))
                     if cid in p.collections:
-                        rows = [dict(id=m, parentId=-1, collectionId=-1, type=1, name=p.titles[m]["name"]) for m in p.collections[cid]["members"]]
+                        rows = [dict(id=m, parentId=-1, collectionId=-1, type=1, name=p.titles[m]["name"], voteAverage=ZRATINGS.get(p.titles[m]["name"], 0)) for m in p.collections[cid]["members"]]
                     elif cid in p.titles and p.titles[cid]["type"] == 3:
                         rows = [dict(id=k, parentId=cid, collectionId=-1, type=4, name=t["name"]) for k, t in sorted(p.titles.items()) if t["parentId"] == cid]
                     else:
@@ -227,6 +232,10 @@ def make_handler():
                     tid = int(q.get("id", 0))
                     if tid in p.titles and p.titles[tid]["type"] in (1, 4):
                         return self.send(p.detail(tid))
+                    if tid in p.titles and p.titles[tid]["type"] == 3:   # a series: no IMDb rating, TMDB's in "tv"
+                        name = p.titles[tid]["name"]
+                        return self.send(dict(status=200, id=tid, type=3, name=name,
+                                              tv=dict(name=name, displayRating=0, displayRatingType=2, voteAverage=ZSERIES_TMDB.get(name, 6.0))))
                     return self.send(dict(status=803, msg="not a movie or season"))
                 if path == "/ZidooPoster/v2/getPoster":
                     tid = int(q.get("id", 0))

@@ -37,6 +37,7 @@ public sealed class LiveService : BackgroundService
     private DateTime _acclaimedAt = DateTime.MinValue, _recentAt = DateTime.MinValue;
     private string _acclaimedNote = "";
     private readonly SemaphoreSlim _acclaimedGate = new(1, 1);
+    private readonly int _salt = Random.Shared.Next();
 
     public LiveService(Store store, LiveStore live, RelayEngine engine, PosterFinder finder, Renderer renderer)
     {
@@ -171,6 +172,8 @@ public sealed class LiveService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
         await _renderer.InitAsync(ct);
+        _renderer.TidyReels(Array.Empty<string>(), all: true);
+        var tidyReels = DateTime.UtcNow;
         _ = Task.Run(() => _renderer.RunQueueAsync(ct), ct);
         _ = Task.Run(() => DiscoveryAsync(ct), ct);
         var tidy = DateTime.UtcNow;
@@ -184,6 +187,11 @@ public sealed class LiveService : BackgroundService
                 foreach (var s in cfg.Screens) Update(s, cfg);
                 foreach (var id in _rt.Keys.Where(k => cfg.Screens.All(s => s.Id != k)).ToList()) _rt.TryRemove(id, out _);
                 if (DateTime.UtcNow - tidy > TimeSpan.FromHours(6)) { tidy = DateTime.UtcNow; _renderer.Tidy(); }
+                if (DateTime.UtcNow - tidyReels > TimeSpan.FromMinutes(5))
+                {
+                    tidyReels = DateTime.UtcNow;
+                    _renderer.TidyReels(_rt.Values.SelectMany(r => new[] { r.Url, r.IdleUrl }).Where(u => u.Length > 0).ToHashSet());
+                }
             }
             catch (Exception ex) { _store.Log(ActivityLevel.Error, "Live Poster: " + ex.Message); }
             try { await Task.Delay(1000, ct); } catch (OperationCanceledException) { return; }
@@ -229,10 +237,10 @@ public sealed class LiveService : BackgroundService
         Slideshow(s, rt, cfg);
     }
 
-    private static void Show(ScreenRuntime rt, string mode, string file, bool loop, string title)
+    private void Show(ScreenRuntime rt, string mode, string file, bool loop, string title)
     {
         rt.Mode = mode;
-        rt.Url = Path.GetFileName(file);
+        rt.Url = _renderer.Rel(file);
         rt.Loop = loop;
         rt.Title = title;
     }
@@ -312,8 +320,11 @@ public sealed class LiveService : BackgroundService
         }
         if (cfg.Acclaimed.Enabled && _acclaimed.Count > 0)
         {
-            int start = round * AcclaimedPerRound % _acclaimed.Count;
-            items.AddRange(Enumerable.Range(0, Math.Min(AcclaimedPerRound, _acclaimed.Count)).Select(i => _acclaimed[(start + i) % _acclaimed.Count]));
+            // 10 picked at random for each round: any title can come up again in a later round. The pick depends only on
+            // the screen and the round, so it stays the same while the round is being made and played.
+            var rnd = new Random(HashCode.Combine(s.Id, round, _salt));
+            var all = _acclaimed;
+            items.AddRange(Enumerable.Range(0, all.Count).OrderBy(_ => rnd.Next()).Take(AcclaimedPerRound).Select(i => all[i]));
         }
         return items;
     }
@@ -353,7 +364,7 @@ public sealed class LiveService : BackgroundService
                 var reel = _renderer.ReelAsync(slides);
                 if (reel.IsCompletedSuccessfully && reel.Result != null)
                 {
-                    rt.IdleUrl = Path.GetFileName(reel.Result);
+                    rt.IdleUrl = _renderer.Rel(reel.Result);
                     rt.IdleKey = key;
                     rt.RoundTitles = titles;
                     rt.WantNext = false;
@@ -399,37 +410,69 @@ public sealed class LiveService : BackgroundService
         _recentAll = list;
     }
 
-    /// <summary>Highly Acclaimed: every movie and series on the Plex server rated at least the minimum. Reread hourly.</summary>
+    /// <summary>
+    /// Highly Acclaimed: every movie and series rated at least the minimum. Reread hourly.
+    /// With Plex: the ratings Plex keeps (IMDb when that's its ratings source), plus movies only the Zidoos have.
+    /// Without Plex: the Zidoo's: IMDb for movies, TMDB for series (the HT app keeps no IMDb rating for series).
+    /// </summary>
     public async Task RefreshAcclaimedAsync(CancellationToken ct = default)
     {
         if (!await _acclaimedGate.WaitAsync(0, ct)) return;
         try
         {
             _acclaimedAt = DateTime.UtcNow;
-            var plex = _engine.PlexServer();
-            if (plex == null) { _acclaimed = new(); _acclaimedNote = "Highly Acclaimed needs Plex for now (Settings → Plex): it reads the ratings Plex keeps."; return; }
-            var rated = await plex.RatedTitlesAsync(ct);
-            if (rated == null) { _acclaimedNote = "The Plex server didn't answer; trying again in an hour."; _acclaimedAt = DateTime.UtcNow.AddMinutes(-50); return; }
             double min = _live.Get().AcclaimedMin;
-            var mappings = _store.Plex().Mappings;
             var list = new List<SlideItem>();
-            foreach (var r in rated.Where(r => r.Score >= min - 1e-9))
+            var keys = new HashSet<string>(StringComparer.Ordinal);
+            int fromPlex = 0, fromZidoo = 0;
+            bool plexFailed = false, zidooRead = false;
+            var plex = _engine.PlexServer();
+            if (plex != null)
             {
-                string file = r.Files.FirstOrDefault() ?? "";
-                if (r.Type == "show") file = await plex.AnyEpisodeFileAsync(r.Key, ct) ?? "";
-                string url = file.Length > 0 ? PlexPaths.ToSourceUrl(file, mappings) ?? "" : "";
-                string title = r.Year > 0 && r.Type == "movie" ? $"{r.Title} ({r.Year})" : r.Title;
-                list.Add(new SlideItem("acclaimed", title,
-                    new PosterRequest(url, file, "", false, 0, r.Type == "show", title, r.Key, r.Thumb), null)
-                    { Score = r.Score, Source = r.Source, Kind = r.Type });
+                var rated = await plex.RatedTitlesAsync(ct);
+                if (rated == null) plexFailed = true;
+                else
+                {
+                    var mappings = _store.Plex().Mappings;
+                    foreach (var r in rated.Where(r => r.Score >= min - 1e-9))
+                    {
+                        string file = r.Files.FirstOrDefault() ?? "";
+                        if (r.Type == "show") file = await plex.AnyEpisodeFileAsync(r.Key, ct) ?? "";
+                        string url = file.Length > 0 ? PlexPaths.ToSourceUrl(file, mappings) ?? "" : "";
+                        string title = r.Year > 0 && r.Type == "movie" ? $"{r.Title} ({r.Year})" : r.Title;
+                        if (url.Length > 0 && PlexPaths.RelOfUrl(url) is { } rel) keys.Add(PlexPaths.Key(rel));
+                        keys.Add(r.Type + "|" + r.Title.ToLowerInvariant());
+                        list.Add(new SlideItem("acclaimed", title, new PosterRequest(url, file, "", false, 0, r.Type == "show", title, r.Key, r.Thumb), null)
+                            { Score = r.Score, Source = r.Source, Kind = r.Type });
+                        fromPlex++;
+                    }
+                }
             }
-            // A different order every day, the same all day (so a round's slides are reused).
-            var rnd = new Random(DateTime.Today.DayOfYear + DateTime.Today.Year * 1000);
-            _acclaimed = list.OrderBy(_ => rnd.Next()).ToList();
-            _acclaimedNote = $"{list.Count:N0} title{(list.Count == 1 ? "" : "s")} rated {min:0.0} or higher (ratings as Plex keeps them).";
+            // The Zidoo's own ratings: everything when there's no Plex, else the titles Plex doesn't have.
+            var zidoo = _store.Devices().FirstOrDefault(d => !d.IsPlex && d.Enabled && _engine.LiveOf(d.Id).Online);
+            if (zidoo != null)
+            {
+                var rated = await ZidooRatings.ReadAsync(new ZidooClient(zidoo.Ip, zidoo.Port), min, ct);
+                zidooRead = true;
+                foreach (var r in rated)
+                {
+                    string? rel = PlexPaths.RelOfUrl(r.SourceUrl);
+                    if ((rel != null && keys.Contains(PlexPaths.Key(rel))) || keys.Contains(r.Kind + "|" + r.Title.ToLowerInvariant())) continue;
+                    string title = r.Year > 0 && r.Kind == "movie" ? $"{r.Title} ({r.Year})" : r.Title;
+                    list.Add(new SlideItem("acclaimed", title, new PosterRequest(r.SourceUrl, "", zidoo.Id, false, 0, r.Kind == "show", title), null)
+                        { Score = r.Score, Source = r.Source, Kind = r.Kind });
+                    fromZidoo++;
+                }
+            }
+            if (plexFailed && !zidooRead) { _acclaimedNote = "The Plex server didn't answer; trying again in 10 minutes."; _acclaimedAt = DateTime.UtcNow.AddMinutes(-50); return; }
+            if (plex == null && !zidooRead) { _acclaimedNote = "No player is on to read ratings from; trying again in 10 minutes."; _acclaimedAt = DateTime.UtcNow.AddMinutes(-50); return; }
+            _acclaimed = list.OrderBy(i => i.Title, StringComparer.OrdinalIgnoreCase).ToList();
+            string where = fromPlex > 0 && fromZidoo > 0 ? $" ({fromPlex:N0} from Plex, {fromZidoo:N0} only on the Zidoos)"
+                : fromZidoo > 0 ? " (from the Zidoo: IMDb for movies, TMDB for series)" : "";
+            _acclaimedNote = $"{list.Count:N0} title{(list.Count == 1 ? "" : "s")} rated {min:0.0} or higher{where}. 10 picked at random each round.";
         }
         catch (OperationCanceledException) { }
-        catch (Exception ex) { _acclaimedNote = "Reading ratings from Plex failed: " + ex.Message; }
+        catch (Exception ex) { _acclaimedNote = "Reading the ratings failed: " + ex.Message; }
         finally { _acclaimedGate.Release(); }
     }
 

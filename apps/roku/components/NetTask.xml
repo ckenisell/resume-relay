@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- Talks to Resume Relay: finds it on the network, pairs (shows a code), then asks every 2 seconds what to play. -->
+<component name="NetTask" extends="Task">
+  <interface>
+    <field id="phase" type="string" />
+    <field id="code" type="string" />
+    <field id="message" type="string" />
+    <field id="screenName" type="string" />
+    <field id="server" type="string" />
+    <field id="video" type="assocarray" />
+    <field id="ended" type="string" alwaysNotify="true" />
+    <field id="serverInput" type="string" alwaysNotify="true" />
+    <field id="command" type="string" alwaysNotify="true" />
+  </interface>
+  <script type="text/brightscript" uri="NetTask.brs" />
+</component>

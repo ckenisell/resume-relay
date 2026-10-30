@@ -1,0 +1,11 @@
+title=Resume Relay
+subtitle=Live Poster screen
+major_version=0
+minor_version=6
+build_version=1
+mm_icon_focus_hd=pkg:/images/icon_hd.png
+mm_icon_focus_fhd=pkg:/images/icon_fhd.png
+splash_screen_fhd=pkg:/images/splash_fhd.png
+splash_color=#151A2E
+splash_min_time=600
+ui_resolutions=fhd

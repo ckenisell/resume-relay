@@ -88,7 +88,7 @@ jobs:
           path: artifacts/*.exe
 
   android:
-    name: Screen app for Android (Fire TV, Google TV, phones and tablets)
+    name: Screen apps (Android and Roku)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -108,14 +108,22 @@ jobs:
           export RR_VERSION="${RELEASE_TAG#v}"; [[ -n "$RR_VERSION" ]] || RR_VERSION="$V-dev"
           # Signed with the project's key when it's set up (repository secrets), so updates install over each other.
           if [[ -n "$KS_B64" ]]; then echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/rr.jks"; export RR_KEYSTORE="$RUNNER_TEMP/rr.jks" RR_KEYSTORE_PASSWORD="$KS_PW"; fi
-          gradle -p apps/android --no-daemon assembleRelease
+          # The build's errors are repeated as annotations (readable on the run's summary page).
+          if ! gradle -p apps/android --no-daemon assembleRelease > "$RUNNER_TEMP/gradle.log" 2>&1; then
+            grep -E "^e: |error:|What went wrong|> |Could not|FAILED" "$RUNNER_TEMP/gradle.log" | head -40 | while IFS= read -r l; do echo "::error::${l}"; done
+            tail -60 "$RUNNER_TEMP/gradle.log"; exit 1
+          fi
           mkdir -p artifacts
           cp apps/android/app/build/outputs/apk/release/app-release.apk "artifacts/ResumeRelay-Screen-$RR_VERSION-android.apk"
+          # The Roku app is a zip of its folder (installed from the Roku's developer page until it's in the Roku store).
+          (cd apps/roku && sed -i "s/^build_version=.*/build_version=${GITHUB_RUN_NUMBER}/" manifest && zip -qr "$GITHUB_WORKSPACE/artifacts/ResumeRelay-Screen-$RR_VERSION-roku.zip" manifest source components images)
           ls -la artifacts
       - uses: actions/upload-artifact@v4
         with:
           name: android
-          path: artifacts/*.apk
+          path: |
+            artifacts/*.apk
+            artifacts/*.zip
 
   release:
     name: Publish release

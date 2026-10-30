@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+  Live Poster on a Roku. The poster arrives as a 4K video (Roku draws an app's own pictures at 1080p but plays video
+  at full 4K), so the scene is just a full-screen Video, plus a panel for finding Resume Relay and pairing.
+-->
+<component name="MainScene" extends="Scene">
+  <script type="text/brightscript" uri="MainScene.brs" />
+  <children>
+    <Video id="video" width="1920" height="1080" translation="[0,0]" />
+    <Rectangle id="panel" width="1920" height="1080" color="0x151A2EFF">
+      <LayoutGroup id="box" translation="[960,520]" horizAlignment="center" vertAlignment="center" itemSpacings="[24, 12, 24]">
+        <Label id="title" width="1600" horizAlign="center" color="0xFFFFFFFF" font="font:LargeBoldSystemFont" />
+        <Label id="code" width="1600" horizAlign="center" color="0xF0B44CFF" font="font:LargeBoldSystemFont" />
+        <Label id="message" width="1300" horizAlign="center" wrap="true" color="0xC8C4D8FF" font="font:MediumSystemFont" />
+        <Label id="hint" width="1300" horizAlign="center" wrap="true" color="0x9C99B5FF" font="font:SmallSystemFont" text="Press OK on the remote for options." />
+      </LayoutGroup>
+    </Rectangle>
+    <Label id="status" translation="[40,1020]" color="0x9C99B5FF" font="font:SmallSystemFont" visible="false" />
+    <Timer id="retry" duration="5" repeat="false" />
+  </children>
+</component>

@@ -319,12 +319,66 @@ body.pr-dragging, body.pr-dragging * { cursor: grabbing !important; }
 .help:hover { color: var(--text); border-color: var(--muted); }
 /* Settings sections */
 a.btn { text-decoration: none; color: var(--text); display: inline-flex; align-items: center; }
-.set-sec { margin-top: 26px; max-width: 900px; }
-.set-sec h3 { font-size: 15px; margin: 0 0 4px; display: flex; align-items: center; }
-.set-sec p { color: var(--muted); font-size: 12.5px; margin: 0 0 10px; }
-.set-sec .row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; color: var(--muted); font-size: 13px; }
-.set-sec label.sw { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; color: var(--text); margin-bottom: 8px; }
-.set-sec label.sw input { accent-color: var(--amber); }
+/* Settings: groups, each with a colored heading and a divider to the right edge, made of compact setting cards.
+   The colors only say which group you're in: amber Plex (like the Plex badge), blue resume points, green watched
+   marks, white for the app itself. Purple is kept free for Jellyfin. */
+:root { --sg-plex: var(--amber); --sg-resume: #6FA8F5; --sg-watched: var(--ok); --sg-app: var(--text); }
+@media (prefers-color-scheme: light) { :root { --sg-resume: #2F6DB5; } }
+#settings { max-width: 1040px; }
+.set-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin-bottom: 18px; }
+.set-head h2 { margin: 0; font-size: 22px; }
+.set-jump { display: flex; gap: 8px; overflow-x: auto; max-width: 100%; }
+.set-jump a { --c: var(--text); text-decoration: none; color: var(--c); font-size: 13px; font-weight: 600; white-space: nowrap; padding: 6px 12px; border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--c) 40%, var(--line)); background: color-mix(in srgb, var(--c) 9%, var(--panel)); }
+.set-jump a:hover { background: color-mix(in srgb, var(--c) 18%, var(--panel)); }
+.set-jump .plex { --c: var(--sg-plex); } .set-jump .resume { --c: var(--sg-resume); }
+.set-jump .watched { --c: var(--sg-watched); } .set-jump .app { --c: var(--sg-app); }
+.sg { --c: var(--text); margin-top: 28px; scroll-margin-top: 170px; }
+.sg.resume { --c: var(--sg-resume); } .sg.watched { --c: var(--sg-watched); } .sg.app { --c: var(--sg-app); }
+.sg-h { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; font-size: 13px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--c); white-space: nowrap; }
+.sg-h::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--c); flex: none; }
+.sg-h::after { content: ""; flex: 1; height: 1px; background: color-mix(in srgb, var(--c) 45%, var(--line)); }
+.sg-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(380px, 100%), 1fr)); gap: 12px; align-items: start; }
+.st-t + .help { margin-right: 4px; }
+.st .row:has(> .st-chip:empty) { display: none; }
+.sg-grid > form { display: contents; }
+.sg-col { display: flex; flex-direction: column; gap: 12px; }
+.st { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; min-height: 60px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; }
+.st.wide { grid-column: 1 / -1; }
+.st.stack { flex-direction: column; align-items: stretch; }
+.st .row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; }
+.st .push { margin-left: auto; }
+.st-l { flex: 1 1 auto; }
+.st-t { font-weight: 650; }
+.st-d { flex: 1 1 200px; display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13.5px; }
+.st-u { color: var(--muted); font-size: 13.5px; min-width: 2.2em; }
+.st input[type="number"] { width: 4.5em; height: 36px; padding: 0 6px; text-align: center; border-radius: var(--radius-sm); border: 1px solid var(--line); background: var(--bg); }
+.st .help { width: 26px; height: 26px; margin-left: 0; vertical-align: 0; font-size: 12.5px; }
+.tg { appearance: none; -webkit-appearance: none; flex: none; width: 44px; height: 24px; border-radius: 12px; margin: 0; position: relative; cursor: pointer; background: var(--line); }
+.tg::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: var(--muted); transition: transform .15s; }
+.tg:checked { background: color-mix(in srgb, var(--ok) 60%, var(--panel-2)); }
+.tg:checked::after { transform: translateX(20px); background: #fff; }
+.tg:disabled { opacity: .45; cursor: default; }
+.tg-l { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; }
+/* Status chips: green when all is well, yellow when something needs doing, red for a problem. */
+.st-chip { font-size: 12px; line-height: 1.4; padding: 3px 10px; border-radius: 12px; color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 12%, var(--panel)); border: 1px solid color-mix(in srgb, var(--ok) 40%, var(--line)); }
+.st-chip:empty { display: none; }
+.st-chip.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, var(--panel)); border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); }
+.st-chip.bad { color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, var(--panel)); border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
+.st-chip.off { color: var(--muted); background: var(--panel-2); border-color: var(--line); }
+.st-chip .btn.quiet { padding: 0 2px; font-size: 12px; color: inherit; text-decoration: underline; }
+.set-saved { text-align: center; color: var(--muted); font-size: 12.5px; margin: 28px 0 0; }
+#settings .foot { text-align: center; margin-top: 6px; }
+@media (max-width: 600px) {
+  .set-jump { margin: 0 -16px; padding: 0 16px 4px; max-width: none; width: calc(100% + 32px); }
+  .set-jump a { padding: 8px 12px; }
+  .sg { scroll-margin-top: 110px; margin-top: 24px; }
+  .st { padding: 10px 12px; }
+  .st .btn { min-height: 40px; }
+  .st .help { width: 30px; height: 30px; }
+}
 /* ---------- Live Poster ---------- */
 .lp-status { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; font-size: 13px; color: var(--muted); margin: 0 0 16px; }
 .lp-status.warn { color: var(--warn); }
@@ -417,10 +471,6 @@ dialog.info { max-width: min(680px, 94vw); }
 .info-body ul { margin: 4px 0; padding-left: 20px; }
 .info-body pre { background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; white-space: pre-wrap; word-break: break-all; font-size: 12.5px; }
 .info-body code { background: var(--panel-2); border-radius: 4px; padding: 0 4px; font-size: .92em; }
-.set-updates { margin-top: 6px; display: flex; flex-direction: column; gap: 8px; max-width: 900px; }
-.set-updates label { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; }
-.set-updates label input { accent-color: var(--amber); }
-.set-updates .row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; color: var(--muted); font-size: 13px; }
 /* ---------- Zidoo / Plex badges ---------- */
 .kb { display: inline-flex; align-items: center; gap: 5px; vertical-align: -3px; font-size: 12px; font-weight: 650; padding: 1px 7px 1px 4px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); white-space: nowrap; }
 .kb svg, .kb img { width: 16px; height: 16px; flex: none; object-fit: contain; }
@@ -436,8 +486,20 @@ table.pr th .kb.icon svg, table.pr th .kb.icon img, .pr-head .kb.icon svg, .pr-h
 /* ---------- Plex card ---------- */
 .plex-hint { margin-top: 18px; color: var(--muted); font-size: 13.5px; }
 .plex-hint .btn { color: var(--amber); padding-left: 2px; }
-.plex-card { margin-top: 26px; scroll-margin-top: 170px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 16px 18px; max-width: 900px; }
-.plex-card h3 { margin: 0 0 4px; font-size: 17px; display: flex; align-items: center; gap: 10px; }
+/* The Plex card: a header line (status and a summary) and the setup below it. Once set up, the triangle at the
+   top right folds the setup away; it opens by itself when Plex has a problem. */
+.plex-card { scroll-margin-top: 170px; background: var(--panel); border: 1px solid var(--line); border-top: 3px solid var(--sg-plex); border-radius: var(--radius-lg); overflow: hidden; }
+.plex-card.problem { border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); border-top-color: var(--bad); }
+.pc-head { display: flex; align-items: center; gap: 12px; padding: 14px 18px; }
+.pc-title { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.pc-sum { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+.pc-tog { width: 40px; height: 40px; flex: none; padding: 0; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); display: grid; place-items: center; cursor: pointer; }
+.pc-tog:hover { border-color: var(--muted); }
+.pc-tog svg { width: 16px; height: 16px; fill: currentColor; transition: transform .2s; }
+.plex-card.collapsed .pc-tog svg { transform: rotate(-90deg); }
+.pc-body { border-top: 1px solid var(--line); padding: 4px 18px 16px; }
+.plex-card.collapsed .pc-body { display: none; }
+.plex-card h3 { margin: 0; font-size: 17px; display: flex; align-items: center; gap: 10px; }
 .plex-card h4 { margin: 18px 0 6px; font-size: 14px; }
 .plex-card p { margin: 4px 0 10px; color: var(--muted); font-size: 13px; }
 .plex-card p b { color: var(--text); }
@@ -457,17 +519,17 @@ table.pr th .kb.icon svg, table.pr th .kb.icon img, .pr-head .kb.icon svg, .pr-h
 .plex-test ul { margin: 6px 0 0; padding-left: 18px; color: var(--muted); overflow-wrap: anywhere; }
 .plex-foot { display: flex; justify-content: flex-end; margin-top: 12px; }
 @media (max-width: 600px) {
-  .plex-card { padding: 14px; scroll-margin-top: 110px; }
+  .plex-card { scroll-margin-top: 110px; }
+  .pc-head { padding: 12px 12px 12px 14px; }
+  .pc-tog { width: 44px; height: 44px; }
+  .pc-body { padding: 4px 14px 14px; }
   .plex-row input { flex-basis: 100%; }
   .plex-row .arrow { display: none; }
   #plex-maps .plex-row { padding-bottom: 8px; border-bottom: 1px solid var(--line); }
 }
 /* ---------- Settings: badge icons ---------- */
-.plex-card h3 .kb.icon svg, .plex-card h3 .kb.icon img { width: 22px; height: 22px; }
-.icons-set { margin-top: 26px; max-width: 900px; }
-.icons-set h3 { font-size: 15px; margin: 0 0 4px; }
-.icons-set p { color: var(--muted); font-size: 12.5px; margin: 0 0 10px; }
-.icon-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 8px 0; }
+.pc-head .kb.icon svg, .pc-head .kb.icon img { width: 22px; height: 22px; }
+.icon-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 4px 0; }
 .icon-row .kb { min-width: 74px; }
 /* Brief notice, e.g. after Launch HT. */
 .toast { position: fixed; left: 50%; bottom: 24px; width: max-content; transform: translate(-50%, 12px); max-width: min(92vw, 460px); background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-left: 4px solid var(--ok); border-radius: 10px; padding: 10px 16px; font-size: 13.5px; box-shadow: 0 8px 28px rgba(0,0,0,.35); opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; z-index: 50; }
@@ -521,14 +583,6 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
 .sys.Error { color: var(--bad); } .sys.Warn .ic { color: var(--warn); } .sys.Ok .ic { color: var(--ok); }
 
 /* ---------- settings ---------- */
-.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px 24px; max-width: 900px; }
-.fields label { display: block; font-weight: 600; font-size: 14px; }
-.fields label span { display: block; font-weight: 400; color: var(--muted); font-size: 12.5px; margin-bottom: 6px; }
-.fields input { width: 7em; padding: 7px 10px; border-radius: var(--radius-sm); border: 1px solid var(--line); background: var(--panel); }
-.autostart { display: flex; gap: 12px; align-items: flex-start; margin: 4px 0 24px; max-width: 70ch; cursor: pointer; }
-.autostart input { width: 18px; height: 18px; margin: 3px 0 0; accent-color: var(--amber); flex: none; cursor: pointer; }
-.autostart span { color: var(--muted); font-size: 13px; }
-.autostart strong { display: block; color: var(--text); font-size: 14px; font-weight: 600; }
 .foot { color: var(--muted); font-size: 12.5px; margin-top: 28px; overflow-wrap: anywhere; }
 .foot a { color: inherit; }
 
@@ -718,57 +772,98 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
   </section>
 
   <section id="settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
-    <h2>Settings</h2>
-    <p class="hint">Changes are saved as soon as you leave a box.</p>
-    <label class="autostart" id="autostart-row" hidden>
-      <input type="checkbox" id="autostart">
-      <span><strong>Start Resume Relay when Windows starts</strong>
-      It opens quietly in the tray, so bookmarks are copied without you having to open it.</span>
-    </label>
-    <form id="settings-form" class="fields">
-      <label>Check players every
-        <span>Seconds between asking each player what it is playing.</span>
-        <input type="number" name="pollSeconds" min="1" max="60" required> s</label>
-      <label>Keep waiting copies for
-        <span>A player that stays off longer than this misses the copy.</span>
-        <input type="number" name="pendingMaxDays" min="1" max="365" required> days</label>
-    </form>
-    <div class="set-sec">
-      <h3>Catch Up<button class="help" data-help="catchup" aria-label="About Catch Up">?</button></h3>
-      <p>After Resume Relay has been off (the computer was off, an update, a power cut), it reads the players and copies whatever was watched meanwhile. The newest stop wins, as always.</p>
-      <label class="sw"><input type="checkbox" id="set-catchup"> Catch up automatically after Resume Relay has been off</label>
-      <div class="row"><button class="btn" id="set-catchnow">Catch up now</button><span id="set-catchstatus"></span></div>
-    </div>
-    <div class="set-sec">
-      <h3>Watched marks<button class="help" data-help="watchedsync" aria-label="About watched-mark syncing">?</button></h3>
-      <p>When a title is marked watched or unwatched on a player (in the Zidoo's HT app, or in Plex), Resume Relay copies the mark to the other players. Players don't announce these, so Resume Relay checks for them every few minutes.</p>
-      <label class="sw"><input type="checkbox" id="set-wsync"> Copy watched marks set on a player to the other players</label>
-      <div class="row"><label>Check every <input type="number" id="set-wsync-min" min="2" max="1440" style="width:5em"> minutes</label>
-        <button class="btn" id="set-wsync-now">Check now</button><span id="set-wsync-status"></span></div>
-    </div>
-    <div class="set-sec">
-      <h3>Back up and restore<button class="help" data-help="backup" aria-label="About backups">?</button></h3>
-      <p>One file with your players, their names, these settings, the Plex setup and your badge pictures. Use it to move Resume Relay to another computer or a NAS, or after reinstalling.</p>
-      <div class="row"><a class="btn" id="set-backup" href="/api/backup" download>Back up settings</a>
-        <label class="btn">Restore from a backup…<input type="file" id="set-restore" accept="application/json,.json" hidden></label></div>
-    </div>
-    <div class="set-sec">
-      <h3>Getting started</h3>
-      <div class="row"><button class="btn" id="set-setup">Show the getting-started checklist</button></div>
-    </div>
-    <div class="set-sec"><h3>New versions<button class="help" data-help="updates" aria-label="About update checks">?</button></h3></div>
-    <div class="set-updates">
-      <label><input type="checkbox" id="set-check"> Tell me when a new version is out</label>
-      <label><input type="checkbox" id="set-betas"> Include beta versions</label>
-      <div class="row"><button class="btn" id="set-checknow">Check now</button><span id="set-checked"></span></div>
+    <div class="set-head">
+      <h2>Settings</h2>
+      <nav class="set-jump" aria-label="Jump to">
+        <a href="#plex-card" class="plex">Plex</a>
+        <a href="#set-resume" class="resume">Resume points</a>
+        <a href="#set-watched" class="watched">Watched marks</a>
+        <a href="#set-app" class="app">App</a>
+      </nav>
     </div>
     <p class="msg" id="set-msg" role="status"></p>
+
     <section class="plex-card" id="plex-card" aria-labelledby="plex-h"></section>
-    <div class="icons-set">
-      <h3>Activity badges</h3>
-      <p>Each Activity card shows whether the stop happened on a Zidoo or on Plex, and each player chip shows which kind it is. You can use your own small image for either badge; it's kept in Resume Relay's data folder on this computer.</p>
-      <div id="icon-rows"></div>
-    </div>
+
+    <section class="sg resume" id="set-resume" aria-labelledby="sg-resume-h">
+      <h3 class="sg-h" id="sg-resume-h">Resume points</h3>
+      <div class="sg-grid">
+        <form id="settings-form">
+          <div class="st">
+            <label class="st-l" for="set-poll">Check players every</label>
+            <input type="number" id="set-poll" name="pollSeconds" min="1" max="60" required><span class="st-u">sec</span>
+            <button type="button" class="help" data-help="poll" aria-label="About checking players">?</button>
+          </div>
+          <div class="st">
+            <label class="st-l" for="set-keep">Keep waiting copies</label>
+            <input type="number" id="set-keep" name="pendingMaxDays" min="1" max="365" required><span class="st-u">days</span>
+            <button type="button" class="help" data-help="keep" aria-label="About waiting copies">?</button>
+          </div>
+        </form>
+        <div class="st wide">
+          <input type="checkbox" class="tg" id="set-catchup">
+          <label class="st-t" for="set-catchup">Catch Up</label>
+          <button class="help" data-help="catchup" aria-label="About Catch Up">?</button>
+          <span class="st-d">After Resume Relay has been off</span>
+          <span class="st-chip" id="set-catchstatus"></span>
+          <button class="btn" id="set-catchnow">Catch up now</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="sg watched" id="set-watched" aria-labelledby="sg-watched-h">
+      <h3 class="sg-h" id="sg-watched-h">Watched marks</h3>
+      <div class="sg-grid">
+        <div class="st wide">
+          <input type="checkbox" class="tg" id="set-wsync">
+          <label class="st-t" for="set-wsync">Copy watched marks</label>
+          <button class="help" data-help="watchedsync" aria-label="About watched-mark syncing">?</button>
+          <span class="st-d"><label for="set-wsync-min">every</label> <input type="number" id="set-wsync-min" min="2" max="1440"> <span class="st-u">min</span></span>
+          <span class="st-chip" id="set-wsync-status"></span>
+          <button class="btn" id="set-wsync-now">Check now</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="sg app" id="set-app" aria-labelledby="sg-app-h">
+      <h3 class="sg-h" id="sg-app-h">App</h3>
+      <div class="sg-grid">
+        <div class="st stack set-updates">
+          <div class="row"><span class="st-l st-t">New versions</span>
+            <button class="help" data-help="updates" aria-label="About update checks">?</button></div>
+          <div class="row"><span class="st-chip" id="set-checked"></span></div>
+          <div class="row">
+            <label class="tg-l"><input type="checkbox" class="tg" id="set-check"> Tell me when one is out</label>
+            <label class="tg-l"><input type="checkbox" class="tg" id="set-betas"> Include betas</label>
+            <button class="btn push" id="set-checknow">Check now</button>
+          </div>
+        </div>
+        <div class="st stack">
+          <div class="row"><span class="st-l st-t">Back up and restore</span>
+            <button class="help" data-help="backup" aria-label="About backups">?</button></div>
+          <div class="row"><a class="btn" id="set-backup" href="/api/backup" download>Back up settings</a>
+            <label class="btn">Restore from a backup…<input type="file" id="set-restore" accept="application/json,.json" hidden></label></div>
+        </div>
+        <div class="st stack">
+          <div class="row"><span class="st-l st-t">Activity badges</span>
+            <button class="help" data-help="badges" aria-label="About Activity badges">?</button></div>
+          <div id="icon-rows"></div>
+        </div>
+        <div class="sg-col">
+          <div class="st" id="autostart-row" hidden>
+            <input type="checkbox" class="tg" id="autostart">
+            <label class="st-l" for="autostart">Start with Windows</label>
+            <button class="help" data-help="autostart" aria-label="About starting with Windows">?</button>
+          </div>
+          <div class="st">
+            <span class="st-l">Getting-started checklist</span>
+            <button class="btn" id="set-setup">Show</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <p class="set-saved">Changes save as soon as you leave a box.</p>
     <p class="foot" id="foot"></p>
   </section>
 </main>
@@ -1800,16 +1895,23 @@ let busy = false;
 // ---------------- Plex card ----------------
 // Sign in with a code at plex.tv/link → pick the server → map the folders → add users. Each user becomes a player card.
 const plexUi = { folders: null, servers: null, users: null, test: null, mappings: null, suggested: null, choosing: false, msg: "", kind: "", busy: "" };
-let plexSig = "", plexPolling = false;
+let plexSig = "", plexPolling = false, plexWasProblem = false;
 function plexSay(msg, kind = "") { plexUi.msg = msg; plexUi.kind = kind; renderPlex(true); }
 
-$("#plex-go").onclick = () => { showTab("settings"); $("#plex-card").scrollIntoView({ behavior: "smooth", block: "start" }); };
+$("#plex-go").onclick = () => { showTab("settings"); store.set("rr.plexCollapsed", ""); renderPlex(true); $("#plex-card").scrollIntoView({ behavior: "smooth", block: "start" }); };
 
 function renderPlex(force = false) {
   const box = $("#plex-card"), p = state?.plex; if (!box || !p) return;
   $("#plex-hint").hidden = !!(p.server && p.users?.length);
   if (!force && box.contains(document.activeElement) && document.activeElement.matches("input")) return; // don't redraw under typing
-  const sig = JSON.stringify([p, plexUi, state.icons]);
+  // Set up = signed in, a server chosen and at least one user added: only then can the card fold away.
+  const plexDevs = (state.devices || []).filter(d => d.kind === "plex");
+  const setUp = !!(p.signedIn && p.server && p.users?.length && !p.linking && !plexUi.choosing);
+  const problem = setUp && plexDevs.length > 0 && plexDevs.every(d => !d.online);
+  if (problem && !plexWasProblem) store.set("rr.plexCollapsed", ""); // open by itself so the problem is seen
+  plexWasProblem = problem;
+  const collapsed = setUp && !(plexUi.msg && plexUi.kind === "err") && store.get("rr.plexCollapsed") === "1";
+  const sig = JSON.stringify([p, plexUi, state.icons, problem, collapsed]);
   if (!force && sig === plexSig) return;
   plexSig = sig;
   const busy = what => plexUi.busy === what ? "disabled" : "";
@@ -1875,7 +1977,19 @@ function renderPlex(force = false) {
           <button class="btn" data-plex="adduser" data-uuid="${esc(u.uuid)}" ${busy("add:" + u.uuid)}>Add</button>`}</li>`).join("")}</ul>`}
       <div class="plex-foot"><button class="btn quiet danger" data-plex="signout">Sign out of Plex</button></div>`;
   }
-  box.innerHTML = `<h3 id="plex-h">${kindBadge("plex", true)} Plex</h3>${body}${plexUi.msg ? `<p class="msg ${esc(plexUi.kind)}" role="status">${esc(plexUi.msg)}</p>` : ""}`;
+  const chip = p.linking ? `<span class="st-chip warn">Waiting for the code</span>`
+    : !p.signedIn ? ""
+    : !p.server || plexUi.choosing ? `<span class="st-chip warn">Choose a server</span>`
+    : !p.users?.length ? `<span class="st-chip warn">Add a Plex user</span>`
+    : problem ? `<span class="st-chip bad">Plex server isn't answering</span>` : `<span class="st-chip">✓ Connected</span>`;
+  const nm = (p.mappings || []).length, nu = (p.users || []).length;
+  const sum = setUp ? `<span class="pc-sum tnum">${esc(String(p.server.url || "").replace(/^https?:\/\//, ""))} · ${nm} folder${nm === 1 ? "" : "s"} · ${nu} user${nu === 1 ? "" : "s"}</span>` : "";
+  const tog = setUp ? `<button class="pc-tog" data-plex="toggle" aria-controls="plex-body" aria-expanded="${!collapsed}" aria-label="${collapsed ? "Show" : "Hide"} the Plex setup">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14l-7 9z"/></svg></button>` : "";
+  box.classList.toggle("collapsed", collapsed);
+  box.classList.toggle("problem", problem);
+  box.innerHTML = `<div class="pc-head"><span class="pc-title">${kindBadge("plex", true)}<h3 id="plex-h">Plex</h3>${chip}${sum}</span>${tog}</div>
+    <div class="pc-body" id="plex-body">${body}${plexUi.msg ? `<p class="msg ${esc(plexUi.kind)}" role="status">${esc(plexUi.msg)}</p>` : ""}</div>`;
 }
 
 async function plexWaitForLink() {
@@ -1929,6 +2043,7 @@ $("#plex-card").addEventListener("input", e => { if (e.target.matches("[data-map
 $("#plex-card").addEventListener("click", async e => {
   const b = e.target.closest("[data-plex]"); if (!b) return;
   const what = b.dataset.plex;
+  if (what === "toggle") { store.set("rr.plexCollapsed", $("#plex-card").classList.contains("collapsed") ? "" : "1"); renderPlex(true); return; }
   plexUi.msg = "";
   try {
     if (what === "signin") {
@@ -2060,6 +2175,7 @@ function renderUpdateSettings(s) {
   if (document.activeElement?.closest?.(".set-updates")) return;
   $("#set-check").checked = s.checkUpdates; $("#set-betas").checked = s.includeBetas; $("#set-betas").disabled = !s.checkUpdates;
   const u = state?.update;
+  $("#set-checked").className = "st-chip" + (!s.checkUpdates || !state.updateCheckedUtc ? " off" : u ? " warn" : "");
   $("#set-checked").innerHTML = !s.checkUpdates ? "Not checking." : !state.updateCheckedUtc ? "Not checked yet."
     : `Checked ${ago(state.updateCheckedUtc)}: ${u ? `<b>${esc(u.version)}</b> is out. <button class="btn quiet" data-up-how>How to update</button>` : "you have the newest version."}`;
 }
@@ -2089,7 +2205,12 @@ const HELP = {
   catchup: ["Catch Up", `<p>Resume Relay copies stops as they happen, so it can only miss something while it's off. When it starts after being off for more than a few minutes, it reads the players and, for every file watched meanwhile, copies the newest player's state to the others. Players that are off then are read when they come back on.</p>
     <p><b>Catch up now</b> does the same for the last 14 days: use it after changing things where Resume Relay can't see them, such as Z-Keeper. It can't see a Plex "mark as unplayed" (Plex keeps no time for it), and it needs the players' clocks to be right.</p>
     <p>Its card on the Activity tab has <b>Undo</b>.</p>`],
-  backup: ["Back up and restore", `<p><b>Back up settings</b> downloads one file. <b>Restore from a backup</b> replaces this Resume Relay's players, names, settings, Plex setup and badge pictures with the ones in the file. The Activity tab is kept.</p>
+  poll: ["Check players every", `<p>Seconds between asking each player what it is playing. A stop is noticed within this time, so a few seconds is plenty.</p>`],
+  keep: ["Keep waiting copies", `<p>When a player is off, the copy meant for it waits until it comes back on. A player that stays off longer than this misses the copy.</p>`],
+  autostart: ["Start with Windows", `<p>Resume Relay opens quietly in the tray when Windows starts, so resume points are copied without you having to open it.</p>`],
+  badges: ["Activity badges", `<p>Each Activity card shows whether the stop happened on a Zidoo or on Plex, and each player chip shows which kind it is. You can use your own small image for either badge; it's kept in Resume Relay's data folder on this computer.</p>`],
+  backup: ["Back up and restore", `<p>One file with your players, their names, these settings, the Plex setup and your badge pictures. Use it to move Resume Relay to another computer or a NAS, or after reinstalling.</p>
+    <p><b>Back up settings</b> downloads one file. <b>Restore from a backup</b> replaces this Resume Relay's players, names, settings, Plex setup and badge pictures with the ones in the file. The Activity tab is kept.</p>
     <p>The file includes your Plex sign-in, so keep it somewhere private.</p>`],
   updates: ["New versions", `<p>Once a day Resume Relay asks GitHub whether a newer version is out. Only the public list of versions is fetched; nothing about you or your players is sent. When there is one, a banner explains how to update.</p>
     <p><b>Include beta versions</b> also offers test versions (always on while you're running a beta).</p>`],

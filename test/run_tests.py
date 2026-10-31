@@ -791,6 +791,11 @@ check("a title marked watched in the HT app is marked watched on the other Zidoo
 check("...and played on Plex", wait_for(lambda: plexitem("1001", keys["Andor - S01E04.mkv"])["viewCount"] >= 1, 60))
 wc = next((e for e in events() if e.get("batch") and e["title"] == "Watched marks from Living Room"), None)
 check("...with an Activity card for it", wc is not None, str([e["title"] for e in events()[:5]]))
+plexmock("set", user="1001", key=keys["Andor - S01E04.mkv"], count=0, pos=0)   # marked unplayed in Plex
+http("POST", RELAY + "/api/watchedsync/check")
+check("a title marked unwatched in Plex is marked unwatched on the Zidoos",
+      wait_for(lambda: not any(bookmark(ip, E04).get("watched") for ip in (LR, BR, HT)), 240),
+      str(([bookmark(ip, E04) for ip in (LR, BR, HT)], wsync())))
 settings(watchedSync=False)
 
 # ---------------------------------------------------------------- 49. Live Poster

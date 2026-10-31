@@ -9,8 +9,8 @@ namespace ResumeRelay.Live;
 
 /// <summary>
 /// Makes the screens' videos with ffmpeg. A picture is a 2160×3840 portrait canvas: the background (an image or a
-/// looping video, cover-fitted), and the poster stretched to 2000×3000, centered (80 px at the sides, 420 at the top
-/// and bottom). TVs and sticks play landscape video, so for a TV turned on its side the canvas is turned into a
+/// looping video, cover-fitted), and the poster stretched to 2000×3000, centered across (80 px at the sides) and set
+/// low: 750 px from the top and 90 from the bottom, which leaves room above it for the background's header. TVs and sticks play landscape video, so for a TV turned on its side the canvas is turned into a
 /// 3840×2160 frame; a tablet held upright gets it as is. 1080p screens get the same at half size.
 ///
 /// Encoding uses the computer's video hardware when ffmpeg can (Intel Quick Sync / VA-API: the same hardware Plex
@@ -136,8 +136,8 @@ public sealed class Renderer
     public sealed record Layout(int W, int H, int PW, int PH, int PX, int PY);
 
     public static Layout LayoutFor(string resolution) => resolution == "1080"
-        ? new Layout(1080, 1920, 1000, 1500, 40, 210)
-        : new Layout(2160, 3840, 2000, 3000, 80, 420);
+        ? new Layout(1080, 1920, 1000, 1500, 40, 375)
+        : new Layout(2160, 3840, 2000, 3000, 80, 750);
 
     /// <summary>A TV turned with its top on the right shows the canvas turned a quarter left (and the other way round).</summary>
     private static string Turn(string mount) => mount switch { "right" => ",transpose=2", "left" => ",transpose=1", _ => "" };
@@ -187,7 +187,7 @@ public sealed class Renderer
         var l = LayoutFor(resolution);
         string enc = EncoderFor(codec);
         string bgPath = bg == null ? "" : _live.BackgroundPath(bg);
-        string key = Hash($"{kind}|{Stamp(bgPath)}|{Stamp(poster)}|{mount}|{resolution}|{seconds.ToString(CultureInfo.InvariantCulture)}|{enc}|v3");
+        string key = Hash($"{kind}|{Stamp(bgPath)}|{Stamp(poster)}|{mount}|{resolution}|{seconds.ToString(CultureInfo.InvariantCulture)}|{enc}|v4");
         string output = Path.Combine(_live.RenderDir, key + ".mp4");
         string label = kind == "hold" ? "Now Playing" : "slide";
         bool still = bg == null || bg.Kind != "video";
@@ -250,7 +250,7 @@ public sealed class Renderer
     public async Task<byte[]?> PreviewAsync(LiveBackground? bg, string? poster, CancellationToken ct = default)
     {
         if (Ffmpeg == null) return null;
-        var l = new Layout(540, 960, 500, 750, 20, 105);
+        var l = new Layout(540, 960, 500, 750, 20, 188);
         string bgPath = bg == null ? "" : _live.BackgroundPath(bg);
         string tmp = Path.Combine(_live.RenderDir, "preview-" + Guid.NewGuid().ToString("N")[..8] + ".jpg");
         var a = new StringBuilder("-hide_banner -loglevel error -y ");

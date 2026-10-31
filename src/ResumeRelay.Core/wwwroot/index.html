@@ -756,7 +756,7 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
 
     <div class="lp-sec">
       <h3>Backgrounds<button class="help" data-help="backgrounds" aria-label="About backgrounds">?</button></h3>
-      <p>Portrait, 2160×3840. Leave the middle 2000×3000 for the poster (80 px from the sides, 420 px from the top and bottom). Images: PNG, JPG or WebP. Videos: MP4, 10 to 20 seconds, made to loop.</p>
+      <p>Portrait, 2160×3840. Leave room for the 2000×3000 poster: 80 px from the sides, 750 px from the top and 90 px from the bottom. Images: PNG, JPG or WebP. Videos: MP4, 10 to 20 seconds, made to loop.</p>
       <div class="lp-bgs" id="lp-bgs"></div>
       <p class="lp-progress" id="lp-bg-progress" role="status"></p>
     </div>
@@ -2221,7 +2221,7 @@ const HELP = {
     <p><b>4K:</b> stick and TV apps draw their own pictures at 1080p but play video at 4K, so Resume Relay sends every picture as a short 4K video. Making one takes a few seconds (longer with a video background); each is made once and kept. Use 1080p for screens that can't play 4K video.</p>`],
   slideshow: ["Slideshow", `<p><b>Coming Soon</b>: the posters you add here. <b>Recently Watched</b>: the last 10 titles stopped on the screen's players. <b>Highly Acclaimed</b>: movies and whole series rated at least the minimum (the IMDb rating when Plex has it), 10 per round so they don't crowd out the others.</p>
     <p>Each set that's on gets its turn, with its own background. Posters fade in and out over the background.</p>`],
-  backgrounds: ["Backgrounds", `<p>A background fills the whole screen behind the poster. Design it at <b>2160×3840</b> (portrait) and keep the poster's place clear: the poster is <b>2000×3000</b>, centered, which leaves <b>80 px</b> at each side and <b>420 px</b> at the top and bottom for "NOW SHOWING" and the like.</p>
+  backgrounds: ["Backgrounds", `<p>A background fills the whole screen behind the poster. Design it at <b>2160×3840</b> (portrait) and keep the poster's place clear: the poster is <b>2000×3000</b>, centered across and set low: <b>80 px</b> at each side, <b>750 px</b> above it for "NOW SHOWING" and the like, and <b>90 px</b> below.</p>
     <p>Images: PNG, JPG or WebP. Videos: MP4, 10 to 20 seconds, made to loop seamlessly (the end flows into the start). Other sizes are scaled to cover the screen.</p>`],
   posterfolders: ["Poster folders", `<p>Posters are taken from the movie's or show's folder first (<code>Movie-poster.jpg</code>, <code>poster.jpg</code>, <code>season01-poster.jpg</code>…), then from Plex, then from the Zidoo (which keeps them at only 500×750).</p>
     <p>To open those folders, Resume Relay needs to know where this computer reaches the share the Zidoos use. If Plex runs on this computer, its folders (Settings → Plex) are used. Otherwise add a line here: the Zidoos' folder (like <code>smb://10.0.0.56/Entertainment</code>) and the same folder on this computer (like <code>/mnt/media</code>). On Windows, the share's own address works without a line.</p>`],

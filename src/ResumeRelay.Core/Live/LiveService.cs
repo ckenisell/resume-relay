@@ -419,7 +419,9 @@ public sealed class LiveService : BackgroundService
         bool canSwap = rt.IdleUrl.Length == 0 || rt.WantNext || rt.Mode != "idle";
         if (!pending && slides.Count > 0 && canSwap)
         {
-            if (rt.IdleKey == key && rt.IdleUrl.Length > 0) rt.WantNext = false; // nothing new: the same round again
+            // Nothing new (the same round again, e.g. a rebuild that picked the same titles in the same order): keep the
+            // video that's up, but say again what's in it (a rebuild clears the list).
+            if (rt.IdleKey == key && rt.IdleUrl.Length > 0) { rt.WantNext = false; rt.Partial = false; rt.RoundTitles = titles; }
             else
             {
                 var reel = _renderer.ReelAsync(slides);

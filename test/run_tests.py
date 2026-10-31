@@ -900,8 +900,11 @@ state_of(st["version"])
 check("a screen saying the round ended keeps getting a slideshow", wait_for(lambda: state_of()["mode"] == "idle", 10))
 v0 = state_of()["version"]
 http("POST", RELAY + f"/api/live/screens/{sid}/rebuild")
+# (With few titles the new round can come out the same as the one up: then the same video stays, with its titles.)
 check("Rebuild slideshow: a new round goes up without waiting for the current one to end",
-      wait_for(lambda: state_of()["version"] != v0 and state_of()["mode"] == "idle", 300), str(state_of()))
+      wait_for(lambda: state_of()["mode"] == "idle" and (state_of()["version"] != v0 or len(screen_of(sid)["roundTitles"]) > 0), 300),
+      str((state_of(), screen_of(sid)["roundTitles"])))
+check("...and the screen card still lists the round's titles", len(screen_of(sid)["roundTitles"]) > 0, str(screen_of(sid)))
 cfg = live()["config"]
 for k in ("comingSoon", "recentlyWatched", "acclaimed"):
     cfg[k]["enabled"] = k == "comingSoon"

@@ -72,6 +72,8 @@ public sealed class LiveService : BackgroundService
         public string IdleKey = "";             // what the current reel was made from
         public string BuildingKey = "";
         public List<string> RoundTitles = new();
+        /// <summary>The titles of the round up now, with the set each came from (the card's "See the titles").</summary>
+        public List<SlideItem> RoundShown = new();
         public bool AdvanceAfterEnd;
         public bool WantNext;
         /// <summary>The slideshow up is the start of a round still being made.</summary>
@@ -93,6 +95,12 @@ public sealed class LiveService : BackgroundService
         public double Score { get; init; }
         public string Source { get; init; } = "";
         public string Kind { get; init; } = "";
+        /// <summary>Highly Acclaimed: where the rating came from ("plex" or "zidoo").</summary>
+        public string From { get; init; } = "";
+        /// <summary>Recently Watched: when it was stopped, and on which player.</summary>
+        public DateTime TimeUtc { get; init; }
+        public string Player { get; init; } = "";
+        public string PlayerKind { get; init; } = "";
     }
 
     public sealed class PairRequest
@@ -205,7 +213,9 @@ public sealed class LiveService : BackgroundService
             {
                 var cfg = _live.Get();
                 RefreshRecent(cfg);
-                if (cfg.Acclaimed.Enabled && DateTime.UtcNow - _acclaimedAt > TimeSpan.FromHours(1)) _ = RefreshAcclaimedAsync(ct);
+                // Ratings are reread hourly, and only while a screen is on (pressing "Read the ratings again" always works).
+                if (cfg.Acclaimed.Enabled && DateTime.UtcNow - _acclaimedAt > TimeSpan.FromHours(1) && cfg.Screens.Any(sc => Awake(RuntimeOf(sc.Id))))
+                    _ = RefreshAcclaimedAsync(ct);
                 foreach (var s in cfg.Screens) Update(s, cfg);
                 foreach (var id in _rt.Keys.Where(k => cfg.Screens.All(s => s.Id != k)).ToList()) _rt.TryRemove(id, out _);
                 if (DateTime.UtcNow - tidy > TimeSpan.FromHours(6)) { tidy = DateTime.UtcNow; _renderer.Tidy(); }
@@ -261,9 +271,21 @@ public sealed class LiveService : BackgroundService
             return;
         }
 
-        // ---- Slideshow
+        // ---- Slideshow, only while the screen is on: a screen that hasn't checked in for a while gets no slideshow work
+        // (no posters read, no slides made). Now Playing above still is, so its poster is ready when the screen comes on.
+        if (!Awake(rt))
+        {
+            rt.Mode = "off"; rt.Url = ""; rt.Title = ""; rt.Note = "The screen is off: its slideshow is made when it comes back on.";
+            rt.MadeSlides = rt.TotalSlides = 0;
+            return;
+        }
         Slideshow(s, rt, cfg);
     }
+
+    /// <summary>A screen counts as on while its app keeps asking what to play (every few seconds).</summary>
+    public static readonly TimeSpan AwakeFor = TimeSpan.FromSeconds(
+        int.TryParse(Environment.GetEnvironmentVariable("RESUMERELAY_SCREEN_AWAKE"), out var a) && a > 0 ? a : 120);
+    public static bool Awake(ScreenRuntime rt) => rt.LastSeenUtc is { } seen && DateTime.UtcNow - seen < AwakeFor;
 
     /// <summary>The video format a screen gets: HEVC (Rokus play 4K only as HEVC; every 4K TV and stick plays it), or
     /// H.264 for web browsers (most can't play HEVC).</summary>
@@ -378,6 +400,7 @@ public sealed class LiveService : BackgroundService
         // The round up now may be replaced by the new one's first slides as soon as they're ready (not only at its end).
         rt.Partial = true;
         rt.RoundTitles = new();
+        rt.RoundShown = new();
     }
 
     private void Slideshow(LiveScreen s, ScreenRuntime rt, LiveConfig cfg)
@@ -390,9 +413,11 @@ public sealed class LiveService : BackgroundService
         var slides = new List<string>();
         bool pending = false;
         var titles = new List<string>();
+        var shown = new List<SlideItem>();
         // The slides ready from the start of the round, in order (up to the first one still being made).
         var firstSlides = new List<string>();
         var firstTitles = new List<string>();
+        var firstShown = new List<SlideItem>();
         foreach (var it in items)
         {
             string? poster = it.File;
@@ -408,8 +433,8 @@ public sealed class LiveService : BackgroundService
             if (!slide.IsCompleted) { pending = true; continue; }
             if (slide.IsCompletedSuccessfully && slide.Result != null)
             {
-                slides.Add(slide.Result); titles.Add(it.Title);
-                if (!pending) { firstSlides.Add(slide.Result); firstTitles.Add(it.Title); }
+                slides.Add(slide.Result); titles.Add(it.Title); shown.Add(it);
+                if (!pending) { firstSlides.Add(slide.Result); firstTitles.Add(it.Title); firstShown.Add(it); }
             }
         }
         rt.MadeSlides = pending ? slides.Count : 0;
@@ -421,7 +446,7 @@ public sealed class LiveService : BackgroundService
         {
             // Nothing new (the same round again, e.g. a rebuild that picked the same titles in the same order): keep the
             // video that's up, but say again what's in it (a rebuild clears the list).
-            if (rt.IdleKey == key && rt.IdleUrl.Length > 0) { rt.WantNext = false; rt.Partial = false; rt.RoundTitles = titles; }
+            if (rt.IdleKey == key && rt.IdleUrl.Length > 0) { rt.WantNext = false; rt.Partial = false; rt.RoundTitles = titles; rt.RoundShown = shown; }
             else
             {
                 var reel = _renderer.ReelAsync(slides);
@@ -430,6 +455,7 @@ public sealed class LiveService : BackgroundService
                     rt.IdleUrl = _renderer.Rel(reel.Result);
                     rt.IdleKey = key;
                     rt.RoundTitles = titles;
+                    rt.RoundShown = shown;
                     rt.WantNext = false;
                     rt.Partial = false;
                 }
@@ -446,6 +472,7 @@ public sealed class LiveService : BackgroundService
                 rt.IdleUrl = _renderer.Rel(reel.Result);
                 rt.IdleKey = string.Join("|", firstSlides.Select(Path.GetFileName));
                 rt.RoundTitles = firstTitles;
+                rt.RoundShown = firstShown;
                 rt.WantNext = false;
                 rt.Partial = true;
             }
@@ -469,7 +496,7 @@ public sealed class LiveService : BackgroundService
     /// <summary>Recently Watched: the last 10 titles stopped on these players (a TV show counts once per season).</summary>
     private List<SlideItem> RecentFor(List<string> players, HashSet<string> names) =>
         _recentAll.Where(i => i.Request != null && (players.Contains(i.Request.DeviceId) || names.Contains(i.Set["recent:".Length..])))
-            .Select(i => new SlideItem("recent", i.Title, i.Request, null))
+            .Select(i => new SlideItem("recent", i.Title, i.Request, null) { TimeUtc = i.TimeUtc, Player = i.Player, PlayerKind = i.PlayerKind })
             .DistinctBy(i => i.Title).Take(10).ToList();
 
     private static readonly Regex SeasonDir = new(@"^(?:season|series|staffel|saison|temporada|seizoen)[ ._-]*\d+$|^specials$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -498,7 +525,8 @@ public sealed class LiveService : BackgroundService
             // and shows the season poster of the episode watched last.
             string title = ep ? ShowName(e.SourceUrl, e.Title) : e.Title;
             list.Add(new SlideItem("recent:" + e.FromName, title,
-                new PosterRequest(e.SourceUrl, "", e.FromDeviceId, ep, season, false, title), null));
+                new PosterRequest(e.SourceUrl, "", e.FromDeviceId, ep, season, false, title), null)
+                { TimeUtc = e.TimeUtc, Player = e.FromName, PlayerKind = _store.Device(e.FromDeviceId)?.IsPlex == true ? "plex" : "zidoo" });
         }
         _recentAll = list;
     }
@@ -554,7 +582,7 @@ public sealed class LiveService : BackgroundService
                         if (r.Type == "show" && url.Length > 0 && PlexPaths.RelOfUrl(url) is { } srel) keys.Add(PlexPaths.Key(srel));
                         keys.Add(r.Type + "|" + r.Title.ToLowerInvariant());
                         list.Add(new SlideItem("acclaimed", title, new PosterRequest(url, file, "", false, 0, r.Type == "show", title, r.Key, r.Thumb), null)
-                            { Score = r.Score, Source = r.Source, Kind = r.Type });
+                            { Score = r.Score, Source = r.Source, Kind = r.Type, From = "plex" });
                         fromPlex++;
                     }
                 }
@@ -567,7 +595,7 @@ public sealed class LiveService : BackgroundService
                     if ((rel != null && keys.Contains(PlexPaths.Key(rel))) || keys.Contains(r.Kind + "|" + r.Title.ToLowerInvariant())) continue;
                     string title = r.Year > 0 && r.Kind == "movie" ? $"{r.Title} ({r.Year})" : r.Title;
                     list.Add(new SlideItem("acclaimed", title, new PosterRequest(r.SourceUrl, "", zidoo.Id, false, 0, r.Kind == "show", title), null)
-                        { Score = r.Score, Source = r.Source, Kind = r.Kind });
+                        { Score = r.Score, Source = r.Source, Kind = r.Kind, From = "zidoo" });
                     fromZidoo++;
                 }
             if (plexFailed && !zidooRead) { _acclaimedNote = "The Plex server didn't answer; trying again in 10 minutes."; _acclaimedAt = DateTime.UtcNow.AddMinutes(-50); return; }
@@ -583,6 +611,17 @@ public sealed class LiveService : BackgroundService
     }
 
     public IReadOnlyList<SlideItem> Acclaimed => _acclaimed;
+
+    /// <summary>The last 10 titles stopped on any player (a TV show once), newest first.</summary>
+    public List<SlideItem> RecentTitles() => _recentAll.DistinctBy(i => i.Title).Take(10).ToList();
+
+    /// <summary>A title's Highly Acclaimed rating, when it has one (for titles shown by the other sets too).</summary>
+    public SlideItem? RatingOf(string title)
+    {
+        var all = _acclaimed;
+        return all.FirstOrDefault(a => string.Equals(a.Title, title, StringComparison.OrdinalIgnoreCase))
+            ?? all.FirstOrDefault(a => a.Title.StartsWith(title + " (", StringComparison.OrdinalIgnoreCase));
+    }
 
     // ------------------------------------------------------------------ discovery
 

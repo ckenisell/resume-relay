@@ -39,7 +39,7 @@ public sealed class Settings
     public int PollSeconds { get; set; } = 3;
 
     /// <summary>Copies waiting for a sleeping player are dropped after this many days.</summary>
-    public int PendingMaxDays { get; set; } = 14;
+    public int PendingMaxDays { get; set; } = 120;
 
     /// <summary>When true, the relay only logs what it would copy. Fresh installs start here.</summary>
     public bool WatchOnly { get; set; } = true;

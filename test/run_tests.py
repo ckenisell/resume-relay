@@ -64,6 +64,7 @@ def play_then_stop(ip, url, pos):
 
 # ---------------------------------------------------------------- setup
 state = http("GET", RELAY + "/api/state")
+check("a fresh install keeps waiting copies for 120 days", state["settings"]["pendingMaxDays"] == 120, str(state["settings"]))
 ids = {d["ip"]: d["id"] for d in state["devices"]}
 settings(watchedSync=False)   # turned on in its own scenario (its background reads would get in the way of others)
 for ip, name in ((LR, "Living Room"), (BR, "Bedroom"), (HT, "Home Theater Room")):
@@ -851,6 +852,14 @@ h = hello()
 check("...and once paired it gets its token", h["paired"] and len(h["token"]) == 32 and h["name"] == "Theater Hall", str(h))
 TOK = h["token"]
 state_of = lambda ended="": http("GET", RELAY + f"/api/screen/state?token={TOK}" + (f"&ended={ended}" if ended else ""))
+# Like the real app, the screen keeps asking what to play every few seconds (a screen that stops asking counts as off).
+import threading
+def _screen_app():
+    while True:
+        try: state_of()
+        except Exception: pass
+        time.sleep(5)
+threading.Thread(target=_screen_app, daemon=True).start()
 st = wait_for(lambda: (lambda s: s if s["mode"] == "test" and s["url"] else None)(state_of()), 180)
 check("a new screen first shows the test picture", st, str(state_of()))
 mock(LR, "play", url=BRAVE, pos=60000)
@@ -886,6 +895,16 @@ check("Highly Acclaimed: movies and series rated 8.0+ by IMDb (as Plex keeps it)
 sc = wait_for(lambda: (lambda x: x if x["mode"] == "idle" and "Test Coming" in x["roundTitles"] and "Andor" in x["roundTitles"]
                        and any(t.startswith("Braveheart") for t in x["roundTitles"]) else None)(screen_of(sid)), 400)
 check("the slideshow round has Coming Soon, Recently Watched and Highly Acclaimed", sc, str(screen_of(sid)))
+tt = http("GET", RELAY + f"/api/live/screens/{sid}/titles")["titles"]
+check("See the titles: each title of the round with its set",
+      {t["set"] for t in tt} >= {"coming", "recent", "acclaimed"} and [t["title"] for t in tt] == screen_of(sid)["roundTitles"], str(tt))
+check("...and Highly Acclaimed ones with their rating, where it came from and which rating",
+      all(t["score"] >= 8 and t["source"] in ("IMDb", "TMDB") and t["from"] in ("plex", "zidoo") for t in tt if t["set"] == "acclaimed"), str(tt))
+rw = http("GET", RELAY + "/api/live/recent")
+check("Recently Watched's titles: newest first, with when and on which player",
+      rw and len(rw) <= 10 and all(r["player"] and r["playerKind"] in ("zidoo", "plex") and r["timeUtc"] for r in rw)
+      and [r["timeUtc"] for r in rw] == sorted([r["timeUtc"] for r in rw], reverse=True), str(rw))
+check("Highly Acclaimed's table says where each rating came from", all(t["from"] in ("plex", "zidoo") for t in http("GET", RELAY + "/api/live/acclaimed")["titles"]))
 st = state_of()
 check("...as one video the screen plays through (not looped)", st["mode"] == "idle" and not st["loop"] and st["url"], str(st))
 rt0 = screen_of(sid)["roundTitles"]

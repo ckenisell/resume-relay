@@ -235,8 +235,30 @@ public static class LiveApi
         {
             Note = svc.AcclaimedNote,
             Titles = svc.Acclaimed.OrderByDescending(a => a.Score).ThenBy(a => a.Title)
-                .Select(a => new { a.Title, a.Kind, a.Score, a.Source }),
+                .Select(a => new { a.Title, a.Kind, a.Score, a.Source, a.From }),
         }));
+        // ---- "See the titles": the last 10 titles stopped (Recently Watched), and the round up on a screen
+        app.MapGet("/api/live/recent", () => Results.Ok(svc.RecentTitles()
+            .Select(r => new { r.Title, r.TimeUtc, r.Player, r.PlayerKind })));
+        app.MapGet("/api/live/screens/{id}/titles", (string id) =>
+        {
+            if (live.Get().Screens.All(x => x.Id != id)) return Results.NotFound();
+            var rt = svc.RuntimeOf(id);
+            return Results.Ok(new
+            {
+                rt.Title,
+                Titles = rt.RoundShown.Select(i =>
+                {
+                    var rated = i.Score > 0 ? i : svc.RatingOf(i.Title);
+                    return new
+                    {
+                        i.Title,
+                        Set = i.Set.StartsWith("recent", StringComparison.Ordinal) ? "recent" : i.Set,
+                        Score = rated?.Score ?? 0, Source = rated?.Source ?? "", From = rated?.From ?? "",
+                    };
+                }),
+            });
+        });
         app.MapPost("/api/live/acclaimed/refresh", async () => { await svc.RefreshAcclaimedAsync(); return Results.Ok(new { Note = svc.AcclaimedNote }); });
 
         // ---- posters and ffmpeg

@@ -203,7 +203,7 @@ public static class RelayHost
                     Waiting = catchUp.WaitingFor.Select(id => store.Device(id)?.Name).Where(n => n != null),
                 },
                 WatchedSync = new { watchedSync.Status, watchedSync.LastRunUtc, watchedSync.LastResult },
-                Icons = new { Zidoo = IconFile(store, "zidoo") != null, Plex = IconFile(store, "plex") != null, V = IconVersion(store) },
+                Icons = new { Zidoo = IconFile(store, "zidoo") != null, Plex = IconFile(store, "plex") != null, Imdb = IconFile(store, "imdb") != null, Tmdb = IconFile(store, "tmdb") != null, V = IconVersion(store) },
                 Pending = pending,
                 DataFolder = store.DataDirectory,
             });
@@ -382,9 +382,9 @@ public static class RelayHost
         return notes.DistinctBy(n => n.Key).ToList();
     }
 
-    // ---------- badge icons (Settings: "Activity badges") ----------
+    // ---------- badge icons (Settings: "Activity badges" and "Rating badges") ----------
 
-    private static readonly string[] IconKinds = { "zidoo", "plex" };
+    private static readonly string[] IconKinds = { "zidoo", "plex", "imdb", "tmdb" };
     private static readonly Dictionary<string, string> IconTypes = new()
     {
         [".png"] = "image/png", [".jpg"] = "image/jpeg", [".webp"] = "image/webp", [".gif"] = "image/gif", [".ico"] = "image/x-icon", [".svg"] = "image/svg+xml",
@@ -398,7 +398,7 @@ public static class RelayHost
     private static long IconVersion(Store store) =>
         IconKinds.Select(k => IconFile(store, k)).Where(f => f != null).Select(f => File.GetLastWriteTimeUtc(f!).Ticks / 10_000_000).DefaultIfEmpty(0).Max();
 
-    /// <summary>The person's own picture for the Zidoo or Plex badge, kept in the data folder (never shipped with the app).</summary>
+    /// <summary>The person's own picture for the Zidoo, Plex, IMDb or TMDB badge, kept in the data folder (never shipped with the app).</summary>
     private static void MapIcons(WebApplication app, Store store)
     {
         app.MapGet("/api/icon/{kind}", (string kind) =>

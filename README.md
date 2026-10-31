@@ -41,7 +41,7 @@ Resume Relay per home, on a computer that stays on while you watch.
   that differ, and mark them watched or unwatched per player or on all players at once.
 - **Sleeping players catch up.** A player that's off, asleep, or on without its Home Theater app
   open gets its copies as soon as it's ready. Waiting copies are shown on that player's card and
-  kept for 14 days (you can change this in Settings).
+  kept for 120 days (you can change this in Settings).
 - **Turn players on and off.** Each player has a power button like Z-Keeper's: red is off, green is
   on, and an orange ring spins while it's switching. **Launch HT** opens the Home Theater app.
 - **Copy all, then undo if needed.** On Progress Reset and Watch Sync, copy one player's progress or watched marks to

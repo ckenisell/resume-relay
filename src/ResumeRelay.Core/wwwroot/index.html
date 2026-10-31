@@ -410,7 +410,8 @@ a.btn { text-decoration: none; color: var(--text); display: inline-flex; align-i
 .lp-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
 .lp-acts .btn { font-size: 13px; padding: 5px 12px; }
 .lp-pair { background: var(--panel); border: 1px dashed color-mix(in srgb, var(--amber) 60%, var(--line)); border-radius: var(--radius-lg); padding: 14px 16px; max-width: 1100px; }
-.lp-pair h4 { margin: 0 0 6px; font-size: 15px; }
+.lp-pair h4 { margin: 0 0 6px; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+.lp-pair.folded h4 { margin: 0; }
 .lp-pair p { margin: 0 0 10px; font-size: 13px; color: var(--muted); }
 .lp-pair .code { width: 6.5em; font-size: 18px; letter-spacing: .15em; font-weight: 700; text-align: center; }
 .lp-waiting { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; }
@@ -744,8 +745,9 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
 
     <div class="lp-sec">
       <h3>Screens</h3>
-      <div class="lp-pair" id="lp-pair">
-        <h4>Add a screen</h4>
+      <div class="lp-pair lp-fold" id="lp-sec-pair">
+        <h4>Add a screen<button class="lp-tog" data-lp-fold="pair" aria-controls="lp-body-pair" aria-expanded="true" aria-label="Hide Add a screen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14l-7 9z"/></svg></button></h4>
+        <div class="lp-fold-body" id="lp-body-pair">
         <p>Install the <b>Resume Relay</b> app on the TV, stick or tablet (or open <b id="lp-screen-url"></b> in its web browser), and enter the code it shows here.</p>
         <div class="lp-waiting" id="lp-waiting"></div>
         <div class="lp-row">
@@ -754,6 +756,7 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
           <button class="btn" id="lp-add">Add screen</button>
         </div>
         <p class="msg" id="lp-pair-msg" role="status" style="margin:8px 0 0"></p>
+        </div>
       </div>
       <div class="lp-screens" id="lp-screens" style="margin-top:14px"></div>
     </div>
@@ -2447,11 +2450,11 @@ function lpPreviews() {
   for (const [id, vid] of lpVideos) if (!shown.has(id)) { vid.pause(); vid.removeAttribute("src"); vid.load(); lpVideos.delete(id); }
 }
 function lpFolds() {
-  for (const k of ["bgs", "folders"]) {
+  for (const k of ["pair", "bgs", "folders"]) {
     const folded = store.get("rr.lpFolded." + k) === "1", sec = $("#lp-sec-" + k), b = sec.querySelector("[data-lp-fold]");
     sec.classList.toggle("folded", folded);
     b.setAttribute("aria-expanded", String(!folded));
-    b.setAttribute("aria-label", `${folded ? "Show" : "Hide"} ${k === "bgs" ? "Backgrounds" : "Poster folders"}`);
+    b.setAttribute("aria-label", `${folded ? "Show" : "Hide"} ${{ pair: "Add a screen", bgs: "Backgrounds", folders: "Poster folders" }[k]}`);
   }
 }
 lpFolds();
@@ -2479,6 +2482,8 @@ function renderLive() {
     ? `<span>${esc(r.status)}</span>${r.working ? `<span>Making: ${esc(r.working)}${r.queued ? ` (${r.queued} more waiting)` : ""}</span>` : ""}${r.lastError ? `<span style="color:var(--bad)">${esc(r.lastError)}</span>` : ""}`
     : `<span>${esc(r.status)}</span>${r.canDownload ? `<button class="btn" id="lp-ffmpeg"${r.downloading ? " disabled" : ""}>${r.downloading ? "Downloading…" : "Download ffmpeg"}</button>` : ""}`);
   // Screens waiting to be paired.
+  // A screen waiting to be added: "Add a screen" opens even if it was folded away.
+  $("#lp-sec-pair").classList.toggle("folded", !L.pairs.length && store.get("rr.lpFolded.pair") === "1");
   setHtml($("#lp-waiting"), L.pairs.map(p => `<button class="btn quiet" data-lp-code="${esc(p.code)}">A screen is waiting: <b>${esc(p.code)}</b> (${esc(p.model || p.platform)})</button>`).join(""));
   // Paired screens.
   const players = L.players;

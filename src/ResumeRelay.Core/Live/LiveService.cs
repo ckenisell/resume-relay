@@ -76,6 +76,8 @@ public sealed class LiveService : BackgroundService
         public List<SlideItem> RoundShown = new();
         public bool AdvanceAfterEnd;
         public bool WantNext;
+        /// <summary>"Rebuild slideshow" was pressed: the round is made even while the screen is off.</summary>
+        public bool ForceBuild;
         /// <summary>The slideshow up is the start of a round still being made.</summary>
         public bool Partial;
         /// <summary>While a round is being made: slides ready, and how many it will have (for the card's progress bar).</summary>
@@ -273,13 +275,15 @@ public sealed class LiveService : BackgroundService
 
         // ---- Slideshow, only while the screen is on: a screen that hasn't checked in for a while gets no slideshow work
         // (no posters read, no slides made). Now Playing above still is, so its poster is ready when the screen comes on.
-        if (!Awake(rt))
+        if (!Awake(rt) && !rt.ForceBuild)
         {
             rt.Mode = "off"; rt.Url = ""; rt.Title = ""; rt.Note = "The screen is off: its slideshow is made when it comes back on.";
             rt.MadeSlides = rt.TotalSlides = 0;
             return;
         }
         Slideshow(s, rt, cfg);
+        // A rebuild asked for while the screen is off: done once the whole round is made (it's then ready when the screen comes on).
+        if (rt.ForceBuild && !rt.WantNext && rt.TotalSlides == 0) rt.ForceBuild = false;
     }
 
     /// <summary>A screen counts as on while its app keeps asking what to play (every few seconds).</summary>
@@ -401,6 +405,7 @@ public sealed class LiveService : BackgroundService
         rt.Partial = true;
         rt.RoundTitles = new();
         rt.RoundShown = new();
+        rt.ForceBuild = true;
     }
 
     private void Slideshow(LiveScreen s, ScreenRuntime rt, LiveConfig cfg)

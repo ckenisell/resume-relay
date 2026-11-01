@@ -821,6 +821,9 @@ def screen_of(sid):
 
 lv = wait_for(lambda: (lambda l: l if l["renderer"]["ready"] else None)(live()), 30)
 check("Live Poster: ffmpeg is found and an encoder works", lv, str(live()["renderer"]))
+bi = {b["name"]: b for b in live()["backgrounds"] if b["builtIn"]}
+check("the built-in backgrounds are the marquee designs, one per set",
+      set(bi) == {"Now Showing", "Coming Soon", "Recently Watched", "Highly Acclaimed"} and all(b["width"] == 2160 and b["height"] == 3840 for b in bi.values()), str(bi))
 nas = tempfile.mkdtemp(prefix="rr-nas-")
 os.makedirs(os.path.join(nas, "Movies", "Braveheart"))
 os.makedirs(os.path.join(nas, "TV", "Andor", "Season 01"))

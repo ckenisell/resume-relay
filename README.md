@@ -112,7 +112,8 @@ movies and TMDB for series; 10 picked at random each round). Set it all up on th
   Zidoo (which keeps them at 500×750). TV shows: the season poster in the show's folder (`season01-poster.jpg`,
   `Show S01-poster.jpg`, or `poster.jpg` inside a `Season 01` folder), then the series poster, then Plex's, then the
   Zidoo's.
-- **Backgrounds:** 2160×3840 PNG/JPG/WebP or a 10–20 second MP4 loop. The poster is 2000×3000, centered across and set low, which
+- **Backgrounds:** marquee designs are built in; or your own 2160×3840 PNG/JPG/WebP or a 10–20 second MP4 loop. A PNG or WebP
+  with a see-through window goes in front of the poster (its frame and shadows fall on the poster). The poster is 2000×3000, centered across and set low, which
   leaves 80 px at the sides, 750 px at the top and 90 px at the bottom.
 - **Screen apps** (beta): Android (Fire TV, Google TV, phones and tablets) and Roku, from the release's downloads, or
   any web browser at `http://<this computer>:8090/screen`. Until they're in the app stores:

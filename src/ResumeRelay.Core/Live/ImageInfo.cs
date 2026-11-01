@@ -51,6 +51,45 @@ public static class ImageInfo
         return (0, 0);
     }
 
+    /// <summary>Whether a PNG or WebP image has see-through parts (an alpha channel, or PNG transparency).</summary>
+    public static bool HasAlpha(string path)
+    {
+        try
+        {
+            using var f = File.OpenRead(path);
+            var buf = new byte[Math.Min(f.Length, 1024 * 1024)];
+            int n = f.Read(buf, 0, buf.Length);
+            return HasAlpha(buf.AsSpan(0, n));
+        }
+        catch { return false; }
+    }
+
+    public static bool HasAlpha(ReadOnlySpan<byte> b)
+    {
+        if (b.Length >= 33 && b[0] == 0x89 && b[1] == 'P' && b[2] == 'N' && b[3] == 'G')
+        {
+            byte colorType = b[25];
+            if (colorType is 4 or 6) return true;           // grey + alpha, RGBA
+            // A palette or plain image with a tRNS chunk (before the image data).
+            for (int i = 8; i + 8 <= b.Length;)
+            {
+                int len = BE32(b, i);
+                if (b[i + 4] == 't' && b[i + 5] == 'R' && b[i + 6] == 'N' && b[i + 7] == 'S') return true;
+                if (b[i + 4] == 'I' && b[i + 5] == 'D' && b[i + 6] == 'A' && b[i + 7] == 'T') return false;
+                if (len < 0) return false;
+                i += 12 + len;
+            }
+            return false;
+        }
+        if (b.Length >= 30 && b[0] == 'R' && b[1] == 'I' && b[2] == 'F' && b[3] == 'F' && b[8] == 'W' && b[9] == 'E' && b[10] == 'B' && b[11] == 'P')
+        {
+            if (b[12] == 'V' && b[13] == 'P' && b[14] == '8' && b[15] == 'X') return (b[20] & 0x10) != 0;
+            if (b[12] == 'V' && b[13] == 'P' && b[14] == '8' && b[15] == 'L')
+                return ((b[21] | b[22] << 8 | b[23] << 16 | b[24] << 24) >> 28 & 1) == 1;
+        }
+        return false;
+    }
+
     public static string Extension(ReadOnlySpan<byte> b) =>
         b.Length > 3 && b[0] == 0x89 && b[1] == 'P' ? ".png"
         : b.Length > 11 && b[0] == 'R' && b[8] == 'W' ? ".webp"

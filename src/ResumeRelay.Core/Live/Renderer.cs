@@ -9,7 +9,8 @@ namespace ResumeRelay.Live;
 
 /// <summary>
 /// Makes the screens' videos with ffmpeg. A picture is a 2160×3840 portrait canvas: the background (an image or a
-/// looping video, cover-fitted), and the poster stretched to 2000×3000, centered across (80 px at the sides) and set
+/// looping video, cover-fitted), and the poster stretched to 2000×3000 (behind a background with a see-through window,
+/// in front of any other), centered across (80 px at the sides) and set
 /// low: 750 px from the top and 90 from the bottom, which leaves room above it for the background's header. TVs and sticks play landscape video, so for a TV turned on its side the canvas is turned into a
 /// 3840×2160 frame; a tablet held upright gets it as is. 1080p screens get the same at half size.
 ///
@@ -187,7 +188,10 @@ public sealed class Renderer
         var l = LayoutFor(resolution);
         string enc = EncoderFor(codec);
         string bgPath = bg == null ? "" : _live.BackgroundPath(bg);
-        string key = Hash($"{kind}|{Stamp(bgPath)}|{Stamp(poster)}|{mount}|{resolution}|{seconds.ToString(CultureInfo.InvariantCulture)}|{enc}|v4");
+        // A background with a see-through window goes in FRONT of the poster (the poster shows through the window, and
+        // the background's frame, shadows and glows fall on it); any other background goes behind it.
+        bool front = poster != null && bg != null && bg.Kind != "video" && ImageInfo.HasAlpha(bgPath);
+        string key = Hash($"{kind}|{Stamp(bgPath)}|{Stamp(poster)}|{mount}|{resolution}|{seconds.ToString(CultureInfo.InvariantCulture)}|{enc}|v5");
         string output = Path.Combine(_live.RenderDir, key + ".mp4");
         string label = kind == "hold" ? "Now Playing" : "slide";
         bool still = bg == null || bg.Kind != "video";
@@ -205,7 +209,10 @@ public sealed class Renderer
                 a.Append(bg == null ? $"-f lavfi -i color=c=black:s={l.W}x{l.H}:r={Fps}:d=1 " : $"-i \"{bgPath}\" ");
                 if (poster != null) a.Append($"-i \"{poster}\" ");
                 string graph = $"[0:v]trim=end_frame=1,scale={l.W}:{l.H}:force_original_aspect_ratio=increase,crop={l.W}:{l.H},setsar=1[bg]";
-                graph += poster != null
+                graph += front
+                    ? $";color=c=black:s={l.W}x{l.H},trim=end_frame=1[base];[1:v]scale={l.PW}:{l.PH},setsar=1[p];[base][p]overlay={l.PX}:{l.PY}[under];"
+                      + $"[under][bg]overlay=0:0:format=auto{Turn(mount)},{Repeat(seconds)}{fades}{Final(enc)}[v]"
+                    : poster != null
                     ? $";[1:v]scale={l.PW}:{l.PH},setsar=1[p];[bg][p]overlay={l.PX}:{l.PY}:format=auto{Turn(mount)},{Repeat(seconds)}{fades}{Final(enc)}[v]"
                     : $";[bg]null{Turn(mount)},{Repeat(seconds)}{fades}{Final(enc)}[v]";
                 a.Append($"-filter_complex \"{graph}\" -map \"[v]\" -t {s} {EncodeArgs(enc, still)} \"{o}\"");
@@ -257,7 +264,9 @@ public sealed class Renderer
         a.Append(bg == null ? $"-f lavfi -i color=c=black:s={l.W}x{l.H} " : $"-i \"{bgPath}\" ");
         if (poster != null) a.Append($"-i \"{poster}\" ");
         string graph = $"[0:v]scale={l.W}:{l.H}:force_original_aspect_ratio=increase,crop={l.W}:{l.H},setsar=1[bg]";
-        graph += poster != null ? $";[1:v]scale={l.PW}:{l.PH},setsar=1[p];[bg][p]overlay={l.PX}:{l.PY}[v]" : ";[bg]null[v]";
+        bool front = poster != null && bg != null && bg.Kind != "video" && ImageInfo.HasAlpha(bgPath);
+        graph += front ? $";color=c=black:s={l.W}x{l.H},trim=end_frame=1[base];[1:v]scale={l.PW}:{l.PH},setsar=1[p];[base][p]overlay={l.PX}:{l.PY}[under];[under][bg]overlay=0:0[v]"
+            : poster != null ? $";[1:v]scale={l.PW}:{l.PH},setsar=1[p];[bg][p]overlay={l.PX}:{l.PY}[v]" : ";[bg]null[v]";
         a.Append($"-filter_complex \"{graph}\" -map \"[v]\" -frames:v 1 -q:v 3 \"{tmp}\"");
         var (code, _) = await RunAsync(a.ToString(), TimeSpan.FromSeconds(30), ct, lowPriority: false);
         try { return code == 0 && File.Exists(tmp) ? await File.ReadAllBytesAsync(tmp, ct) : null; }
@@ -405,34 +414,43 @@ public sealed class Renderer
 
     // ------------------------------------------------------------------ built-in backgrounds
 
-    /// <summary>Plain gradient placeholders until real designs are added (one per set).</summary>
-    public static readonly (string Id, string Name, string Top, string Bottom)[] BuiltIns =
+    /// <summary>The built-in backgrounds (one per set): marquee designs with a see-through window where the poster shows.</summary>
+    public static readonly (string Id, string Name, string Resource)[] BuiltIns =
     {
-        ("builtin-nowshowing", "Now Showing (placeholder)", "0x3a0610", "0x0a0204"),
-        ("builtin-comingsoon", "Coming Soon (placeholder)", "0x0b1f45", "0x03070f"),
-        ("builtin-recent", "Recently Watched (placeholder)", "0x0b3a33", "0x020b0a"),
-        ("builtin-acclaimed", "Highly Acclaimed (placeholder)", "0x4a3608", "0x0d0902"),
+        ("builtin-nowshowing", "Now Showing", "bg-nowshowing.png"),
+        ("builtin-comingsoon", "Coming Soon", "bg-comingsoon.png"),
+        ("builtin-recent", "Recently Watched", "bg-recent.png"),
+        ("builtin-acclaimed", "Highly Acclaimed", "bg-acclaimed.png"),
     };
 
-    private async Task EnsureBuiltInBackgroundsAsync(CancellationToken ct)
+    private Task EnsureBuiltInBackgroundsAsync(CancellationToken ct)
     {
-        foreach (var (id, name, top, bottom) in BuiltIns)
+        foreach (var (id, name, resource) in BuiltIns)
         {
             string file = id + ".png", path = Path.Combine(_live.BackgroundDir, file);
-            if (!File.Exists(path))
+            try
             {
-                var (code, _) = await RunAsync($"-hide_banner -loglevel error -y -f lavfi -i \"gradients=s=2160x3840:c0={top}:c1={bottom}:x0=1080:y0=0:x1=1080:y1=3840:nb_colors=2:speed=0\" -frames:v 1 \"{path}\"",
-                    TimeSpan.FromSeconds(60), ct, lowPriority: false);
-                if (code != 0)
-                    await RunAsync($"-hide_banner -loglevel error -y -f lavfi -i color=c={top}:s=2160x3840 -frames:v 1 \"{path}\"", TimeSpan.FromSeconds(60), ct, lowPriority: false);
+                using var src = typeof(Renderer).Assembly.GetManifestResourceStream(resource);
+                if (src == null) continue;
+                // Written when missing or different (an update with new designs replaces the old ones, and the change in
+                // the file makes every video that used it be made again).
+                if (!File.Exists(path) || new FileInfo(path).Length != src.Length)
+                {
+                    Directory.CreateDirectory(_live.BackgroundDir);
+                    using var dst = File.Create(path);
+                    src.CopyTo(dst);
+                }
             }
+            catch { }
             if (!File.Exists(path)) continue;
             _live.Update(c =>
             {
-                if (c.Backgrounds.Any(b => b.Id == id)) return;
-                c.Backgrounds.Insert(c.Backgrounds.Count(b => b.BuiltIn), new LiveBackground { Id = id, Name = name, File = file, Kind = "image", BuiltIn = true, Width = 2160, Height = 3840 });
+                var b = c.Backgrounds.FirstOrDefault(x => x.Id == id);
+                if (b != null) { b.Name = name; b.Width = 2160; b.Height = 3840; return; }
+                c.Backgrounds.Insert(c.Backgrounds.Count(x => x.BuiltIn), new LiveBackground { Id = id, Name = name, File = file, Kind = "image", BuiltIn = true, Width = 2160, Height = 3840 });
             });
         }
+        return Task.CompletedTask;
     }
 
     // ------------------------------------------------------------------ helpers

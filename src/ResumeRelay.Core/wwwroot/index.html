@@ -2275,6 +2275,7 @@ const HELP = {
   slideshow: ["Slideshow", `<p><b>Coming Soon</b>: the posters you add here. <b>Recently Watched</b>: the last 10 titles stopped on the screen's players. <b>Highly Acclaimed</b>: movies and whole series rated at least the minimum (the IMDb rating when Plex has it), 10 per round so they don't crowd out the others.</p>
     <p>Each set that's on gets its turn, with its own background. Posters fade in and out over the background.</p>`],
   backgrounds: ["Backgrounds", `<p>A background fills the whole screen behind the poster. Design it at <b>2160×3840</b> (portrait) and keep the poster's place clear: the poster is <b>2000×3000</b>, centered across and set low: <b>80 px</b> at each side, <b>750 px</b> above it for "NOW SHOWING" and the like, and <b>90 px</b> below.</p>
+    <p><b>In front of the poster:</b> a PNG or WebP with a see-through (transparent) window where the poster goes is placed <i>in front of</i> the poster, so the window's frame, shadows and glows fall on it. The built-in designs work this way. A background with no see-through parts (a JPG, an MP4, a solid PNG) goes behind the poster.</p>
     <p>Images: PNG, JPG or WebP. Videos: MP4, 10 to 20 seconds, made to loop seamlessly (the end flows into the start). Other sizes are scaled to cover the screen.</p>`],
   posterfolders: ["Poster folders", `<p>For each title, Resume Relay uses the first poster it finds, looking in this order:</p>
     <ol><li><b>The NAS:</b> the movie's or show's own folder (the file names below).</li>
@@ -2659,7 +2660,7 @@ $("#live").addEventListener("click", async e => {
   const bgf = b.closest("[data-lp-bgid]");
   if (bgf) {
     const bid = bgf.dataset.lpBgid, bg = live.backgrounds.find(x => x.id === bid);
-    if (b.matches("[data-lp-bgdel]")) return confirmReset("Delete background", `Delete <b>${esc(bg.name)}</b>? Sets using it go back to their placeholder.`,
+    if (b.matches("[data-lp-bgdel]")) return confirmReset("Delete background", `Delete <b>${esc(bg.name)}</b>? Sets using it go back to their built-in background.`,
       async () => { await api("DELETE", `/api/live/backgrounds/${encodeURIComponent(bid)}`); loadLive(); });
     if (b.matches("[data-lp-bgrename]")) {
       const n = prompt("Name for this background", bg.name);

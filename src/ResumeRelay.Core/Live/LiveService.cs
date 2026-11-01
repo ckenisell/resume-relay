@@ -162,10 +162,12 @@ public sealed class LiveService : BackgroundService
             Platform = p.Platform, Model = p.Model, AppVersion = p.Version, Players = players.Distinct().ToList(),
             Mount = mount is "portrait" or "left" or "right" ? mount : p.Platform is "android-phone" or "web-portrait" ? "portrait" : "right",
             Resolution = resolution == "1080" ? "1080" : "4k",
+            Sets = SetKeys.ToList(),
         };
         _live.Update(c => { c.Screens.RemoveAll(s => s.DeviceKey == p.DeviceKey); c.Screens.Add(screen); });
         _pairs.TryRemove(p.DeviceKey, out _);
         RuntimeOf(screen.Id).TestSeconds = 30; // show the "this way up" picture first
+        RuntimeOf(screen.Id).LastSeenUtc = DateTime.UtcNow; // its app is asking for a code right now: it's on
         _store.Log(ActivityLevel.Ok, $"Live Poster: paired the screen \"{screen.Name}\" ({screen.Platform}{(screen.Model.Length > 0 ? ", " + screen.Model : "")}).");
         return (screen, "");
     }
@@ -216,7 +218,7 @@ public sealed class LiveService : BackgroundService
                 var cfg = _live.Get();
                 RefreshRecent(cfg);
                 // Ratings are reread hourly, and only while a screen is on (pressing "Read the ratings again" always works).
-                if (cfg.Acclaimed.Enabled && DateTime.UtcNow - _acclaimedAt > TimeSpan.FromHours(1) && cfg.Screens.Any(sc => Awake(RuntimeOf(sc.Id))))
+                if (DateTime.UtcNow - _acclaimedAt > TimeSpan.FromHours(1) && cfg.Screens.Any(sc => Awake(RuntimeOf(sc.Id)) && Shows(sc, cfg, "acclaimed")))
                     _ = RefreshAcclaimedAsync(ct);
                 foreach (var s in cfg.Screens) Update(s, cfg);
                 foreach (var id in _rt.Keys.Where(k => cfg.Screens.All(s => s.Id != k)).ToList()) _rt.TryRemove(id, out _);
@@ -289,6 +291,14 @@ public sealed class LiveService : BackgroundService
     /// <summary>A screen counts as on while its app keeps asking what to play (every few seconds).</summary>
     public static readonly TimeSpan AwakeFor = TimeSpan.FromSeconds(
         int.TryParse(Environment.GetEnvironmentVariable("RESUMERELAY_SCREEN_AWAKE"), out var a) && a > 0 ? a : 120);
+    /// <summary>The slideshow sets, in their turn order.</summary>
+    public static readonly string[] SetKeys = { "coming", "recent", "acclaimed" };
+
+    /// <summary>Whether a screen shows a slideshow set (each screen has its own; older ones follow the old all-screens switches).</summary>
+    public static bool Shows(LiveScreen s, LiveConfig cfg, string set) =>
+        s.Sets != null ? s.Sets.Contains(set)
+        : set switch { "coming" => cfg.ComingSoon.Enabled, "recent" => cfg.RecentlyWatched.Enabled, _ => cfg.Acclaimed.Enabled };
+
     public static bool Awake(ScreenRuntime rt) => rt.LastSeenUtc is { } seen && DateTime.UtcNow - seen < AwakeFor;
 
     /// <summary>The video format a screen gets: HEVC (Rokus play 4K only as HEVC; every 4K TV and stick plays it), or
@@ -382,14 +392,14 @@ public sealed class LiveService : BackgroundService
     public List<SlideItem> RoundItems(LiveScreen s, LiveConfig cfg, int round)
     {
         var sets = new List<List<SlideItem>>();
-        if (cfg.ComingSoon.Enabled)
+        if (Shows(s, cfg, "coming"))
             sets.Add(cfg.Coming.Where(c => File.Exists(_live.ComingPath(c))).Select(c => new SlideItem("coming", c.Title, null, _live.ComingPath(c))).ToList());
-        if (cfg.RecentlyWatched.Enabled)
+        if (Shows(s, cfg, "recent"))
         {
             var names = _store.Devices().Where(d => s.Players.Contains(d.Id)).Select(d => d.Name).ToHashSet();
             sets.Add(RecentFor(s.Players, names));
         }
-        if (cfg.Acclaimed.Enabled && _acclaimed.Count > 0)
+        if (Shows(s, cfg, "acclaimed") && _acclaimed.Count > 0)
         {
             // 10 picked at random for each round: any title can come up again in a later round. The pick depends only on
             // the screen and the round, so it stays the same while the round is being made and played.
@@ -422,6 +432,8 @@ public sealed class LiveService : BackgroundService
 
     private void Slideshow(LiveScreen s, ScreenRuntime rt, LiveConfig cfg)
     {
+        // Whatever was said before (like "the screen is off") no longer applies; each branch below says what it's doing.
+        rt.Note = "";
         // The screen finished a round: the next one goes up as soon as it's made (the screen replays this one meanwhile).
         // (After a partial round, the same round comes back complete, or longer, instead of a new one.)
         if (rt.AdvanceAfterEnd) { rt.AdvanceAfterEnd = false; if (!rt.Partial) rt.Round++; rt.WantNext = true; }
@@ -501,11 +513,13 @@ public sealed class LiveService : BackgroundService
             return;
         }
         // Nothing made yet (or no posters at all): a background on its own.
-        var firstSet = new[] { cfg.ComingSoon, cfg.RecentlyWatched, cfg.Acclaimed }.FirstOrDefault(x => x.Enabled) ?? cfg.NowPlaying;
+        var firstKey = SetKeys.FirstOrDefault(k => Shows(s, cfg, k));
+        var firstSet = firstKey switch { "coming" => cfg.ComingSoon, "recent" => cfg.RecentlyWatched, "acclaimed" => cfg.Acclaimed, _ => cfg.NowPlaying };
         var plain = _renderer.HoldAsync(Background(cfg, firstSet.BackgroundId), null, s.Mount, s.Resolution, CodecOf(s), priority: 1);
         if (plain.IsCompletedSuccessfully && plain.Result != null)
         {
-            Show(rt, "idle", plain.Result, loop: true, items.Count == 0 ? "Slideshow: no posters to show yet" : "Making the slideshow…");
+            Show(rt, "idle", plain.Result, loop: true, items.Count > 0 ? "Making the slideshow…"
+                : SetKeys.Any(k => Shows(s, cfg, k)) ? "Slideshow: no posters to show yet" : "Slideshow: no sets are on for this screen");
             rt.IdleUrl = "";
         }
     }

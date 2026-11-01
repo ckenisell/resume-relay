@@ -59,6 +59,9 @@ public sealed class LiveScreen
     /// its top is on the left) or "right" (its top on the right). TVs and sticks always play landscape video, so for
     /// "left"/"right" the portrait picture is turned into a 3840×2160 frame.</summary>
     public string Mount { get; set; } = "right";
+    /// <summary>The slideshow sets this screen shows: "coming", "recent", "acclaimed". Null for screens added before
+    /// each screen had its own (they keep the sets that were on for all screens then).</summary>
+    public List<string>? Sets { get; set; }
     /// <summary>"4k" or "1080" (for players that can't play 4K video).</summary>
     public string Resolution { get; set; } = "4k";
     /// <summary>"auto" (HEVC, except H.264 for web browsers), "hevc" or "h264". Rokus play 4K only as HEVC.</summary>

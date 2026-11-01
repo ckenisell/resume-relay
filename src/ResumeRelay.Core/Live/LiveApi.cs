@@ -11,7 +11,7 @@ public static class LiveApi
     private static readonly Dictionary<string, (byte[] Jpg, DateTime At)> Previews = new();
 
     public record PairBody(string Code, string Name, List<string>? Players, string? Mount, string? Resolution);
-    public record ScreenBody(string? Name, List<string>? Players, string? Mount, string? Resolution, string? Codec);
+    public record ScreenBody(string? Name, List<string>? Players, string? Mount, string? Resolution, string? Codec, List<string>? Sets);
     public record HelloBody(string DeviceKey, string? Platform, string? Model, string? Version);
     public record SettingsBody(int StopWaitSeconds, int SlideSeconds, double AcclaimedMin, LiveSet NowPlaying, LiveSet ComingSoon, LiveSet RecentlyWatched, LiveSet Acclaimed, List<LiveFolder>? Folders);
     public record OrderBody(List<string> Ids);
@@ -41,6 +41,7 @@ public static class LiveApi
                     return new
                     {
                         s.Id, s.Name, s.Platform, s.Model, s.AppVersion, s.Players, s.Mount, s.Resolution, s.Codec, VideoCodec = LiveService.CodecOf(s),
+                        Sets = LiveService.SetKeys.Where(k => LiveService.Shows(s, cfg, k)),
                         AppSays = rt.AppSays, rt.AppSaysUtc,
                         Making = rt.TotalSlides > 0 ? new { Done = rt.MadeSlides, Total = rt.TotalSlides } : null,
                         Online = rt.LastSeenUtc is { } seen && DateTime.UtcNow - seen < TimeSpan.FromSeconds(20),
@@ -92,6 +93,7 @@ public static class LiveApi
                 if (b.Mount is "portrait" or "left" or "right" && b.Mount != s.Mount) { s.Mount = b.Mount; svc.RuntimeOf(id).TestSeconds = 30; }
                 if (b.Resolution is "4k" or "1080") s.Resolution = b.Resolution;
                 if (b.Codec is "auto" or "hevc" or "h264") s.Codec = b.Codec;
+                if (b.Sets != null) s.Sets = LiveService.SetKeys.Where(b.Sets.Contains).ToList();
             });
             if (found) { var rt = svc.RuntimeOf(id); rt.IdleUrl = ""; rt.IdleKey = ""; rt.Shown = null; }
             return found ? Results.Ok() : Results.NotFound();

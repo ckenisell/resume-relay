@@ -932,12 +932,11 @@ check("Rebuild slideshow: a new round goes up without waiting for the current on
       wait_for(lambda: state_of()["mode"] == "idle" and (state_of()["version"] != v0 or len(screen_of(sid)["roundTitles"]) > 0), 300),
       str((state_of(), screen_of(sid)["roundTitles"])))
 check("...and the screen card still lists the round's titles", len(screen_of(sid)["roundTitles"]) > 0, str(screen_of(sid)))
-cfg = live()["config"]
-for k in ("comingSoon", "recentlyWatched", "acclaimed"):
-    cfg[k]["enabled"] = k == "comingSoon"
-http("POST", RELAY + "/api/live/settings", cfg)
+check("a new screen shows every slideshow set", screen_of(sid)["sets"] == ["coming", "recent", "acclaimed"], str(screen_of(sid)))
+http("PATCH", RELAY + f"/api/live/screens/{sid}", {"sets": ["coming"]})
 sc = wait_for(lambda: (lambda x: x if x["roundTitles"] == ["Test Coming"] else None)(screen_of(sid)), 240)
-check("sets that are off are left out", sc, str(screen_of(sid)))
+check("each screen shows only the sets ticked on its card", sc and screen_of(sid)["sets"] == ["coming"], str(screen_of(sid)))
+check("...and its card doesn't say it's off while it's on", "off" not in screen_of(sid)["note"], str(screen_of(sid)))
 http("DELETE", RELAY + f"/api/live/coming/{cid}")
 http("DELETE", RELAY + f"/api/live/screens/{sid}")
 try:

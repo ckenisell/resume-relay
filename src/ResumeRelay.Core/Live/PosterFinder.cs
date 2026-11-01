@@ -36,7 +36,7 @@ public sealed class PosterFinder
     public async Task<PosterResult?> FindAsync(PosterRequest r, CancellationToken ct = default)
     {
         string key = $"{r.SourceUrl}|{r.PlexFile}|{r.SeriesOnly}|{r.Season}|{r.PlexKey}";
-        if (_cache.TryGetValue(key, out var hit) && DateTime.UtcNow - hit.At < TimeSpan.FromMinutes(10)
+        if (_cache.TryGetValue(key, out var hit) && DateTime.UtcNow - hit.At < TimeSpan.FromMinutes(4)
             && (hit.Result == null || File.Exists(hit.Result.Path)))
             return hit.Result;
         PosterResult? found = null;

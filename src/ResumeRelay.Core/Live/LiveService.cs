@@ -343,21 +343,33 @@ public sealed class LiveService : BackgroundService
     {
         string key = $"{r.SourceUrl}|{r.PlexFile}|{r.SeriesOnly}|{r.Season}|{r.PlexKey}|{r.PlexThumb}";
         var t = _posters.GetOrAdd(key, _ => Task.Run(() => _finder.FindAsync(r)));
-        if (t.IsCompleted && (t.IsFaulted || t.Result == null || !File.Exists(t.Result.Path)) && !_posterRetry.ContainsKey(key))
+        if (t.IsCompleted && !_posterRetry.ContainsKey(key))
         {
-            // Not found: look again in a few minutes (a player may have been off, or a poster added).
-            _posterRetry[key] = DateTime.UtcNow;
+            // Look again later: soon when nothing was found (a player may have been off), and every 10 minutes when one
+            // was, so a poster added to the folder since (or one with a better name, like Movie-poster.jpg) is picked up.
+            // A poster file replaced under the same name needs no new look: each video's fingerprint has the file's size
+            // and date, so it's remade from the new file at once.
+            bool found = !t.IsFaulted && t.Result != null && File.Exists(t.Result.Path);
+            _posterRetry[key] = found ? DateTime.UtcNow.AddMinutes(5) : DateTime.UtcNow;
         }
         if (_posterRetry.TryGetValue(key, out var at) && DateTime.UtcNow - at > TimeSpan.FromMinutes(5))
         {
             _posterRetry.TryRemove(key, out _);
-            _posters.TryRemove(key, out _);
+            // The poster up keeps being used while the new look runs, so the screen never loses it in between.
+            if (t.IsCompletedSuccessfully && t.Result != null) _posterNext.TryAdd(key, Task.Run(() => _finder.FindAsync(r)));
+            else _posters.TryRemove(key, out _);
+        }
+        if (_posterNext.TryGetValue(key, out var next) && next.IsCompleted)
+        {
+            _posterNext.TryRemove(key, out _);
+            if (next.IsCompletedSuccessfully && next.Result != null) { _posters[key] = next; t = next; }
         }
         return t;
     }
     private readonly ConcurrentDictionary<string, DateTime> _posterRetry = new();
+    private readonly ConcurrentDictionary<string, Task<PosterResult?>> _posterNext = new();
 
-    public void ForgetPosters() { _posters.Clear(); _posterRetry.Clear(); _finder.Forget(); }
+    public void ForgetPosters() { _posters.Clear(); _posterRetry.Clear(); _posterNext.Clear(); _finder.Forget(); }
 
     private LiveBackground? Background(LiveConfig cfg, string id) =>
         cfg.Backgrounds.FirstOrDefault(b => b.Id == id && File.Exists(_live.BackgroundPath(b)))

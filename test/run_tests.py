@@ -873,6 +873,11 @@ with urllib.request.urlopen(req, timeout=20) as r:
     check("the video is served to the screen (with byte ranges)", r.status == 206 and head[4:8] == b"ftyp", str((r.status, head[:12])))
 with urllib.request.urlopen(RELAY + f"/api/live/screens/{sid}/preview", timeout=60) as r:
     check("the dashboard gets a preview picture", r.headers.get("Content-Type") == "image/jpeg" and len(r.read()) > 1000)
+v_old = state_of()["url"]
+time.sleep(1.1)   # a new modified time
+open(os.path.join(nas, "Movies", "Braveheart", "Braveheart (1995).4K.(1#Theatrical Movie)-poster.png"), "wb").write(png(400, 600, (200, 200, 30)))
+check("a poster file replaced in the folder gets a new Now Playing video, made from the new file",
+      wait_for(lambda: (lambda st: st["mode"] == "playing" and st["url"] and st["url"] != v_old)(state_of()), 240), str((v_old, state_of())))
 mock(LR, "stop")
 time.sleep(1.5)
 check("after a stop the poster stays up for the wait time", state_of()["mode"] == "playing")

@@ -58,6 +58,8 @@ jobs:
 
       - name: End-to-end tests against the container
         run: |
+          # The checks probe the made videos (their length, and that they play cleanly) with ffmpeg.
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg > /dev/null
           python3 -I test/mock_zidoo.py > /tmp/mock.log 2>&1 &
           sleep 1
           mkdir -p /tmp/rr-docker-data

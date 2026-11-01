@@ -68,7 +68,9 @@ jobs:
             -v /tmp:/tmp -v /tmp/rr-docker-data:/data resume-relay:test
           for i in $(seq 1 30); do curl -fsS localhost:8090/api/state >/dev/null 2>&1 && break; sleep 1; done
           curl -fsS -X POST localhost:8090/api/scan
-          python3 -I test/run_tests.py
+          # Failed checks are also posted as annotations, so they show on the run's summary.
+          set -o pipefail
+          python3 -I test/run_tests.py 2>&1 | tee /tmp/tests.log || { grep -E "^FAIL|Traceback|Error" /tmp/tests.log | head -20 | sed 's/^/::error::/'; exit 1; }
           # Settings must land in the mapped folder, or they would be lost on every update.
           test -s /tmp/rr-docker-data/devices.json
           ls -la /tmp/rr-docker-data

@@ -490,7 +490,8 @@ a.btn { text-decoration: none; color: var(--text); display: inline-flex; align-i
 dialog.info { max-width: min(680px, 94vw); }
 .info-body { max-height: 60vh; overflow: auto; font-size: 14px; }
 .info-body h4 { margin: 14px 0 4px; font-size: 14.5px; }
-.info-body ul { margin: 4px 0; padding-left: 20px; }
+.info-body ul, .info-body ol { margin: 4px 0 10px; padding-left: 22px; }
+.info-body li { margin: 2px 0; }
 .info-body pre { background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; white-space: pre-wrap; word-break: break-all; font-size: 12.5px; }
 .info-body code { background: var(--panel-2); border-radius: 4px; padding: 0 4px; font-size: .92em; }
 /* ---------- Zidoo / Plex badges ---------- */
@@ -2275,8 +2276,27 @@ const HELP = {
     <p>Each set that's on gets its turn, with its own background. Posters fade in and out over the background.</p>`],
   backgrounds: ["Backgrounds", `<p>A background fills the whole screen behind the poster. Design it at <b>2160×3840</b> (portrait) and keep the poster's place clear: the poster is <b>2000×3000</b>, centered across and set low: <b>80 px</b> at each side, <b>750 px</b> above it for "NOW SHOWING" and the like, and <b>90 px</b> below.</p>
     <p>Images: PNG, JPG or WebP. Videos: MP4, 10 to 20 seconds, made to loop seamlessly (the end flows into the start). Other sizes are scaled to cover the screen.</p>`],
-  posterfolders: ["Poster folders", `<p>Posters are taken from the movie's or show's folder first (<code>Movie-poster.jpg</code>, <code>poster.jpg</code>, <code>season01-poster.jpg</code>…), then from Plex, then from the Zidoo (which keeps them at only 500×750).</p>
-    <p>To open those folders, Resume Relay needs to know where this computer reaches the share the Zidoos use. If Plex runs on this computer, its folders (Settings → Plex) are used. Otherwise add a line here: the Zidoos' folder (like <code>smb://10.0.0.56/Entertainment</code>) and the same folder on this computer (like <code>/mnt/media</code>). On Windows, the share's own address works without a line.</p>`],
+  posterfolders: ["Poster folders", `<p>For each title, Resume Relay uses the first poster it finds, looking in this order:</p>
+    <ol><li><b>The NAS:</b> the movie's or show's own folder (the file names below).</li>
+    <li><b>Plex</b>, when it's set up: the poster Plex shows.</li>
+    <li><b>The Zidoo:</b> its poster, which it keeps at only 500×750.</li></ol>
+    <h4>Movies</h4>
+    <p>In the movie's folder, the first of these that exists:</p>
+    <ol><li><code>&lt;video file name&gt;-poster.jpg</code>, for example <code>Braveheart (1995).4K.(1#Theatrical Movie)-poster.jpg</code> next to <code>Braveheart (1995).4K.(1#Theatrical Movie).mkv</code></li>
+    <li><code>poster.jpg</code></li><li><code>folder.jpg</code></li><li><code>movie.jpg</code></li><li><code>cover.jpg</code></li></ol>
+    <h4>TV shows</h4>
+    <p>An episode shows its season's poster. The first of these that exists:</p>
+    <ol><li>In the season's folder (like <code>Andor/Season 01</code>): <code>poster.jpg</code>, <code>folder.jpg</code> or <code>cover.jpg</code></li>
+    <li>In the show's folder: <code>season01-poster.jpg</code>, <code>season1-poster.jpg</code>, <code>season01.jpg</code> or <code>season1.jpg</code> (specials: <code>season-specials-poster.jpg</code>, <code>season00-poster.jpg</code> or <code>specials.jpg</code>)</li>
+    <li>In the show's folder, a name ending in the season and <code>-poster</code>: for example <code>Andor S01-poster.jpg</code></li>
+    <li>The show's own poster, in the show's folder: <code>poster.jpg</code>, <code>folder.jpg</code> or <code>show.jpg</code></li></ol>
+    <p>A whole series (in Highly Acclaimed) uses the show's own poster (step 4).</p>
+    <p>Each name can be <code>.jpg</code>, <code>.jpeg</code>, <code>.png</code> or <code>.webp</code>, in any upper or lower case. Use 2000×3000 (2:3) for the sharpest picture; other sizes are stretched to fit. A poster you add or replace is picked up within 10 minutes (or at once with <b>Look for posters again</b>).</p>
+    <h4>Where this computer finds the folders</h4>
+    <p>To open those folders, Resume Relay needs to know where this computer reaches the share the Zidoos use:</p>
+    <ul><li>If Plex runs on this computer, its folders (Settings → Plex) are used. Nothing to add.</li>
+    <li>Otherwise, add a line here: the Zidoos' folder (like <code>smb://10.0.0.56/Entertainment</code>) and the same folder on this computer (like <code>/mnt/media</code>).</li>
+    <li>On Windows, the share's own address works without a line.</li></ul>`],
   plexusers: ["Plex users", `<p>Each Plex user you add becomes a player: their resume points and watched marks sync with the Zidoos in both directions. Users with a PIN need it once, to add them.</p>`],
 };
 document.addEventListener("click", e => {

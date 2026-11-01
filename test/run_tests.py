@@ -841,6 +841,14 @@ check("an episode's poster is its season's (inside a Season folder)", pq.get("so
 pq = http("GET", RELAY + "/api/live/poster?url=" + urllib.parse.quote(E03) + "&series=true")
 check("a whole series gets the show's poster", pq.get("source") == "Folder: poster.png", str(pq))
 
+def duration(rel):
+    import subprocess
+    out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", RELAY + "/live/media/" + rel], capture_output=True, text=True).stdout
+    return float(out.strip() or 0)
+def decodes(rel):
+    import subprocess
+    r = subprocess.run(["ffmpeg", "-v", "error", "-i", RELAY + "/live/media/" + rel, "-f", "null", "-"], capture_output=True, text=True)
+    return r.returncode == 0 and not r.stderr.strip(), r.stderr[-300:]
 hello = lambda: http("POST", RELAY + "/api/screen/hello", {"deviceKey": "test-screen-1", "platform": "android", "model": "Test TV", "version": "1"})
 h = hello()
 check("a new screen app gets a 4-digit code", not h["paired"] and len(h["code"]) == 4 and any(p["code"] == h["code"] for p in live()["pairs"]), str(h))
@@ -874,6 +882,9 @@ req = urllib.request.Request(RELAY + state_of()["url"], headers={"Range": "bytes
 with urllib.request.urlopen(req, timeout=20) as r:
     head = r.read()
     check("the video is served to the screen (with byte ranges)", r.status == 206 and head[4:8] == b"ftyp", str((r.status, head[:12])))
+np_v = state_of()["version"]
+check("Now Playing goes to the screen as one long video (about 20 minutes: it rarely has to loop)",
+      np_v.startswith("reels/") and duration(np_v) >= 1190, str((np_v, duration(np_v))))
 with urllib.request.urlopen(RELAY + f"/api/live/screens/{sid}/preview", timeout=60) as r:
     check("the dashboard gets a preview picture", r.headers.get("Content-Type") == "image/jpeg" and len(r.read()) > 1000)
 v_old = state_of()["url"]
@@ -919,7 +930,14 @@ rt0 = screen_of(sid)["roundTitles"]
 check("the sets take turns (Coming Soon, Recently Watched, Highly Acclaimed, …)", rt0[0] == "Test Coming" and rt0[2] in ("Andor", "Braveheart (2016)"), str(rt0))
 rt_titles = screen_of(sid)["roundTitles"]
 check("Recently Watched lists a TV show once, by its name (not per episode or season)",
-      rt_titles.count("Andor") <= 2 and not any("(season" in t for t in rt_titles), str(rt_titles))   # once in Recently Watched, once in Highly Acclaimed
+      "Andor" in rt_titles and not any("(season" in t for t in rt_titles), str(rt_titles))
+# One slideshow video holds several rounds (at least 15 minutes), with a dissolve before, between and after the slides.
+reel = screen_of(sid)["version"]
+n_titles = len(screen_of(sid)["roundTitles"])
+check("a slideshow video is its posters, each its time on screen, plus the dissolve from black (several rounds in one video)",
+      reel.startswith("reels/") and abs(duration(reel) - (n_titles * cfg["slideSeconds"] + 1)) < 1.5 and n_titles > len(rt0) // 2, str((reel, duration(reel), n_titles, cfg["slideSeconds"])))
+ok, err = decodes(reel)
+check("...and plays cleanly from end to end (slides and dissolves joined)", ok, err)
 http("GET", RELAY + f"/api/screen/report?token={TOK}&msg=" + urllib.parse.quote("error -3: test"))
 check("a screen app's playback report shows on its card", "error -3" in screen_of(sid)["appSays"], str(screen_of(sid)))
 check("an Android screen gets HEVC by default (Rokus need it for 4K)", screen_of(sid)["videoCodec"] == "hevc")
@@ -934,7 +952,7 @@ check("Rebuild slideshow: a new round goes up without waiting for the current on
 check("...and the screen card still lists the round's titles", len(screen_of(sid)["roundTitles"]) > 0, str(screen_of(sid)))
 check("a new screen shows every slideshow set", screen_of(sid)["sets"] == ["coming", "recent", "acclaimed"], str(screen_of(sid)))
 http("PATCH", RELAY + f"/api/live/screens/{sid}", {"sets": ["coming"]})
-sc = wait_for(lambda: (lambda x: x if x["roundTitles"] == ["Test Coming"] else None)(screen_of(sid)), 240)
+sc = wait_for(lambda: (lambda x: x if x["roundTitles"] and set(x["roundTitles"]) == {"Test Coming"} else None)(screen_of(sid)), 240)
 check("each screen shows only the sets ticked on its card", sc and screen_of(sid)["sets"] == ["coming"], str(screen_of(sid)))
 check("...and its card doesn't say it's off while it's on", "off" not in screen_of(sid)["note"], str(screen_of(sid)))
 http("DELETE", RELAY + f"/api/live/coming/{cid}")

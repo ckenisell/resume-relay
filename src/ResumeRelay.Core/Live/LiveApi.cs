@@ -125,8 +125,10 @@ public static class LiveApi
             string key = rt.Url + "|" + s.Mount + "|" + n;
             lock (Previews) if (Previews.TryGetValue(key, out var hit)) return Results.File(hit.Jpg, "image/jpeg");
             string video = Path.Combine(live.RenderDir, rt.Url);
-            // A slideshow poster is caught halfway through its time (fully faded in); Now Playing a few seconds in.
-            double at = rt.Mode == "idle" ? n * Math.Clamp(cfg.SlideSeconds, 4, 120) + Math.Clamp(cfg.SlideSeconds, 4, 120) / 2.0 : 2;
+            // A slideshow poster is caught halfway through its time; Now Playing a few seconds in.
+            // (A slideshow video starts with a dissolve from black, then each poster takes its time plus one dissolve.)
+            int slot = Math.Clamp(cfg.SlideSeconds, 4, 120);
+            double at = rt.Mode == "idle" ? Renderer.Dissolve + n * slot + (slot - Renderer.Dissolve) / 2.0 : 2;
             var jpg = await renderer.FrameAsync(video, s.Mount, at, ct);
             if (jpg == null) return Results.NotFound();
             lock (Previews) { if (Previews.Count > 200) Previews.Clear(); Previews[key] = (jpg, DateTime.UtcNow); }

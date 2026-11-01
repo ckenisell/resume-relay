@@ -75,6 +75,8 @@ public sealed class LiveService : BackgroundService
         /// <summary>The titles of the round up now, with the set each came from (the card's "See the titles").</summary>
         public List<SlideItem> RoundShown = new();
         public bool AdvanceAfterEnd;
+        /// <summary>How many rounds the slideshow video being made (or up) holds.</summary>
+        public int RoundsUp = 1;
         public bool WantNext;
         /// <summary>"Rebuild slideshow" was pressed: the round is made even while the screen is off.</summary>
         public bool ForceBuild;
@@ -264,8 +266,12 @@ public sealed class LiveService : BackgroundService
                 var video = _renderer.HoldAsync(bg, found?.Path, s.Mount, s.Resolution, CodecOf(s), priority: 0);
                 if (video.IsCompletedSuccessfully && video.Result != null)
                 {
+                    // The screen gets it copied end to end into a 20-minute video (a second or two), so it rarely loops:
+                    // a Roku shows black for a moment each time a video starts over.
+                    var longer = _renderer.LongAsync(video.Result, Renderer.HoldSeconds(bg));
+                    if (!longer.IsCompleted) return;
                     rt.PosterSource = found?.Source ?? "no poster found";
-                    Show(rt, "playing", video.Result, loop: true, now.Title);
+                    Show(rt, "playing", longer.IsCompletedSuccessfully && longer.Result != null ? longer.Result : video.Result, loop: true, now.Title);
                     return;
                 }
             }
@@ -421,7 +427,7 @@ public sealed class LiveService : BackgroundService
     {
         _recentAt = DateTime.MinValue;
         var rt = RuntimeOf(screenId);
-        rt.Round++;
+        rt.Round += Math.Max(1, rt.RoundsUp);
         rt.WantNext = true;
         // The round up now may be replaced by the new one's first slides as soon as they're ready (not only at its end).
         rt.Partial = true;
@@ -436,8 +442,14 @@ public sealed class LiveService : BackgroundService
         rt.Note = "";
         // The screen finished a round: the next one goes up as soon as it's made (the screen replays this one meanwhile).
         // (After a partial round, the same round comes back complete, or longer, instead of a new one.)
-        if (rt.AdvanceAfterEnd) { rt.AdvanceAfterEnd = false; if (!rt.Partial) rt.Round++; rt.WantNext = true; }
+        if (rt.AdvanceAfterEnd) { rt.AdvanceAfterEnd = false; if (!rt.Partial) rt.Round += Math.Max(1, rt.RoundsUp); rt.WantNext = true; }
+        // One slideshow video holds several rounds in a row (each its own random pick), at least 15 minutes, so the screen
+        // only has to start a new video (a moment of black on a Roku) a few times an hour.
         var items = RoundItems(s, cfg, rt.Round);
+        int perRound = items.Count;
+        int rounds = perRound == 0 ? 1 : Math.Clamp((int)Math.Ceiling(15 * 60.0 / (perRound * Math.Clamp(cfg.SlideSeconds, 4, 120))), 1, 8);
+        for (int k = 1; k < rounds; k++) items.AddRange(RoundItems(s, cfg, rt.Round + k));
+        rt.RoundsUp = rounds;
         // Each title's poster and slide; the round's reel once they're all made.
         var slides = new List<string>();
         bool pending = false;
@@ -478,7 +490,8 @@ public sealed class LiveService : BackgroundService
             if (rt.IdleKey == key && rt.IdleUrl.Length > 0) { rt.WantNext = false; rt.Partial = false; rt.RoundTitles = titles; rt.RoundShown = shown; }
             else
             {
-                var reel = _renderer.ReelAsync(slides);
+                var reel = _renderer.RoundVideoAsync(slides, s.Mount, s.Resolution, CodecOf(s));
+                if (reel.IsCompleted && !(reel.IsCompletedSuccessfully && reel.Result != null)) pending = true;
                 if (reel.IsCompletedSuccessfully && reel.Result != null)
                 {
                     rt.IdleUrl = _renderer.Rel(reel.Result);
@@ -495,7 +508,7 @@ public sealed class LiveService : BackgroundService
         else if (pending && canSwap && (rt.IdleUrl.Length == 0 || rt.Partial) && firstSlides.Count >= Math.Min(3, items.Count)
                  && firstSlides.Count > (rt.Partial && rt.IdleUrl.Length > 0 ? rt.RoundTitles.Count : 0))
         {
-            var reel = _renderer.ReelAsync(firstSlides);
+            var reel = _renderer.RoundVideoAsync(firstSlides, s.Mount, s.Resolution, CodecOf(s));
             if (reel.IsCompletedSuccessfully && reel.Result != null)
             {
                 rt.IdleUrl = _renderer.Rel(reel.Result);

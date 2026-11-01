@@ -157,10 +157,108 @@ public sealed class Renderer
         return MakeAsync("hold", bg, poster, mount, resolution, codec, seconds, fade: false, priority);
     }
 
-    /// <summary>One slideshow poster: the whole picture (background and poster) fades up from black, holds, and fades
-    /// down to black, so slides played one after another go through black.</summary>
+    /// <summary>One slideshow poster: the whole picture (background and poster), held. It's made once and used in any
+    /// round; the dissolves between slides are short clips of their own (see DissolveAsync), so each slide's time on
+    /// screen is its own length plus one dissolve.</summary>
     public Task<string?> SlideAsync(LiveBackground? bg, string poster, string mount, string resolution, string codec, int seconds, int priority = 5) =>
-        MakeAsync("slide", bg, poster, mount, resolution, codec, Math.Clamp(seconds, 4, 120), fade: true, priority);
+        MakeAsync("slide", bg, poster, mount, resolution, codec, Math.Clamp(seconds, 4, 120) - Dissolve, fade: false, priority);
+
+    /// <summary>How long one picture takes to dissolve into the next, in seconds.</summary>
+    public const double Dissolve = 1.0;
+
+    /// <summary>
+    /// The dissolve from one slide into the next: the whole picture (marquee title, background and poster) crossfades.
+    /// Made from the last picture of the first slide and the first of the second (null: black, for the start and end
+    /// of a slideshow video). Depends only on the two slides, so it's made once per pair.
+    /// </summary>
+    public Task<string?> DissolveAsync(string? from, string? to, string mount, string resolution, string codec, int priority = 5)
+    {
+        var l = LayoutFor(resolution);
+        string enc = EncoderFor(codec);
+        bool turned = mount is "right" or "left";
+        int w = turned ? l.H : l.W, h = turned ? l.W : l.H;
+        string key = Hash($"dissolve|{(from == null ? "black" : Path.GetFileName(from))}|{(to == null ? "black" : Path.GetFileName(to))}|{w}x{h}|{enc}|v1");
+        string output = Path.Combine(_live.RenderDir, key + ".mp4");
+        string d = Dissolve.ToString("0.###", CultureInfo.InvariantCulture);
+        string black = $"-f lavfi -i color=c=black:s={w}x{h}:r={Fps}:d=1 ";
+        return Enqueue(key, output, "dissolve", priority, o =>
+        {
+            var a = new StringBuilder(Pre(enc));
+            // The first slide's last picture (half a second before its end), and the second slide's first.
+            a.Append(from == null ? black : $"-sseof -0.5 -i \"{from}\" ");
+            a.Append(to == null ? black : $"-i \"{to}\" ");
+            string graph = $"[0:v]trim=end_frame=1,setsar=1,format=yuv420p,{Repeat(Dissolve)}[a];[1:v]trim=end_frame=1,setsar=1,format=yuv420p,{Repeat(Dissolve)}[b];"
+                + $"[a][b]xfade=transition=fade:duration={d}:offset=0{Final(enc)}[v]";
+            a.Append($"-filter_complex \"{graph}\" -map \"[v]\" -t {d} {EncodeArgs(enc, still: true)} \"{o}\"");
+            return a.ToString();
+        });
+    }
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Task<string?>> _rounds = new();
+
+    /// <summary>
+    /// A slideshow video: the slides in order, each dissolving into the next, starting from black and ending in black.
+    /// The dissolves are made (each once per pair), then everything is joined without re-encoding.
+    /// </summary>
+    public Task<string?> RoundVideoAsync(IReadOnlyList<string> slides, string mount, string resolution, string codec, int priority = 5)
+    {
+        string key = Hash("round|" + mount + "|" + resolution + "|" + codec + "|" + string.Join("|", slides.Select(Path.GetFileName)));
+        if (_rounds.TryGetValue(key, out var have) && !(have.IsCompleted && (have.Result == null || !File.Exists(have.Result))))
+            return have;
+        if (_rounds.Count > 64) foreach (var k in _rounds.Where(x => x.Value.IsCompleted).Select(x => x.Key).ToList()) _rounds.TryRemove(k, out _);
+        var task = Task.Run(async () =>
+        {
+            var dissolves = new List<Task<string?>>();
+            for (int i = 0; i <= slides.Count; i++)
+                dissolves.Add(DissolveAsync(i == 0 ? null : slides[i - 1], i == slides.Count ? null : slides[i], mount, resolution, codec, priority));
+            var made = await Task.WhenAll(dissolves);
+            if (made.Any(x => x == null)) return null;
+            var parts = new List<string>();
+            for (int i = 0; i < slides.Count; i++) { parts.Add(made[i]!); parts.Add(slides[i]); }
+            parts.Add(made[^1]!);
+            return await ReelAsync(parts, priority);
+        });
+        _rounds[key] = task;
+        return task;
+    }
+
+    /// <summary>How long a Now Playing video is (see HoldAsync).</summary>
+    public static double HoldSeconds(LiveBackground? bg) =>
+        bg is { Kind: "video", DurationMs: > 0 } ? bg.DurationMs / 1000.0 * Math.Max(1, Math.Ceiling(30 / (bg.DurationMs / 1000.0))) : 30;
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Task<string?>> _longs = new();
+
+    /// <summary>
+    /// A Now Playing video copied end to end into one about 20 minutes long, so the screen rarely has to loop it (a Roku
+    /// shows black for a moment each time it loops). Joined without re-encoding, outside the queue: it takes a second
+    /// or two. Kept with the slideshow videos, and deleted once no screen shows it.
+    /// </summary>
+    public Task<string?> LongAsync(string hold, double holdSeconds)
+    {
+        int n = (int)Math.Max(2, Math.Ceiling(20 * 60 / Math.Max(1, holdSeconds)));
+        string key = Hash($"long|{Path.GetFileName(hold)}|{n}");
+        string output = Path.Combine(ReelDir, key + ".mp4");
+        if (File.Exists(output)) { Touch(output); return Task.FromResult<string?>(output); }
+        if (_longs.TryGetValue(key, out var have) && !have.IsCompleted) return have;
+        var task = Task.Run(async () =>
+        {
+            Directory.CreateDirectory(ReelDir);
+            string list = output + ".txt", tmp = output + ".part.mp4";
+            try
+            {
+                File.WriteAllLines(list, Enumerable.Repeat($"file '{hold.Replace("'", "'\\''")}'", n));
+                var (code, _) = await RunAsync($"-hide_banner -loglevel error -y -f concat -safe 0 -i \"{list}\" -c copy -movflags +faststart -f mp4 \"{tmp}\"",
+                    TimeSpan.FromMinutes(3), CancellationToken.None, lowPriority: true);
+                if (code != 0 || !File.Exists(tmp)) return null;
+                File.Move(tmp, output, true);
+                return output;
+            }
+            catch { return null; }
+            finally { try { File.Delete(list); } catch { } try { File.Delete(tmp); } catch { } _longs.TryRemove(key, out _); }
+        });
+        _longs[key] = task;
+        return task;
+    }
 
     /// <summary>A screen's test picture: an arrow pointing up and the screen's name, to check which way it's turned.</summary>
     public Task<string?> TestPatternAsync(string mount, string resolution, string codec)

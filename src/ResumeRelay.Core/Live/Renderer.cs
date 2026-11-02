@@ -202,25 +202,48 @@ public sealed class Renderer
     /// </summary>
     public Task<string?> RoundVideoAsync(IReadOnlyList<string> slides, string mount, string resolution, string codec, int priority = 5)
     {
-        string key = Hash("round|" + mount + "|" + resolution + "|" + codec + "|" + string.Join("|", slides.Select(Path.GetFileName)));
+        string key = RoundKey(slides, mount, resolution, codec);
         if (_rounds.TryGetValue(key, out var have) && !(have.IsCompleted && (have.Result == null || !File.Exists(have.Result))))
             return have;
-        if (_rounds.Count > 64) foreach (var k in _rounds.Where(x => x.Value.IsCompleted).Select(x => x.Key).ToList()) _rounds.TryRemove(k, out _);
+        if (_rounds.Count > 64)
+            foreach (var k in _rounds.Where(x => x.Value.IsCompleted).Select(x => x.Key).ToList()) { _rounds.TryRemove(k, out _); _roundSteps.TryRemove(k, out _); }
+        var step = new RoundStep { Total = slides.Count + 1 };
+        _roundSteps[key] = step;
         var task = Task.Run(async () =>
         {
             var dissolves = new List<Task<string?>>();
             for (int i = 0; i <= slides.Count; i++)
-                dissolves.Add(DissolveAsync(i == 0 ? null : slides[i - 1], i == slides.Count ? null : slides[i], mount, resolution, codec, priority));
+            {
+                var t = DissolveAsync(i == 0 ? null : slides[i - 1], i == slides.Count ? null : slides[i], mount, resolution, codec, priority);
+                _ = t.ContinueWith(_ => Interlocked.Increment(ref step.Done), TaskScheduler.Default);
+                dissolves.Add(t);
+            }
             var made = await Task.WhenAll(dissolves);
             if (made.Any(x => x == null)) return null;
             var parts = new List<string>();
             for (int i = 0; i < slides.Count; i++) { parts.Add(made[i]!); parts.Add(slides[i]); }
             parts.Add(made[^1]!);
+            step.Joining = true;
             return await ReelAsync(parts, priority);
         });
         _rounds[key] = task;
         return task;
     }
+
+    private static string RoundKey(IReadOnlyList<string> slides, string mount, string resolution, string codec) =>
+        Hash("round|" + mount + "|" + resolution + "|" + codec + "|" + string.Join("|", slides.Select(Path.GetFileName)));
+
+    /// <summary>Step 2 of making a slideshow video (for the screen's card): dissolves made of how many, then joining.</summary>
+    public sealed class RoundStep { public int Done; public int Total; public volatile bool Joining; }
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, RoundStep> _roundSteps = new();
+
+    /// <summary>How far along the slideshow video for these slides is (null: not being made).</summary>
+    public RoundStep? RoundProgress(IReadOnlyList<string> slides, string mount, string resolution, string codec) =>
+        _roundSteps.TryGetValue(RoundKey(slides, mount, resolution, codec), out var st) ? st : null;
+
+    // How long each kind of job has been taking (seconds, a running average), for the card's "about N minutes left".
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, double> _took = new();
+    public double TypicalSeconds(string label, double guess) => _took.TryGetValue(label, out var v) ? v : guess;
 
     /// <summary>How long a Now Playing video is (see HoldAsync).</summary>
     public static double HoldSeconds(LiveBackground? bg) =>
@@ -265,7 +288,7 @@ public sealed class Renderer
     {
         var l = LayoutFor(resolution);
         string enc = EncoderFor(codec);
-        string key = Hash($"test|{mount}|{resolution}|{enc}|30");
+        string key = Hash($"test|{mount}|{resolution}|{enc}|30|v2");
         string output = Path.Combine(_live.RenderDir, key + ".mp4");
         // An arrow made of boxes (no fonts needed): a shaft and a head pointing to the top of the portrait canvas.
         int cx = l.W / 2, unit = l.W / 18;
@@ -275,10 +298,57 @@ public sealed class Renderer
             int w = unit * (2 + i * 2), y = l.H / 3 - unit * (6 - i);
             arrow += $",drawbox=x={cx - w / 2}:y={y}:w={w}:h={unit}:color=white:t=fill";
         }
+        // The words are drawn with boxes too (a small block font), so every ffmpeg build can draw them.
+        // "UP" in the background's color inside the wide part of the arrowhead.
+        int upPx = Math.Max(2, unit * 9 / 20);
+        arrow += BlockText("UP", cx, l.H / 3 - unit * 19 / 10, upPx, "0x101826", bold: true);
+        // "RESUME RELAY" in bold, centered below the arrow.
+        int namePx = Math.Max(2, l.W * 85 / 100 / 71);
+        arrow += BlockText("RESUME RELAY", cx, l.H * 2 / 3 + unit * 2 + namePx * 7 / 2, namePx, "white", bold: true);
         arrow += $",drawbox=x=0:y=0:w={l.W}:h={l.H}:color=0xF2A33A:t={Math.Max(8, unit / 3)}";
         // Drawn once, then the finished frame is repeated (see MakeAsync).
         return Enqueue(key, output, "test picture", 0, o =>
             $"{Pre(enc)}-f lavfi -i color=c=0x101826:s={l.W}x{l.H}:r={Fps}:d=1 -vf \"trim=end_frame=1,{arrow}{Turn(mount)},{Repeat(30)}{Final(enc)}\" -t 30 {EncodeArgs(enc, still: true)} \"{o}\"");
+    }
+
+    // A 5×7 block font for the few letters the test picture uses (rows top to bottom, '#' = filled).
+    private static readonly Dictionary<char, string[]> Glyphs = new()
+    {
+        ['A'] = new[] { ".###.", "#...#", "#...#", "#####", "#...#", "#...#", "#...#" },
+        ['E'] = new[] { "#####", "#....", "#....", "####.", "#....", "#....", "#####" },
+        ['L'] = new[] { "#....", "#....", "#....", "#....", "#....", "#....", "#####" },
+        ['M'] = new[] { "#...#", "##.##", "#.#.#", "#.#.#", "#...#", "#...#", "#...#" },
+        ['P'] = new[] { "####.", "#...#", "#...#", "####.", "#....", "#....", "#...." },
+        ['R'] = new[] { "####.", "#...#", "#...#", "####.", "#.#..", "#..#.", "#...#" },
+        ['S'] = new[] { ".####", "#....", "#....", ".###.", "....#", "....#", "####." },
+        ['U'] = new[] { "#...#", "#...#", "#...#", "#...#", "#...#", "#...#", ".###." },
+        ['Y'] = new[] { "#...#", "#...#", ".#.#.", "..#..", "..#..", "..#..", "..#.." },
+        [' '] = new[] { ".....", ".....", ".....", ".....", ".....", ".....", "....." },
+    };
+
+    /// <summary>drawbox filters (each starting with a comma) that write <paramref name="text"/> centered on
+    /// (<paramref name="cx"/>, <paramref name="cy"/>), each font dot <paramref name="px"/> pixels square. Bold widens
+    /// every stroke by half a dot.</summary>
+    internal static string BlockText(string text, int cx, int cy, int px, string color, bool bold)
+    {
+        int cols = text.Length * 6 - 1;
+        int left = cx - cols * px / 2, top = cy - 7 * px / 2, extra = bold ? Math.Max(1, px / 2) : 0;
+        var sb = new StringBuilder();
+        for (int c = 0; c < text.Length; c++)
+        {
+            if (!Glyphs.TryGetValue(char.ToUpperInvariant(text[c]), out var g)) continue;
+            for (int row = 0; row < 7; row++)
+                for (int col = 0; col < 5; col++)
+                {
+                    if (g[row][col] != '#') continue;
+                    int run = 1;
+                    while (col + run < 5 && g[row][col + run] == '#') run++;
+                    int x = left + (c * 6 + col) * px - extra / 2;
+                    sb.Append($",drawbox=x={x}:y={top + row * px - extra / 2}:w={run * px + extra}:h={px + extra}:color={color}:t=fill");
+                    col += run - 1;
+                }
+        }
+        return sb.ToString();
     }
 
     private Task<string?> MakeAsync(string kind, LiveBackground? bg, string? poster, string mount, string resolution, string codec, double seconds, bool fade, int priority)
@@ -466,8 +536,14 @@ public sealed class Renderer
                 if (File.Exists(job.Output)) result = job.Output;
                 else
                 {
+                    var watch = Stopwatch.StartNew();
                     var (code, err) = await RunAsync("-hide_banner -loglevel error -y " + job.Args(tmp), TimeSpan.FromMinutes(20), ct, lowPriority: true);
-                    if (code == 0 && File.Exists(tmp)) { File.Move(tmp, job.Output, true); result = job.Output; LastError = ""; }
+                    if (code == 0 && File.Exists(tmp))
+                    {
+                        File.Move(tmp, job.Output, true); result = job.Output; LastError = "";
+                        double took = watch.Elapsed.TotalSeconds;
+                        _took.AddOrUpdate(job.Label, took, (_, old) => old * 0.7 + took * 0.3);
+                    }
                     else LastError = $"Making a {job.Label} failed: " + LastLine(err);
                 }
             }

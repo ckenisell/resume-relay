@@ -42,8 +42,8 @@ public static class LiveApi
                     {
                         s.Id, s.Name, s.Platform, s.Model, s.AppVersion, s.Players, s.Mount, s.Resolution, s.Codec, VideoCodec = LiveService.CodecOf(s),
                         Sets = LiveService.SetKeys.Where(k => LiveService.Shows(s, cfg, k)),
-                        AppSays = rt.AppSays, rt.AppSaysUtc,
-                        Making = rt.TotalSlides > 0 ? new { Done = rt.MadeSlides, Total = rt.TotalSlides } : null,
+                        AppSays = rt.AppSays, rt.AppSaysUtc, AppPlayingThis = rt.AppSays == "playing" && rt.AppPlaying == rt.Url && rt.Url.Length > 0,
+                        Making = rt.Making is { } m ? new { m.Step, m.Slides, m.SlidesTotal, m.Dissolves, m.DissolvesTotal, m.Joining, m.ShowingOld, m.Fraction, m.SecondsLeft } : null,
                         Online = rt.LastSeenUtc is { } seen && DateTime.UtcNow - seen < TimeSpan.FromSeconds(20),
                         rt.LastSeenUtc, rt.Mode, rt.Title, rt.PosterSource, rt.Note, rt.RoundTitles, Version = rt.Url,
                     };

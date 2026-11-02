@@ -7,6 +7,15 @@
   <script type="text/brightscript" uri="MainScene.brs" />
   <children>
     <Video id="video" width="1920" height="1080" translation="[0,0]" />
+    <!-- While the first slideshow is being made: "Loading..." and a progress bar, turned the way the posters are. -->
+    <Rectangle id="loadingBg" width="1920" height="1080" color="0x000000FF" visible="false" />
+    <Group id="loadingBox" translation="[960,540]" visible="false">
+      <Label id="loadingWord" width="900" height="140" translation="[-450,-150]" horizAlign="center" vertAlign="center" color="0xF2EFE9FF" text="Loading...">
+        <Font role="font" uri="font:BoldSystemFontFile" size="96" />
+      </Label>
+      <Rectangle id="loadingTrack" width="700" height="26" translation="[-350,20]" color="0x262B38FF" />
+      <Rectangle id="loadingFill" width="0" height="26" translation="[-350,20]" color="0xF2A33AFF" />
+    </Group>
     <Rectangle id="panel" width="1920" height="1080" color="0x151A2EFF">
       <LayoutGroup id="box" translation="[960,520]" horizAlignment="center" vertAlignment="center" itemSpacings="[24, 12, 24]">
         <Label id="title" width="1600" horizAlign="center" color="0xFFFFFFFF" font="font:LargeBoldSystemFont" />

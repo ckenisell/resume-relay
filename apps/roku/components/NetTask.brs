@@ -15,6 +15,7 @@ sub talk()
     m.seq = 0
     m.fails = 0
     m.wake = false
+    m.loadingLook = ""
     while true
         m.wake = false
         if m.server = ""
@@ -139,6 +140,8 @@ sub poll(ended as string)
         m.version = ""
         m.seq = m.seq + 1
         m.top.video = { url: "", version: "", loop: true, seq: m.seq }
+        m.loadingLook = ""
+        m.top.loading = { on: false, progress: 0, mount: "right" }
         return
     end if
     if r.json = invalid
@@ -149,6 +152,19 @@ sub poll(ended as string)
     if m.top.phase <> "playing" then m.top.phase = "playing"
     url = r.json.url
     v = r.json.version
+    ' While the first slideshow is being made: "Loading..." and a progress bar (drawn by the scene).
+    mode = r.json.mode
+    if mode = invalid then mode = ""
+    making = (mode = "making") and (url = invalid or url = "")
+    p = 0
+    if making and r.json.progress <> invalid then p = r.json.progress
+    mount = "right"
+    if r.json.mount <> invalid then mount = r.json.mount
+    look = making.ToStr() + "|" + Str(p) + "|" + mount
+    if look <> m.loadingLook
+        m.loadingLook = look
+        m.top.loading = { on: making, progress: p, mount: mount }
+    end if
     if url <> invalid and url <> "" and (v <> m.version or (ended <> "" and v = ended))
         m.version = v
         m.seq = m.seq + 1

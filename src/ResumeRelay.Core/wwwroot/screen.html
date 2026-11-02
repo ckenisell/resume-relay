@@ -15,12 +15,20 @@
   #setup[hidden] { display: none; }
   #setup h1 { font-size: clamp(20px, 4vw, 40px); margin: 0 0 8px; font-weight: 700; }
   #setup p { color: var(--muted); font-size: clamp(14px, 2.2vw, 22px); margin: 6px 0; max-width: 40ch; }
+  /* While the first slideshow is being made: "Loading…" and a progress bar, turned the way the posters are. */
+  #loading { position: fixed; inset: 0; display: grid; place-items: center; background: #000; }
+  #loading[hidden] { display: none; }
+  #loading .box { width: var(--long, 60vw); text-align: center; transform: rotate(var(--turn, 0deg)); }
+  #loading .word { font-size: calc(var(--long, 60vw) * .11); font-weight: 700; letter-spacing: .04em; margin-bottom: .6em; }
+  #loading .bar { height: calc(var(--long, 60vw) * .03); border-radius: 999px; background: #262b38; overflow: hidden; }
+  #loading .fill { height: 100%; width: 0; background: var(--amber); border-radius: inherit; transition: width 1.5s linear; }
   #code { font-size: clamp(56px, 16vw, 180px); letter-spacing: .12em; color: var(--amber); font-weight: 800; margin: 12px 0; font-variant-numeric: tabular-nums; }
 </style>
 </head>
 <body>
 <video id="a" muted playsinline autoplay></video>
 <video id="b" muted playsinline autoplay></video>
+<div id="loading" hidden><div class="box"><div class="word">Loading…</div><div class="bar"><div class="fill"></div></div></div></div>
 <div id="setup">
   <div>
     <h1 id="setup-h">Resume Relay Live Poster</h1>
@@ -59,11 +67,24 @@ async function poll() {
   try {
     const s = await state();
     if (!s) return;
+    loading(s);
     if (s.url && s.version !== current) play(s);
   } catch { }
   setTimeout(poll, 2000);
 }
 
+// "Loading…" while the first slideshow is made. The posters arrive already turned for a TV on its side, so the words
+// are turned the same way (a TV turned with its top to the right shows them turned a quarter to the left).
+function loading(s) {
+  const on = s.mode === "making" && !s.url;
+  $("#loading").hidden = !on;
+  if (!on) return;
+  const turn = s.mount === "right" ? -90 : s.mount === "left" ? 90 : 0;
+  const box = $("#loading .box");
+  box.style.setProperty("--turn", turn + "deg");
+  box.style.setProperty("--long", (turn ? innerHeight : innerWidth) * 0.6 + "px");
+  $("#loading .fill").style.width = Math.round((s.progress || 0) * 100) + "%";
+}
 // Two video elements, so a new video fades in over the old one instead of flashing black.
 function play(s) {
   current = s.version; loop = s.loop;

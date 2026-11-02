@@ -916,8 +916,14 @@ mock(LR, "play", url=E03, pos=60000)
 sc = wait_for(lambda: (lambda x: x if x["mode"] == "playing" and x["posterSource"] == "Folder: folder.png" else None)(screen_of(sid)), 240)
 check("a TV episode shows its season's poster", sc, str(screen_of(sid)))
 mock(LR, "stop")
-st = wait_for(lambda: (lambda s: s if s["mode"] == "idle" else None)(state_of()), 30)
-check("...and when the wait is over, the slideshow", st, str(state_of()))
+st = wait_for(lambda: (lambda s: s if s["mode"] in ("idle", "making") else None)(state_of()), 30)
+check("...and when the wait is over, the slideshow (or Loading while the first one is made)", st, str(state_of()))
+if st and st["mode"] == "making":
+    check("while the first slideshow is made, the screen gets no video but a Loading progress (0 to 1) and how it's mounted",
+          st["url"] == "" and 0 <= st["progress"] < 1 and st["mount"] in ("right", "left", "portrait"), str(st))
+    mk = screen_of(sid)["making"]
+    check("...and the card shows which of the two steps it's on, with counts", mk and mk["step"] in (1, 2) and mk["slidesTotal"] > 0
+          and not mk["showingOld"], str(mk))
 
 with urllib.request.urlopen(urllib.request.Request(RELAY + "/api/live/coming?title=Test%20Coming", data=png(200, 300, (220, 200, 40)),
                                                    headers={"Content-Type": "image/png"}, method="POST"), timeout=20) as r:
@@ -962,7 +968,19 @@ check("an Android screen gets HEVC by default (Rokus need it for 4K)", screen_of
 state_of(st["version"])
 check("a screen saying the round ended keeps getting a slideshow", wait_for(lambda: state_of()["mode"] == "idle", 10))
 v0 = state_of()["version"]
+titles0 = screen_of(sid)["roundTitles"]
 http("POST", RELAY + f"/api/live/screens/{sid}/rebuild")
+st = state_of()
+check("Rebuild: the slideshow up keeps playing (with its titles listed) while the new one is made",
+      st["mode"] == "idle" and st["version"] == v0 and screen_of(sid)["roundTitles"] == titles0, str((st, screen_of(sid)["roundTitles"])))
+# The card's counts only go up while it's made (they used to jump back from the old round's count).
+seen, t_end = [], time.time() + 120
+while time.time() < t_end:
+    mk = screen_of(sid)["making"]
+    if mk: seen.append((mk["step"], mk["slides"] if mk["step"] == 1 else 10**6 + mk["dissolves"]))
+    elif seen: break
+    time.sleep(0.5)
+check("...and its progress never goes back", seen == sorted(seen) and all(k for k in seen), str(seen[:40]))
 # (With few titles the new round can come out the same as the one up: then the same video stays, with its titles.)
 check("Rebuild slideshow: a new round goes up without waiting for the current one to end",
       wait_for(lambda: state_of()["mode"] == "idle" and (state_of()["version"] != v0 or len(screen_of(sid)["roundTitles"]) > 0), 300),

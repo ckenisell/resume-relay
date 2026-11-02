@@ -8,6 +8,7 @@
     <field id="screenName" type="string" />
     <field id="server" type="string" />
     <field id="video" type="assocarray" />
+    <field id="loading" type="assocarray" />
     <field id="ended" type="string" alwaysNotify="true" />
     <field id="serverInput" type="string" alwaysNotify="true" />
     <field id="command" type="string" alwaysNotify="true" />

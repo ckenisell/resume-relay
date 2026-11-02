@@ -398,6 +398,11 @@ a.btn { text-decoration: none; color: var(--text); display: inline-flex; align-i
 .lp-now small { display: block; color: var(--muted); font-size: 12px; }
 .lp-bar { height: 6px; border-radius: 3px; background: var(--panel-2); border: 1px solid var(--line); overflow: hidden; margin: 6px 0 2px; max-width: 320px; }
 .lp-bar i { display: block; height: 100%; background: var(--amber); transition: width .6s; }
+.lp-steps { margin: 6px 0 2px; }
+.lp-step { opacity: .55; }
+.lp-step.on { opacity: 1; }
+.lp-step.done .lp-bar i { background: var(--ok, #4caf50); }
+.lp-prev.lp-loading::after { content: "Loading…"; position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 13px; }
 .lp-now .btn.quiet { padding: 0 6px; font-size: 12px; vertical-align: 1px; color: var(--amber); }
 .lp-field { display: block; font-size: 12.5px; font-weight: 600; margin: 8px 0 4px; color: var(--muted); }
 .lp-players { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -2534,6 +2539,33 @@ function bgOptions(selected) {
 function bgPicker(set, key) {
   return `<span class="lp-bgpick"><img alt="" src="/api/live/backgrounds/${encodeURIComponent(set.backgroundId)}/preview"><select data-lp-bg="${key}" aria-label="Background">${bgOptions(set.backgroundId)}</select></span>`;
 }
+// "about 3 minutes", "under a minute"
+const lpLeft = sec => sec < 60 ? "under a minute" : sec < 5400 ? `about ${Math.round(sec / 60)} minute${Math.round(sec / 60) === 1 ? "" : "s"}` : `about ${Math.round(sec / 3600)} hours`;
+const lpBar = (frac, label) => `<div class="lp-bar" role="progressbar" aria-label="${label}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(frac * 100)}"><i style="width:${Math.round(frac * 100)}%"></i></div>`;
+// What the screen shows now, and while a slideshow is being made, its two steps: step 1 makes each poster into a slide,
+// step 2 makes the dissolves between the slides and joins everything into one video.
+function lpNowHtml(s) {
+  const m = s.making;
+  let steps = "";
+  if (m) {
+    const one = m.step === 1 ? m.slides / Math.max(1, m.slidesTotal) : 1;
+    const two = m.step === 2 ? (m.joining ? 0.97 : 0.9 * m.dissolves / Math.max(1, m.dissolvesTotal)) : 0;
+    steps = `<div class="lp-steps">
+      <div class="lp-step${m.step === 1 ? " on" : " done"}"><small><b>Step 1 of 2</b> · Making the slides: ${m.step === 1 ? `${m.slides} of ${m.slidesTotal}` : "done"}</small>${lpBar(one, "Step 1")}</div>
+      <div class="lp-step${m.step === 2 ? " on" : ""}"><small><b>Step 2 of 2</b> · ${m.step === 2 ? (m.joining ? "Joining them into one video…" : `Dissolves between the slides: ${m.dissolves} of ${m.dissolvesTotal}`) : "Dissolves between the slides, then one video"}</small>${lpBar(two, "Step 2")}</div>
+      <small>${m.showingOld ? "The screen keeps showing the current slideshow until the new one is ready" : "The screen shows “Loading…” until it's ready"}${m.secondsLeft > 0 ? ` · ${lpLeft(m.secondsLeft)} left` : ""}.</small></div>`;
+  }
+  const rebuild = `<button class="btn quiet" data-lp-rebuild title="Make a new round now (with any new Coming Soon posters)">Rebuild slideshow</button>`;
+  const head = s.mode === "playing" ? `<b>Now playing:</b> ${esc(s.title)}<small>Poster: ${esc(s.posterSource)}</small>`
+    : s.mode === "idle" ? `<b>${esc(s.title || "Slideshow")}</b> ${rebuild}${s.roundTitles?.length ? `<button class="btn quiet" data-lp-titles>See the titles</button>` : ""}${s.note ? `<small>${esc(s.note)}</small>` : ""}`
+    : s.mode === "making" ? `<b>Making the slideshow…</b> ${rebuild}`
+    : s.mode === "test" ? `<b>Test picture</b><small>The arrow should point up.</small>`
+    : `<small>${esc(s.note || "Starting…")}</small>`;
+  // The app's own word: its errors, and "playing" only about the video that's up now.
+  const app = /error/i.test(s.appSays || "") ? `<small style="color:var(--bad)">Screen app: ${esc(s.appSays)}</small>`
+    : s.appPlayingThis && s.mode !== "making" ? `<small>Screen app: playing it</small>` : "";
+  return head + steps + app;
+}
 function renderLive() {
   const L = live, r = L.renderer;
   $("#lp-screen-url").textContent = location.origin + "/screen";
@@ -2549,15 +2581,12 @@ function renderLive() {
   // Paired screens.
   const players = L.players;
   setHtml($("#lp-screens"), L.screens.map(s => `<article class="lp-screen" data-lp-screen="${esc(s.id)}">
-    <div class="lp-prev" data-lp-prev="${esc(s.id)}" data-v="${esc(s.version || "")}" data-n="${s.mode === "idle" ? (s.roundTitles?.length || 1) : 1}"
+    <div class="lp-prev" data-lp-prev="${esc(s.id)}"
       data-codec="${esc(s.videoCodec)}" data-mount="${esc(s.mount)}" data-res="${esc(s.resolution)}" role="img" aria-label="What ${esc(s.name)} shows now"></div>
     <div>
       <h4><span class="lp-dot${s.online ? " on" : ""}" title="${s.online ? "Online" : "Not seen recently"}"></span><input value="${esc(s.name)}" data-lp-rename aria-label="Screen name"></h4>
-      <div class="lp-meta">${s.online ? "Online" : s.lastSeenUtc ? "Last seen " + ago(s.lastSeenUtc) : "Not seen yet"} · ${esc([s.platform, s.model].filter(Boolean).join(", "))}</div>
-      <div class="lp-now">${s.making ? `<small>Making the next slideshow: ${s.making.done} of ${s.making.total} slides</small><div class="lp-bar" role="progressbar" aria-valuemin="0" aria-valuemax="${s.making.total}" aria-valuenow="${s.making.done}"><i style="width:${Math.round(100 * s.making.done / Math.max(1, s.making.total))}%"></i></div>` : ""}${s.mode === "playing" ? `<b>Now playing:</b> ${esc(s.title)}<small>Poster: ${esc(s.posterSource)}</small>`
-        : s.mode === "idle" ? `<b>${esc(s.title || "Slideshow")}</b> <button class="btn quiet" data-lp-rebuild title="Make a new round now (with any new Coming Soon posters)">Rebuild slideshow</button>${s.roundTitles?.length ? `<button class="btn quiet" data-lp-titles>See the titles</button>` : ""}${s.note ? `<small>${esc(s.note)}</small>` : ""}`
-        : s.mode === "test" ? `<b>Test picture</b><small>The arrow should point up.</small>`
-        : `<small>${esc(s.note || "Starting…")}</small>`}${s.appSays ? `<small style="color:${/error/i.test(s.appSays) ? "var(--bad)" : "var(--muted)"}">Screen app: ${esc(s.appSays)}</small>` : ""}</div>
+      <div class="lp-meta" data-lp-meta></div>
+      <div class="lp-now" data-lp-now></div>
       <span class="lp-field">Shows what's playing on</span>
       <div class="lp-players">${players.map(p => `<label><input type="checkbox" data-lp-player="${esc(p.id)}"${s.players.includes(p.id) ? " checked" : ""}>${kindBadge(p.kind, true)}${esc(p.name)}</label>`).join("") || `<small>No players yet.</small>`}</div>
       <span class="lp-field">Slideshow</span>
@@ -2568,6 +2597,18 @@ function renderLive() {
         <select data-lp-codec aria-label="Video format" title="HEVC: every 4K TV and stick (Rokus need it for 4K). H.264: web browsers.">${[["auto", `Automatic (${s.videoCodec === "hevc" ? "HEVC" : "H.264"})`], ["hevc", "HEVC"], ["h264", "H.264"]].map(([v, t]) => `<option value="${v}"${(s.codec || "auto") === v ? " selected" : ""}>${t}</option>`).join("")}</select></div>
       <div class="lp-acts"><button class="btn" data-lp-test>Test picture</button><button class="btn quiet" data-lp-remove>Remove</button></div>
     </div></article>`).join(""));
+  // The parts of each card that change while it's being looked at (status, progress, preview) are drawn on their own,
+  // so they keep updating even while the cursor is in the card's name box or a list (those parts are left alone then).
+  for (const s of L.screens) {
+    const card = document.querySelector(`[data-lp-screen="${CSS.escape(s.id)}"]`);
+    if (!card) continue;
+    setHtml(card.querySelector("[data-lp-meta]"), `${s.online ? "Online" : s.lastSeenUtc ? "Last seen " + ago(s.lastSeenUtc) : "Not seen yet"} · ${esc([s.platform, s.model].filter(Boolean).join(", "))}`);
+    setHtml(card.querySelector("[data-lp-now]"), lpNowHtml(s));
+    const pv = card.querySelector("[data-lp-prev]");
+    pv.dataset.v = s.version || "";
+    pv.dataset.n = s.mode === "idle" ? (s.roundTitles?.length || 1) : 1;
+    pv.classList.toggle("lp-loading", s.mode === "making");
+  }
   lpPreviews();
   // Now Playing and the slideshow sets.
   const c = L.config;

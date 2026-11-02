@@ -23,6 +23,10 @@ sub init()
     m.net.observeField("code", "onPhase")
     m.net.observeField("message", "onPhase")
     m.net.observeField("video", "onVideo")
+    m.net.observeField("loading", "onLoading")
+    m.loadingBg = m.top.findNode("loadingBg")
+    m.loadingBox = m.top.findNode("loadingBox")
+    m.loadingFill = m.top.findNode("loadingFill")
     m.net.control = "run"
     m.title.text = "Resume Relay Live Poster"
     m.top.setFocus(true)
@@ -54,6 +58,29 @@ sub onPhase()
     end if
     m.message.text = msg
     if p = "address" and m.dialog = invalid then askAddress()
+end sub
+
+' "Loading..." while the first slideshow is made. The posters arrive already turned for a TV on its side, so the
+' words are turned the same way (positive rotation is a quarter turn to the left, like the posters for "right").
+sub onLoading()
+    l = m.net.loading
+    if l = invalid then return
+    on = (l.on = true)
+    m.loadingBg.visible = on
+    m.loadingBox.visible = on
+    if not on then return
+    if l.mount = "left"
+        m.loadingBox.rotation = -1.5708
+    else if l.mount = "portrait"
+        m.loadingBox.rotation = 0
+    else
+        m.loadingBox.rotation = 1.5708
+    end if
+    p = l.progress
+    if p = invalid then p = 0
+    if p < 0 then p = 0
+    if p > 1 then p = 1
+    m.loadingFill.width = 700 * p
 end sub
 
 sub onVideo()

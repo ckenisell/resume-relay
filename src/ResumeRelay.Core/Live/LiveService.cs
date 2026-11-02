@@ -57,7 +57,7 @@ public sealed class LiveService : BackgroundService
     public sealed class ScreenRuntime
     {
         public DateTime? LastSeenUtc;
-        public string Mode = "starting";        // playing | idle | test | waiting
+        public string Mode = "starting";        // playing | idle | making | test | waiting | off
         public string Url = "";                 // the render file name
         public bool Loop = true;
         public string Title = "";
@@ -80,16 +80,36 @@ public sealed class LiveService : BackgroundService
         public bool WantNext;
         /// <summary>"Rebuild slideshow" was pressed: the round is made even while the screen is off.</summary>
         public bool ForceBuild;
-        /// <summary>The slideshow up is the start of a round still being made.</summary>
-        public bool Partial;
-        /// <summary>While a round is being made: slides ready, and how many it will have (for the card's progress bar).</summary>
-        public int MadeSlides, TotalSlides;
+        /// <summary>While a slideshow video is being made (null otherwise): its two steps, for the card and the
+        /// screen's Loading bar.</summary>
+        public Building? Making;
         public DateTime TestUntil;
         /// <summary>A test picture was asked for: it shows for this long once it's made (making it can take a moment).</summary>
         public int TestSeconds;
         /// <summary>What the screen app last said about playing (for the dashboard): "playing", or an error.</summary>
         public string AppSays = "";
         public DateTime AppSaysUtc;
+        /// <summary>The video that was being handed out when the app last said "playing" (so the card only says
+        /// "playing" about the video that's actually up).</summary>
+        public string AppPlaying = "";
+    }
+
+    /// <summary>
+    /// How far along the next slideshow video is. Step 1 makes each poster into a slide; step 2 makes the dissolves
+    /// between them and joins everything into one video. Counts only go up within one build (a build is one round
+    /// number), so the card never jumps back.
+    /// </summary>
+    public sealed class Building
+    {
+        public int Round;
+        public int Step = 1;
+        public int Slides, SlidesTotal;
+        public int Dissolves, DissolvesTotal;
+        public bool Joining;
+        /// <summary>The slideshow already up keeps playing until this one is ready.</summary>
+        public bool ShowingOld;
+        public double Fraction;
+        public int SecondsLeft;
     }
 
     public sealed record NowItem(string DeviceId, string Player, string SourceUrl, string PlexFile, string Title, bool IsEpisode, int Season, int PlexKey, bool Paused);
@@ -182,6 +202,7 @@ public sealed class LiveService : BackgroundService
         var rt = RuntimeOf(screen.Id);
         rt.AppSays = msg.Length > 200 ? msg[..200] : msg;
         rt.AppSaysUtc = DateTime.UtcNow;
+        rt.AppPlaying = msg == "playing" ? rt.Url : "";
         if (msg.Contains("error", StringComparison.OrdinalIgnoreCase))
             _store.Log(ActivityLevel.Warn, $"Live Poster: the screen \"{screen.Name}\" couldn't play its video: {rt.AppSays}");
         return true;
@@ -200,6 +221,10 @@ public sealed class LiveService : BackgroundService
             Paired = true, screen.Name, rt.Mode, rt.Loop, rt.Title,
             Url = rt.Url.Length > 0 ? "/live/media/" + rt.Url : "",
             Version = rt.Url, Poll = 2000,
+            // While the first slideshow is being made (mode "making"): how far along it is (0 to 1), for the screen's
+            // "Loading…" bar, and which way the screen is mounted, so the app can turn its words to match the posters.
+            Progress = rt.Mode == "making" && rt.Making != null ? Math.Round(rt.Making.Fraction, 3) : 0,
+            screen.Mount,
         };
     }
 
@@ -256,7 +281,7 @@ public sealed class LiveService : BackgroundService
         var now = NowPlayingFor(s, rt, cfg);
         if (now != null && cfg.NowPlaying.Enabled)
         {
-            rt.MadeSlides = rt.TotalSlides = 0;
+            rt.Making = null;
             var bg = Background(cfg, cfg.NowPlaying.BackgroundId);
             var req = new PosterRequest(now.SourceUrl, now.PlexFile, now.DeviceId, now.IsEpisode, now.Season, false, now.Title, now.PlexKey);
             var poster = PosterTask(req);
@@ -286,12 +311,40 @@ public sealed class LiveService : BackgroundService
         if (!Awake(rt) && !rt.ForceBuild)
         {
             rt.Mode = "off"; rt.Url = ""; rt.Title = ""; rt.Note = "The screen is off: its slideshow is made when it comes back on.";
-            rt.MadeSlides = rt.TotalSlides = 0;
+            rt.Making = null;
             return;
         }
         Slideshow(s, rt, cfg);
         // A rebuild asked for while the screen is off: done once the whole round is made (it's then ready when the screen comes on).
-        if (rt.ForceBuild && !rt.WantNext && rt.TotalSlides == 0) rt.ForceBuild = false;
+        if (rt.ForceBuild && !rt.WantNext && rt.Making == null) rt.ForceBuild = false;
+    }
+
+    /// <summary>The build's progress, with counts that never go down within one build (one round number), and a
+    /// fraction and time left from how long slides, dissolves and joins have been taking on this computer.</summary>
+    private Building Progress(ScreenRuntime rt, int slides, int slidesTotal, Renderer.RoundStep? step2)
+    {
+        var b = rt.Making is { } old && old.Round == rt.Round ? old : new Building { Round = rt.Round };
+        if (step2 == null)
+        {
+            b.Step = Math.Max(b.Step, 1);
+            b.SlidesTotal = slidesTotal;
+            b.Slides = Math.Min(Math.Max(b.Slides, slides), slidesTotal);
+        }
+        else
+        {
+            b.Step = 2;
+            b.Slides = b.SlidesTotal = slidesTotal;
+            b.DissolvesTotal = step2.Total;
+            b.Dissolves = Math.Max(b.Dissolves, Math.Min(step2.Done, step2.Total));
+            b.Joining = step2.Joining;
+        }
+        double slide = _renderer.TypicalSeconds("slide", 8), dissolve = _renderer.TypicalSeconds("dissolve", 2), join = _renderer.TypicalSeconds("slideshow", 5);
+        int dTotal = b.Step == 2 ? b.DissolvesTotal : b.SlidesTotal + 1;
+        double all = b.SlidesTotal * slide + dTotal * dissolve + join;
+        double done = b.Slides * slide + (b.Step == 2 ? b.Dissolves * dissolve + (b.Joining ? join * 0.5 : 0) : 0);
+        b.Fraction = all <= 0 ? 0 : Math.Clamp(done / all, 0, 0.99);
+        b.SecondsLeft = (int)Math.Ceiling(Math.Max(0, all - done));
+        return b;
     }
 
     /// <summary>A screen counts as on while its app keeps asking what to play (every few seconds).</summary>
@@ -429,10 +482,8 @@ public sealed class LiveService : BackgroundService
         var rt = RuntimeOf(screenId);
         rt.Round += Math.Max(1, rt.RoundsUp);
         rt.WantNext = true;
-        // The round up now may be replaced by the new one's first slides as soon as they're ready (not only at its end).
-        rt.Partial = true;
-        rt.RoundTitles = new();
-        rt.RoundShown = new();
+        // The slideshow up keeps playing (and its titles stay listed) until the new one is ready.
+        rt.Making = null;
         rt.ForceBuild = true;
     }
 
@@ -442,7 +493,7 @@ public sealed class LiveService : BackgroundService
         rt.Note = "";
         // The screen finished a round: the next one goes up as soon as it's made (the screen replays this one meanwhile).
         // (After a partial round, the same round comes back complete, or longer, instead of a new one.)
-        if (rt.AdvanceAfterEnd) { rt.AdvanceAfterEnd = false; if (!rt.Partial) rt.Round += Math.Max(1, rt.RoundsUp); rt.WantNext = true; }
+        if (rt.AdvanceAfterEnd) { rt.AdvanceAfterEnd = false; rt.Round += Math.Max(1, rt.RoundsUp); rt.WantNext = true; }
         // One slideshow video holds several rounds in a row (each its own random pick), at least 15 minutes, so the screen
         // only has to start a new video (a moment of black on a Roku) a few times an hour.
         var items = RoundItems(s, cfg, rt.Round);
@@ -450,44 +501,37 @@ public sealed class LiveService : BackgroundService
         int rounds = perRound == 0 ? 1 : Math.Clamp((int)Math.Ceiling(15 * 60.0 / (perRound * Math.Clamp(cfg.SlideSeconds, 4, 120))), 1, 8);
         for (int k = 1; k < rounds; k++) items.AddRange(RoundItems(s, cfg, rt.Round + k));
         rt.RoundsUp = rounds;
-        // Each title's poster and slide; the round's reel once they're all made.
+        // Step 1: each title's poster and slide. Step 2 (once they're all made): the slideshow video.
         var slides = new List<string>();
-        bool pending = false;
+        int waiting = 0;
         var titles = new List<string>();
         var shown = new List<SlideItem>();
-        // The slides ready from the start of the round, in order (up to the first one still being made).
-        var firstSlides = new List<string>();
-        var firstTitles = new List<string>();
-        var firstShown = new List<SlideItem>();
         foreach (var it in items)
         {
             string? poster = it.File;
             if (poster == null && it.Request != null)
             {
                 var t = PosterTask(it.Request);
-                if (!t.IsCompleted) { pending = true; continue; }
+                if (!t.IsCompleted) { waiting++; continue; }
                 poster = t.IsCompletedSuccessfully ? t.Result?.Path : null;
             }
             if (poster == null) continue; // no poster anywhere: left out
             var setCfg = it.Set switch { "coming" => cfg.ComingSoon, "recent" => cfg.RecentlyWatched, _ => cfg.Acclaimed };
             var slide = _renderer.SlideAsync(Background(cfg, setCfg.BackgroundId), poster, s.Mount, s.Resolution, CodecOf(s), cfg.SlideSeconds);
-            if (!slide.IsCompleted) { pending = true; continue; }
-            if (slide.IsCompletedSuccessfully && slide.Result != null)
-            {
-                slides.Add(slide.Result); titles.Add(it.Title); shown.Add(it);
-                if (!pending) { firstSlides.Add(slide.Result); firstTitles.Add(it.Title); firstShown.Add(it); }
-            }
+            if (!slide.IsCompleted) { waiting++; continue; }
+            if (slide.IsCompletedSuccessfully && slide.Result != null) { slides.Add(slide.Result); titles.Add(it.Title); shown.Add(it); }
         }
-        rt.MadeSlides = pending ? slides.Count : 0;
-        rt.TotalSlides = pending ? slides.Count + items.Count(it => it.File != null || it.Request != null) - titles.Count : 0;
+        bool pending = waiting > 0;
         string key = string.Join("|", slides.Select(Path.GetFileName));
-        // A new reel replaces the one up only between rounds (or when none is up), never in the middle of one.
-        bool canSwap = rt.IdleUrl.Length == 0 || rt.WantNext || rt.Mode != "idle";
+        // A new video replaces the one up only between rounds (or when none is up), never in the middle of one.
+        bool canSwap = rt.IdleUrl.Length == 0 || rt.WantNext || rt.Mode is not ("idle" or "making");
+        bool upToDate = !pending && rt.IdleKey == key && rt.IdleUrl.Length > 0;
+        Renderer.RoundStep? step2 = null;
         if (!pending && slides.Count > 0 && canSwap)
         {
             // Nothing new (the same round again, e.g. a rebuild that picked the same titles in the same order): keep the
-            // video that's up, but say again what's in it (a rebuild clears the list).
-            if (rt.IdleKey == key && rt.IdleUrl.Length > 0) { rt.WantNext = false; rt.Partial = false; rt.RoundTitles = titles; rt.RoundShown = shown; }
+            // video that's up, but say again what's in it.
+            if (upToDate) { rt.WantNext = false; rt.RoundTitles = titles; rt.RoundShown = shown; }
             else
             {
                 var reel = _renderer.RoundVideoAsync(slides, s.Mount, s.Resolution, CodecOf(s));
@@ -499,30 +543,26 @@ public sealed class LiveService : BackgroundService
                     rt.RoundTitles = titles;
                     rt.RoundShown = shown;
                     rt.WantNext = false;
-                    rt.Partial = false;
+                    upToDate = true;
                 }
+                else step2 = _renderer.RoundProgress(slides, s.Mount, s.Resolution, CodecOf(s));
             }
         }
-        // Still being made and nothing (or only a shorter start) is up: the first slides go up as soon as there are three,
-        // rather than waiting for the whole round. The rest follows when this part ends.
-        else if (pending && canSwap && (rt.IdleUrl.Length == 0 || rt.Partial) && firstSlides.Count >= Math.Min(3, items.Count)
-                 && firstSlides.Count > (rt.Partial && rt.IdleUrl.Length > 0 ? rt.RoundTitles.Count : 0))
-        {
-            var reel = _renderer.RoundVideoAsync(firstSlides, s.Mount, s.Resolution, CodecOf(s));
-            if (reel.IsCompletedSuccessfully && reel.Result != null)
-            {
-                rt.IdleUrl = _renderer.Rel(reel.Result);
-                rt.IdleKey = string.Join("|", firstSlides.Select(Path.GetFileName));
-                rt.RoundTitles = firstTitles;
-                rt.RoundShown = firstShown;
-                rt.WantNext = false;
-                rt.Partial = true;
-            }
-        }
-        if (rt.IdleUrl.Length > 0 && File.Exists(Path.Combine(_live.RenderDir, rt.IdleUrl)))
+        // The card's progress (and the screen's Loading bar): only for a video that will go up when it's ready.
+        bool building = canSwap && !upToDate && items.Count > 0 && (pending || step2 != null);
+        rt.Making = building ? Progress(rt, slides.Count, slides.Count + waiting, step2) : null;
+        bool have = rt.IdleUrl.Length > 0 && File.Exists(Path.Combine(_live.RenderDir, rt.IdleUrl));
+        if (rt.Making != null) rt.Making.ShowingOld = have;
+        if (have)
         {
             Show(rt, "idle", rt.IdleUrl, loop: false, $"Slideshow: {rt.RoundTitles.Count} poster{(rt.RoundTitles.Count == 1 ? "" : "s")}");
-            rt.Note = pending ? "Making more slides…" : "";
+            return;
+        }
+        // The first slideshow (or one after a change) is being made and nothing is up: the screen shows "Loading…" with
+        // a progress bar (the screen app draws it), and the slideshow goes up when it's ready.
+        if (rt.Making != null)
+        {
+            rt.Mode = "making"; rt.Url = ""; rt.Loop = true; rt.Title = "Making the slideshow…";
             return;
         }
         // Nothing made yet (or no posters at all): a background on its own.
@@ -531,7 +571,7 @@ public sealed class LiveService : BackgroundService
         var plain = _renderer.HoldAsync(Background(cfg, firstSet.BackgroundId), null, s.Mount, s.Resolution, CodecOf(s), priority: 1);
         if (plain.IsCompletedSuccessfully && plain.Result != null)
         {
-            Show(rt, "idle", plain.Result, loop: true, items.Count > 0 ? "Making the slideshow…"
+            Show(rt, "idle", plain.Result, loop: true, items.Count > 0 ? "Slideshow: no posters found for its titles"
                 : SetKeys.Any(k => Shows(s, cfg, k)) ? "Slideshow: no posters to show yet" : "Slideshow: no sets are on for this screen");
             rt.IdleUrl = "";
         }

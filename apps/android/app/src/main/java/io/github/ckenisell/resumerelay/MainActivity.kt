@@ -62,6 +62,12 @@ class MainActivity : Activity() {
     private lateinit var address: EditText
     private lateinit var buttons: LinearLayout
     private lateinit var status: TextView
+    private lateinit var loading: FrameLayout
+    private lateinit var loadingBox: LinearLayout
+    private lateinit var loadingWord: TextView
+    private lateinit var loadingFill: View
+    private var loadingProgress = 0.0
+    private var loadingTurn = 0f
 
     private var server: String = ""          // http://10.0.0.30:8090
     private var token: String = ""
@@ -139,9 +145,29 @@ class MainActivity : Activity() {
         status = text(14f, Color.rgb(0x9C, 0x99, 0xB5)).apply {
             setBackgroundColor(Color.argb(170, 0, 0, 0)); setPadding(dp(10), dp(4), dp(10), dp(4)); visibility = View.GONE
         }
+        // While the first slideshow is being made: "Loading…" and a progress bar, turned the way the posters are.
+        loadingWord = text(56f, Color.rgb(0xF2, 0xEF, 0xE9), bold = true).apply { text = "Loading…"; maxWidth = Int.MAX_VALUE }
+        loadingFill = View(this).apply { background = GradientDrawable().apply { cornerRadius = dp(8).toFloat(); setColor(Color.rgb(0xF2, 0xA3, 0x3A)) } }
+        val track = FrameLayout(this).apply {
+            background = GradientDrawable().apply { cornerRadius = dp(8).toFloat(); setColor(Color.rgb(0x26, 0x2B, 0x38)) }
+            addView(loadingFill, FrameLayout.LayoutParams(0, -1))
+        }
+        loadingBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            addView(loadingWord, LinearLayout.LayoutParams(-1, -2))
+            addView(track, LinearLayout.LayoutParams(-1, dp(14)).apply { topMargin = dp(18) })
+        }
+        loading = FrameLayout(this).apply {
+            setBackgroundColor(Color.BLACK)
+            visibility = View.GONE
+            addView(loadingBox, FrameLayout.LayoutParams(dp(400), -2, Gravity.CENTER))
+            addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> sizeLoading() }
+        }
         val root = FrameLayout(this).apply {
             setBackgroundColor(Color.BLACK)
             addView(this@MainActivity.playerView, FrameLayout.LayoutParams(-1, -1))
+            addView(this@MainActivity.loading, FrameLayout.LayoutParams(-1, -1))
             addView(this@MainActivity.overlay, FrameLayout.LayoutParams(-1, -1))
             addView(this@MainActivity.status, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.START).apply { setMargins(dp(12), 0, 0, dp(12)) })
         }
@@ -293,10 +319,11 @@ class MainActivity : Activity() {
                 if (!running) return@post
                 when {
                     r == null -> { status.text = "Resume Relay isn't answering…"; status.visibility = View.VISIBLE }
-                    !r.optBoolean("paired", false) -> { token = ""; prefs.edit().remove("token").apply(); version = ""; player.stop(); hello(); return@post }
+                    !r.optBoolean("paired", false) -> { showLoading(false, 0.0, ""); token = ""; prefs.edit().remove("token").apply(); version = ""; player.stop(); hello(); return@post }
                     else -> {
                         if (status.text.startsWith("Resume Relay isn't")) status.visibility = View.GONE
                         val url = r.optString("url"); val v = r.optString("version")
+                        showLoading(r.optString("mode") == "making" && url.isEmpty(), r.optDouble("progress", 0.0), r.optString("mount", "right"))
                         if (url.isNotEmpty() && (v != version || (ended.isNotEmpty() && v == ended))) play(url, v, r.optBoolean("loop", true))
                     }
                 }
@@ -314,6 +341,28 @@ class MainActivity : Activity() {
         player.setMediaItem(MediaItem.fromUri(Uri.parse(server + url)))
         player.prepare()
         player.play()
+    }
+
+    /** "Loading…" while the first slideshow is made. The posters arrive already turned for a TV on its side, so the
+     *  words are turned the same way (a TV turned with its top to the right gets them a quarter turn to the left). */
+    private fun showLoading(on: Boolean, progress: Double, mount: String) {
+        loading.visibility = if (on) View.VISIBLE else View.GONE
+        if (!on) return
+        loadingProgress = progress.coerceIn(0.0, 1.0)
+        loadingTurn = when (mount) { "right" -> -90f; "left" -> 90f; else -> 0f }
+        sizeLoading()
+    }
+
+    private fun sizeLoading() {
+        val w = loading.width; val h = loading.height
+        if (w == 0 || h == 0) return
+        val long = ((if (loadingTurn != 0f) h else w) * 0.6).toInt()
+        val lp = loadingBox.layoutParams as FrameLayout.LayoutParams
+        if (lp.width != long) { lp.width = long; loadingBox.layoutParams = lp; loadingWord.setTextSize(TypedValue.COMPLEX_UNIT_PX, long * 0.11f) }
+        loadingBox.rotation = loadingTurn
+        val fill = loadingFill.layoutParams as FrameLayout.LayoutParams
+        val fw = (long * loadingProgress).toInt()
+        if (fill.width != fw) { fill.width = fw; loadingFill.layoutParams = fill }
     }
 
     /** A slideshow round finished: Resume Relay hands over the next one (or the same again). */

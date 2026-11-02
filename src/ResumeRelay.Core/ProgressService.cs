@@ -125,25 +125,38 @@ public sealed class ProgressService
     }
 
     /// <summary>A player's watched marks as last read (file → watched), with when; null if it hasn't been read cleanly.</summary>
-    // The watched-mark check's own "before": each player's marks as that check last saw them. Other reads (Progress
-    // Reset, Watch Sync) never change it, so a mark set in the HT app is still found as a change even if the players are
-    // read in between. Marks Resume Relay writes itself update it, so they aren't copied on as if set on the player.
-    private readonly Dictionary<string, (Dictionary<string, bool> Marks, DateTime At)> _syncBase = new();
+    // Watched marks found changed on a player between two of its reads, by whatever read it (the watched-mark check,
+    // Progress Reset, Watch Sync), for the watched-mark check to copy. Kept here so that a read in between can't hide a
+    // change: every read notes what changed since the one before. Marks Resume Relay writes itself update the stored
+    // read at once, so they never show up as changes.
+    private readonly Dictionary<string, Dictionary<string, bool>> _markChanges = new();
+    /// <summary>Set by the watched-mark check: whether to note changes (it's on), and the longest gap between two reads
+    /// to trust (older changes are never pushed out unexpectedly).</summary>
+    public bool NoteMarkChanges { get; set; }
+    public TimeSpan MarkChangeMaxGap { get; set; } = TimeSpan.FromMinutes(55);
 
-    public (Dictionary<string, bool> Marks, DateTime At)? SyncBaseline(string deviceId)
+    /// <summary>The changes noted since the last call (player → file → new mark), and forgets them.</summary>
+    public Dictionary<string, Dictionary<string, bool>> TakeMarkChanges()
     {
-        lock (_lock) return _syncBase.TryGetValue(deviceId, out var b) ? (new Dictionary<string, bool>(b.Marks, StringComparer.Ordinal), b.At) : null;
+        lock (_lock)
+        {
+            var all = _markChanges.ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
+            _markChanges.Clear();
+            return all;
+        }
     }
 
-    public void SetSyncBaseline(string deviceId, Dictionary<string, bool> marks, DateTime at)
+    /// <summary>A new read of a player is about to replace the last one: note the watched marks that differ. (Under _lock.)</summary>
+    private void NoteChangedMarks(ProgressDevice old, ProgressDevice now)
     {
-        lock (_lock) _syncBase[deviceId] = (new Dictionary<string, bool>(marks, StringComparer.Ordinal), at);
-    }
-
-    /// <summary>Resume Relay wrote a mark itself: the check's "before" takes it, so it isn't seen as set on the player. (Under _lock.)</summary>
-    private void NoteOwnMark(string deviceId, string key, bool watched)
-    {
-        if (_syncBase.TryGetValue(deviceId, out var b) && b.Marks.ContainsKey(key)) b.Marks[key] = watched;
+        if (!NoteMarkChanges || old.ReadUtc == null || now.ReadUtc == null || old.Error.Length > 0) return;
+        if (now.ReadUtc.Value - old.ReadUtc.Value > MarkChangeMaxGap) return;
+        foreach (var (key, c) in now.Cells)
+            if (c.FileId > 0 && old.Cells.TryGetValue(key, out var was) && was.FileId > 0 && was.Watched != c.Watched)
+            {
+                if (!_markChanges.TryGetValue(now.DeviceId, out var m)) _markChanges[now.DeviceId] = m = new(StringComparer.Ordinal);
+                m[key] = c.Watched;
+            }
     }
 
     public (Dictionary<string, bool> Marks, DateTime ReadUtc)? WatchedSnapshot(string deviceId)
@@ -408,6 +421,7 @@ public sealed class ProgressService
             lock (_lock)
             {
                 foreach (var f in files.Values) _files[f.Key] = f;
+                if (result.ReadUtc != null && _devices.TryGetValue(d.Id, out var previous)) NoteChangedMarks(previous, result);
                 if (result.ReadUtc != null || !_devices.ContainsKey(d.Id)) _devices[d.Id] = result;
                 else _devices[d.Id].Error = result.Error; // keep the last good read, but say this one failed
             }
@@ -701,7 +715,6 @@ public sealed class ProgressService
                     {
                         c.PlayPointMs = after.PlayPointMs; c.Watched = after.Watched; c.LastWatchMs = after.LastWatchMs;
                         if (after.DurationMs > 0) c.DurationMs = after.DurationMs;
-                        NoteOwnMark(id, key, after.Watched);
                     }
             Changed();
             _store.LogCopy(ok ? ActivityLevel.Ok : ActivityLevel.Error, ok
@@ -733,7 +746,6 @@ public sealed class ProgressService
                     c.PlayPointMs = after.ViewOffsetMs; c.Watched = after.Watched;
                     c.LastWatchMs = after.LastViewedAt > 0 ? after.LastViewedAt * 1000 : -1;
                     if (after.DurationMs > 0) c.DurationMs = after.DurationMs;
-                    NoteOwnMark(d.Id, key, after.Watched);
                 }
         Changed();
         _store.LogCopy(ok ? ActivityLevel.Ok : ActivityLevel.Error, ok
@@ -1116,12 +1128,11 @@ public sealed class ProgressService
         lock (_lock)
         {
             if (!_devices.TryGetValue(deviceId, out var d)) return;
-            foreach (var (key, c) in d.Cells.Where(kv => kv.Value.FileId == fileId))
+            foreach (var c in d.Cells.Values.Where(c => c.FileId == fileId))
             {
                 c.PlayPointMs = positionMs;
                 c.LastWatchMs = lastWatchMs;
                 c.Watched = watched;
-                NoteOwnMark(deviceId, key, watched);
             }
             Changed();
         }

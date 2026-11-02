@@ -9,10 +9,10 @@ namespace ResumeRelay;
 /// default) the players are read, the same read as Progress Reset and Watch Sync, and each file's mark is compared with
 /// the previous read. A file whose mark changed on one player gets that mark on the others.
 ///  • A Zidoo that's playing something is left out of that read (it's read next time), so a read never disturbs playback.
-///  • The comparison is with what THIS check saw last time (its own "before"), not with the players' latest read:
-///    Progress Reset and Watch Sync read the players too, and a read in between must not hide a change.
-///  • Marks Resume Relay itself writes update that "before", so they aren't copied on as if set on a player (a mark
-///    set on one player in the Watch Sync tab stays on that player; "Set on all" is for every player).
+///  • Every read of a player (this check's, Progress Reset's, Watch Sync's) notes the marks that changed since the read
+///    before it, and this check copies all of them: a read in between can't hide a change.
+///  • Marks Resume Relay itself writes are already in the last read (it updates it), so they aren't copied twice (a
+///    mark set on one player in the Watch Sync tab stays on that player; "Set on all" is for every player).
 ///  • A file changed in opposite ways on two players between reads is left alone (and logged).
 ///  • The first read only takes note of everything, as does a read after a long gap (over 3 intervals), so changes that
 ///    happened long ago are never pushed out unexpectedly.
@@ -43,6 +43,9 @@ public sealed class WatchedSyncService : BackgroundService
         {
             var s = _store.Settings();
             int minutes = Math.Clamp(s.WatchedSyncMinutes, 2, 1440);
+            // Changes are noted only while this is on (turned off and on again, nothing old is pushed out).
+            if (_progress.NoteMarkChanges != s.WatchedSync) { _progress.NoteMarkChanges = s.WatchedSync; _progress.TakeMarkChanges(); }
+            _progress.MarkChangeMaxGap = TimeSpan.FromMinutes(minutes) * 3 + TimeSpan.FromMinutes(10);
             if (s.WatchedSync && DateTime.UtcNow - _last >= TimeSpan.FromSeconds(Delay(minutes * 60)))
             {
                 _last = DateTime.UtcNow;
@@ -66,21 +69,10 @@ public sealed class WatchedSyncService : BackgroundService
         await _progress.ReadAndWaitAsync(players.Select(p => p.Id).ToList(), ct);
         LastRunUtc = DateTime.UtcNow;
 
-        // What changed on each player since its previous read: file → new mark.
-        var changed = new Dictionary<string, Dictionary<string, bool>>();
-        foreach (var p in players)
-        {
-            var a = _progress.WatchedSnapshot(p.Id);
-            if (a == null) continue;                                                         // this read failed
-            var b = _progress.SyncBaseline(p.Id);
-            // Its "before" is now this read, whatever happens below.
-            _progress.SetSyncBaseline(p.Id, a.Value.Marks, a.Value.ReadUtc);
-            if (b == null) continue;                                                         // first check: takes note
-            if (a.Value.ReadUtc - b.Value.At > interval * 3 + TimeSpan.FromMinutes(10)) continue; // too long ago to trust
-            var diff = a.Value.Marks.Where(kv => b.Value.Marks.TryGetValue(kv.Key, out var was) && was != kv.Value)
-                .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
-            if (diff.Count > 0) changed[p.Id] = diff;
-        }
+        // What changed on each player since the last check, found by this read or any read in between: file → new mark.
+        var changed = _progress.TakeMarkChanges()
+            .Where(kv => _store.Device(kv.Key) is { Enabled: true } && kv.Value.Count > 0)
+            .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
         // A file changed one way on one player and the other way on another: left alone.
         var conflicts = changed.SelectMany(c => c.Value).GroupBy(kv => kv.Key).Where(g => g.Select(x => x.Value).Distinct().Count() > 1).Select(g => g.Key).ToHashSet();
         int files = 0;

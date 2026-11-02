@@ -797,6 +797,23 @@ http("POST", RELAY + "/api/watchedsync/check")
 check("a title marked unwatched in Plex is marked unwatched on the Zidoos",
       wait_for(lambda: not any(bookmark(ip, E04).get("watched") for ip in (LR, BR, HT)), 240),
       str(([bookmark(ip, E04) for ip in (LR, BR, HT)], wsync())))
+# The players are read in between (as Watch Sync and Progress Reset do) before the check: the change is still found.
+mock(LR, "setlwt", url=E04, lwt=int(time.time() * 1000), pp=0, watched=1)   # marked watched in the HT app
+http("POST", RELAY + "/api/progress/read", {"deviceIds": [ids[LR], ids[BR], ids[HT]]})
+wait_for(lambda: not http("GET", RELAY + "/api/progress")["reading"], 90)
+http("POST", RELAY + "/api/watchedsync/check")
+check("a mark set in the HT app is still copied when the players were read in between (Watch Sync, Progress Reset)",
+      wait_for(lambda: bookmark(BR, E04).get("watched") and bookmark(HT, E04).get("watched"), 240),
+      str(([bookmark(ip, E04) for ip in (LR, BR, HT)], wsync())))
+# A mark set on one player in the Watch Sync tab stays on that player (Set on all is for every player).
+wait_for(lambda: not http("GET", RELAY + "/api/progress")["jobs"], 120)   # the copy above has finished
+r = http("POST", RELAY + "/api/watched/set", {"key": k4, "deviceIds": [ids[HT]], "watched": False})
+done = wsync()["lastRunUtc"]
+http("POST", RELAY + "/api/watchedsync/check")
+wait_for(lambda: (lambda w: w if w["lastRunUtc"] != done and not w["status"] else None)(wsync()), 240)
+check("a mark set on one player in the Watch Sync tab isn't copied to the others",
+      r and r[0]["ok"] and not bookmark(HT, E04).get("watched") and bookmark(LR, E04).get("watched") and bookmark(BR, E04).get("watched"),
+      str(([bookmark(ip, E04) for ip in (LR, BR, HT)], wsync())))
 settings(watchedSync=False)
 
 # ---------------------------------------------------------------- 49. Live Poster

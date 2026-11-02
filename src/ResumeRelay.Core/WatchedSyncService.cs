@@ -9,7 +9,10 @@ namespace ResumeRelay;
 /// default) the players are read, the same read as Progress Reset and Watch Sync, and each file's mark is compared with
 /// the previous read. A file whose mark changed on one player gets that mark on the others.
 ///  • A Zidoo that's playing something is left out of that read (it's read next time), so a read never disturbs playback.
-///  • Marks Resume Relay itself writes are already in the last read (it updates it), so they aren't copied twice.
+///  • The comparison is with what THIS check saw last time (its own "before"), not with the players' latest read:
+///    Progress Reset and Watch Sync read the players too, and a read in between must not hide a change.
+///  • Marks Resume Relay itself writes update that "before", so they aren't copied on as if set on a player (a mark
+///    set on one player in the Watch Sync tab stays on that player; "Set on all" is for every player).
 ///  • A file changed in opposite ways on two players between reads is left alone (and logged).
 ///  • The first read only takes note of everything, as does a read after a long gap (over 3 intervals), so changes that
 ///    happened long ago are never pushed out unexpectedly.
@@ -60,7 +63,6 @@ public sealed class WatchedSyncService : BackgroundService
         var players = _store.Devices().Where(d => d.Enabled && _engine.LiveOf(d.Id).Online && (d.IsPlex || _engine.LiveOf(d.Id).Playing == null)).ToList();
         if (players.Count == 0) return;
         Status = $"Reading {players.Count} player{(players.Count == 1 ? "" : "s")}…";
-        var before = players.ToDictionary(p => p.Id, p => _progress.WatchedSnapshot(p.Id));
         await _progress.ReadAndWaitAsync(players.Select(p => p.Id).ToList(), ct);
         LastRunUtc = DateTime.UtcNow;
 
@@ -68,10 +70,13 @@ public sealed class WatchedSyncService : BackgroundService
         var changed = new Dictionary<string, Dictionary<string, bool>>();
         foreach (var p in players)
         {
-            var b = before[p.Id];
             var a = _progress.WatchedSnapshot(p.Id);
-            if (b == null || a == null || a.Value.ReadUtc <= b.Value.ReadUtc) continue;   // first read, or this read failed
-            if (a.Value.ReadUtc - b.Value.ReadUtc > interval * 3 + TimeSpan.FromMinutes(10)) continue; // too long ago to trust
+            if (a == null) continue;                                                         // this read failed
+            var b = _progress.SyncBaseline(p.Id);
+            // Its "before" is now this read, whatever happens below.
+            _progress.SetSyncBaseline(p.Id, a.Value.Marks, a.Value.ReadUtc);
+            if (b == null) continue;                                                         // first check: takes note
+            if (a.Value.ReadUtc - b.Value.At > interval * 3 + TimeSpan.FromMinutes(10)) continue; // too long ago to trust
             var diff = a.Value.Marks.Where(kv => b.Value.Marks.TryGetValue(kv.Key, out var was) && was != kv.Value)
                 .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
             if (diff.Count > 0) changed[p.Id] = diff;

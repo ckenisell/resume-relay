@@ -483,6 +483,20 @@ a.btn { text-decoration: none; color: var(--text); display: inline-flex; align-i
   .tab .full { display: none; }
   .tab .short { display: inline; }
 }
+/* Buy me a coffee: a small button at the bottom right, opening a card (desktop only; phones have the Settings link) */
+.bmc { position: fixed; right: 18px; bottom: 18px; z-index: 45; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
+.bmc-btn { width: 56px; height: 56px; border-radius: 50%; border: 0; background: #FFDD00; color: #1B1406; cursor: pointer; display: grid; place-items: center;
+  box-shadow: 0 6px 20px rgba(0,0,0,.35); transition: transform .15s; }
+.bmc-btn:hover { transform: scale(1.06); }
+.bmc-btn svg { width: 28px; height: 28px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.bmc-card { width: 280px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 16px 16px 14px; box-shadow: 0 10px 30px rgba(0,0,0,.4); position: relative; }
+.bmc-card h3 { margin: 0 0 6px; font-size: 15px; padding-right: 20px; }
+.bmc-card p { margin: 0 0 12px; font-size: 13.5px; color: var(--muted); }
+.bmc-go { display: block; text-align: center; background: #FFDD00; color: #1B1406; font-weight: 700; text-decoration: none; padding: 9px 12px; border-radius: 10px; }
+.bmc-go:hover { filter: brightness(1.05); }
+.bmc-x { position: absolute; top: 6px; right: 8px; border: 0; background: none; color: var(--muted); font-size: 20px; line-height: 1; cursor: pointer; padding: 4px; }
+.bmc-x:hover { color: var(--text); }
+@media (max-width: 600px) { .bmc { display: none; } }
 /* Update notice */
 .update-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 0 0 18px; padding: 10px 14px; border-radius: var(--radius-lg);
   background: color-mix(in srgb, var(--amber) 10%, var(--panel)); border: 1px solid color-mix(in srgb, var(--amber) 55%, var(--line)); font-size: 14px; }
@@ -909,6 +923,18 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
 <div class="menu" id="menu" role="menu" hidden></div>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+<!-- Buy me a coffee: made here (no outside script is loaded; the page opens only when the button is pressed). -->
+<div class="bmc" id="bmc">
+  <div class="bmc-card" id="bmc-card" role="dialog" aria-labelledby="bmc-h" hidden>
+    <button class="bmc-x" id="bmc-x" aria-label="Close">×</button>
+    <h3 id="bmc-h">Support Resume Relay</h3>
+    <p>I hope you're enjoying Resume Relay. Please consider donating to make future enhancements possible.</p>
+    <a class="bmc-go" href="https://buymeacoffee.com/chetkenisell" target="_blank" rel="noopener">☕ Buy me a coffee</a>
+  </div>
+  <button class="bmc-btn" id="bmc-btn" aria-label="Support Resume Relay: Buy me a coffee" aria-expanded="false" aria-controls="bmc-card" title="Buy me a coffee">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h13v5a6 6 0 0 1-6 6h-1a6 6 0 0 1-6-6z"/><path d="M17 9h1.5a2.5 2.5 0 0 1 0 5H17"/><path d="M8 2.5c-.6.8.6 1.5 0 2.5M11.5 2.5c-.6.8.6 1.5 0 2.5"/></svg>
+  </button>
+</div>
 <dialog class="confirm info" id="info-dialog" aria-labelledby="info-h">
   <h3 id="info-h"></h3>
   <div class="info-body" id="info-body"></div>
@@ -2240,6 +2266,16 @@ $("#set-checknow").onclick = async () => {
   b.disabled = false; b.textContent = "Check now"; refresh();
 };
 document.addEventListener("click", e => { if (e.target.closest("[data-up-how]") && state?.update) info(`Update to ${state.update.version}`, howToUpdate(state.update)); });
+
+// ---------------- Buy me a coffee ----------------
+function bmcOpen(open) {
+  $("#bmc-card").hidden = !open; $("#bmc-btn").setAttribute("aria-expanded", String(open));
+  if (open) $("#bmc-card .bmc-go").focus();
+}
+$("#bmc-btn").onclick = () => bmcOpen($("#bmc-card").hidden);
+$("#bmc-x").onclick = () => { bmcOpen(false); $("#bmc-btn").focus(); };
+document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("#bmc-card").hidden) { bmcOpen(false); $("#bmc-btn").focus(); } });
+document.addEventListener("click", e => { if (!$("#bmc-card").hidden && !e.target.closest("#bmc")) bmcOpen(false); });
 
 // ---------------- help tips ----------------
 const HELP = {

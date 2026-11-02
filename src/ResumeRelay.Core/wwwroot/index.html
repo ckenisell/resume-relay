@@ -2722,7 +2722,7 @@ async function refresh() {
     $("#autostart-row").hidden = s.autostart === null || s.autostart === undefined;
     if (!$("#autostart-row").hidden) $("#autostart").checked = s.autostart;
     if ($("#rooms-msg").textContent.startsWith("Can't reach")) say($("#rooms-msg"), "");
-    $("#foot").innerHTML = `${esc(s.edition)} ${esc(s.version)} · data saved in ${esc(s.dataFolder)} · <a href="https://github.com/ckenisell/resume-relay" target="_blank" rel="noopener">github.com/ckenisell/resume-relay</a>`;
+    $("#foot").innerHTML = `${esc(s.edition)} ${esc(s.version)} · data saved in ${esc(s.dataFolder)} · <a href="https://github.com/ckenisell/resume-relay" target="_blank" rel="noopener">github.com/ckenisell/resume-relay</a> · <a href="https://buymeacoffee.com/chetkenisell" target="_blank" rel="noopener">☕ Buy me a coffee</a>`;
   } catch (err) {
     say($("#rooms-msg"), "Can't reach the Resume Relay service. Is it running? " + err.message, "err");
   } finally { busy = false; }

@@ -19,6 +19,9 @@ On that page, scroll down to **Assets** and pick your file:
 Ignore the two "Source code" files; they're the raw code, not the app. Run only **one** copy of
 Resume Relay per home, on a computer that stays on while you watch.
 
+Resume Relay is free and always will be. If it saves you some walking, you can
+**[☕ buy me a coffee](https://buymeacoffee.com/chetkenisell)**.
+
 ## What it does
 
 - **Works with Plex too.** Sign in with Plex in Settings and add your Plex users: resume points and watched
@@ -115,8 +118,9 @@ movies and TMDB for series; 10 picked at random each round). Set it all up on th
 - **Backgrounds:** marquee designs are built in; or your own 2160×3840 PNG/JPG/WebP or a 10–20 second MP4 loop. A PNG or WebP
   with a see-through window goes in front of the poster (its frame and shadows fall on the poster). The poster is 2000×3000, centered across and set low, which
   leaves 80 px at the sides, 750 px at the top and 90 px at the bottom.
-- **Screen apps** (beta): Android (Fire TV, Google TV, phones and tablets) and Roku, from the release's downloads, or
-  any web browser at `http://<this computer>:8090/screen`. Until they're in the app stores:
+- **Screens:** the easiest today is **any web browser**: open `http://<this computer>:8090/screen` on the TV, tablet or
+  PC, and add the 4-digit code it shows on the Live Poster tab. Click the page once to go full screen. The screen apps
+  (Android for Fire TV, Google TV, phones and tablets, and Roku) are on their way to the app stores; until then:
   - **Roku:** turn on Developer Mode (on the remote: Home 3×, Up 2×, Right, Left, Right, Left, Right; set a password),
     open the Roku's address in a browser on your computer, and upload `ResumeRelay-Screen-…-roku.zip`.
   - **Android phone or tablet:** open the `…-android.apk` download on it and allow installing it.
@@ -229,6 +233,11 @@ docker run -d --name resume-relay --network host --restart unless-stopped \
   running isn't copied afterwards.
 - Files played from a USB drive or a player's internal disk can't be matched across players, so
   they aren't copied.
+
+## Support
+
+Resume Relay is free, with no ads and no accounts. If you'd like to say thanks:
+**[☕ Buy me a coffee](https://buymeacoffee.com/chetkenisell)**.
 
 ## Special Thanks
 

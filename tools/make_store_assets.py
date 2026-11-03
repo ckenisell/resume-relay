@@ -42,7 +42,18 @@ def wrap(d, x, y, text, font, fill, width, gap=10):
 def slide(i, h):
     im = Image.open(os.path.join(DEMO, f"{i}.jpg")); return im.resize((round(h * 720 / 1280), h), Image.LANCZOS)
 
+def poster(w, h):
+    """The Roku store's app poster: the tablet icons' layout on a wider card."""
+    im = Image.new("RGB", (w, h), NAVY); d = ImageDraw.Draw(im)
+    f = ImageFont.truetype(BOLD, int(h * 0.15))
+    while d.textlength("Resume Relay", font=f) > w * 0.84: f = ImageFont.truetype(BOLD, f.size - 1)
+    for text, y, fill in (("Resume Relay", h * 0.07, TEXT), ("Live Poster", h * 0.77, AMBER)):
+        d.text(((w - d.textlength(text, font=f)) / 2, y), text, font=f, fill=fill)
+    s = h * 0.36; mark(d, (w - s) / 2, h * 0.28, s)
+    return im
+
 # Icons
+poster(540, 405).save(os.path.join(OUT, "roku-poster-540x405.png"))
 icon(512).save(os.path.join(OUT, "icon-512.png"))
 icon(114).save(os.path.join(OUT, "icon-114.png"))
 

@@ -48,6 +48,7 @@ invented posters, 8 seconds each. Press OK for options, and choose Stop the demo
 |---|---|
 | icon-512.png | Amazon large icon, Google Play icon |
 | icon-114.png | Amazon small icon |
+| roku-poster-540x405.png | Roku store app poster |
 | tv-banner-1280x720.png | Google Play Android TV banner |
 | firetv-background-1920x1080.png | Amazon Fire TV background |
 | feature-1024x500.png | Google Play feature graphic; Amazon promotional image |

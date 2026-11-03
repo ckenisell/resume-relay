@@ -119,6 +119,10 @@ jobs:
           fi
           mkdir -p artifacts
           cp apps/android/app/build/outputs/apk/release/app-release.apk "artifacts/ResumeRelay-Screen-$RR_VERSION-android.apk"
+          # Which key signed it (on the run's summary page): the project's own key, or the throwaway debug key.
+          SIGNER="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner"
+          CERT="$("$SIGNER" verify --print-certs "artifacts/ResumeRelay-Screen-$RR_VERSION-android.apk" 2>/dev/null | grep -E "certificate DN|SHA-256" | head -2 | tr '\n' ' ')"
+          if [[ -n "$KS_B64" ]]; then echo "::notice::Signed with the project key: $CERT"; else echo "::warning::Signed with the debug key (no ANDROID_KEYSTORE_B64 secret): $CERT"; fi
           # The Roku app is a zip of its folder (installed from the Roku's developer page until it's in the Roku store).
           (cd apps/roku && sed -i "s/^build_version=.*/build_version=${GITHUB_RUN_NUMBER}/" manifest && zip -qr "$GITHUB_WORKSPACE/artifacts/ResumeRelay-Screen-$RR_VERSION-roku.zip" manifest source components images)
           ls -la artifacts

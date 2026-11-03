@@ -22,8 +22,16 @@ def mark(d, x, y, s):
     d.polygon([(x + 15 * k, y + 16 * k), (x + 29 * k, y + 26 * k), (x + 15 * k, y + 36 * k)], fill=AMBER)
 
 def icon(size):
+    """The tablet icons: "Resume Relay" across the top, the poster mark, "Live Poster" across the bottom (the TV
+    banner's colors and font)."""
     im = Image.new("RGB", (size, size), NAVY); d = ImageDraw.Draw(im)
-    s = size * 0.5; mark(d, (size - s) / 2, (size - s * 1.3) / 2, s)
+    f = ImageFont.truetype(BOLD, int(size * 0.15))   # one size for both lines: as big as "Resume Relay" fits
+    while d.textlength("Resume Relay", font=f) > size * 0.88: f = ImageFont.truetype(BOLD, f.size - 1)
+    def line(text, y, fill):
+        d.text(((size - d.textlength(text, font=f)) / 2, y), text, font=f, fill=fill)
+    line("Resume Relay", size * 0.06, TEXT)
+    s = size * 0.36; mark(d, (size - s) / 2, size * 0.27, s)
+    line("Live Poster", size * 0.78, AMBER)
     return im
 
 def wrap(d, x, y, text, font, fill, width, gap=10):

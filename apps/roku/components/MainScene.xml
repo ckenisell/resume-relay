@@ -24,6 +24,22 @@
         <Label id="hint" width="1300" horizAlign="center" wrap="true" color="0x9C99B5FF" font="font:SmallSystemFont" text="Press OK on the remote for options." />
       </LayoutGroup>
     </Rectangle>
+    <!-- Demo: a built-in slideshow of invented posters, for trying the app (and store reviewers) without Resume Relay. -->
+    <Group id="demo" visible="false">
+      <Rectangle width="1920" height="1080" color="0x000000FF" />
+      <Poster id="demoA" width="1920" height="1080" loadDisplayMode="scaleToFit" />
+      <Poster id="demoB" width="1920" height="1080" loadDisplayMode="scaleToFit" opacity="0" />
+      <Label translation="[70,330]" width="540" wrap="true" color="0xF2EFE9FF" font="font:LargeBoldSystemFont" text="Resume Relay Live Poster" />
+      <Label translation="[70,470]" width="540" wrap="true" color="0xC8C4D8FF" font="font:MediumSystemFont"
+        text="This is a demo. With Resume Relay running at home, this screen shows the poster of what's playing in your theater, and a slideshow of what's coming soon, recently watched and highly acclaimed when nothing is." />
+      <Label translation="[1320,330]" width="540" wrap="true" color="0xC8C4D8FF" font="font:MediumSystemFont"
+        text="Hang a TV on its side and each poster fills the screen, in 4K. The posters here are invented, for the demo." />
+      <Label translation="[1320,560]" width="540" wrap="true" color="0x9C99B5FF" font="font:SmallSystemFont" text="Press OK on the remote for options." />
+    </Group>
+    <Animation id="demoFade" duration="1" easeFunction="linear" repeat="false">
+      <FloatFieldInterpolator id="demoFadeB" key="[0.0, 1.0]" keyValue="[0.0, 1.0]" fieldToInterp="demoB.opacity" />
+    </Animation>
+    <Timer id="demoTimer" duration="8" repeat="true" />
     <Label id="status" translation="[40,1020]" color="0x9C99B5FF" font="font:SmallSystemFont" visible="false" />
     <Timer id="retry" duration="5" repeat="false" />
   </children>

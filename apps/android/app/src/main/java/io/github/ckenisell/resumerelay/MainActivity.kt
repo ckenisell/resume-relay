@@ -3,6 +3,7 @@ package io.github.ckenisell.resumerelay
 import android.app.Activity
 import android.content.Context
 import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -22,6 +23,7 @@ import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.media3.common.MediaItem
@@ -68,6 +70,12 @@ class MainActivity : Activity() {
     private lateinit var loadingFill: View
     private var loadingProgress = 0.0
     private var loadingTurn = 0f
+    // Demo: a built-in slideshow of invented posters (assets/demo/1.jpg … 7.jpg), for trying the app without Resume Relay.
+    private lateinit var demo: FrameLayout
+    private lateinit var demoA: ImageView
+    private lateinit var demoB: ImageView
+    private var demoOn = false
+    private var demoIndex = 1
 
     private var server: String = ""          // http://10.0.0.30:8090
     private var token: String = ""
@@ -164,10 +172,24 @@ class MainActivity : Activity() {
             addView(loadingBox, FrameLayout.LayoutParams(dp(400), -2, Gravity.CENTER))
             addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> sizeLoading() }
         }
+        demoA = ImageView(this).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
+        demoB = ImageView(this).apply { scaleType = ImageView.ScaleType.FIT_CENTER; alpha = 0f }
+        val demoText = text(18f, Color.rgb(0xC8, 0xC4, 0xD8)).apply {
+            text = "Resume Relay Live Poster demo, with invented posters. Press OK (or tap) for options."
+            setBackgroundColor(Color.argb(170, 0, 0, 0)); setPadding(dp(14), dp(6), dp(14), dp(6))
+        }
+        demo = FrameLayout(this).apply {
+            setBackgroundColor(Color.BLACK)
+            visibility = View.GONE
+            addView(demoA, FrameLayout.LayoutParams(-1, -1))
+            addView(demoB, FrameLayout.LayoutParams(-1, -1))
+            addView(demoText, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = dp(16) })
+        }
         val root = FrameLayout(this).apply {
             setBackgroundColor(Color.BLACK)
             addView(this@MainActivity.playerView, FrameLayout.LayoutParams(-1, -1))
             addView(this@MainActivity.loading, FrameLayout.LayoutParams(-1, -1))
+            addView(this@MainActivity.demo, FrameLayout.LayoutParams(-1, -1))
             addView(this@MainActivity.overlay, FrameLayout.LayoutParams(-1, -1))
             addView(this@MainActivity.status, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.START).apply { setMargins(dp(12), 0, 0, dp(12)) })
         }
@@ -180,7 +202,7 @@ class MainActivity : Activity() {
         super.onResume()
         hideSystemBars()
         running = true
-        if (server.isEmpty()) discover() else hello()
+        if (demoOn) main.postDelayed(demoTick, 8000) else if (server.isEmpty()) discover() else hello()
     }
 
     override fun onPause() {
@@ -239,7 +261,7 @@ class MainActivity : Activity() {
             } catch (e: Exception) { }
             try { lock?.release() } catch (e: Exception) { }
             main.post {
-                if (!running) return@post
+                if (!running || demoOn) return@post
                 val f = found
                 if (f != null) { server = f; prefs.edit().putString("server", f).apply(); hello() }
                 else askAddress("Resume Relay wasn't found by itself.")
@@ -260,7 +282,7 @@ class MainActivity : Activity() {
         showSetup("Resume Relay's address", "", "$why Type the address of the computer running it (the one you open Resume Relay at), for example 10.0.0.30:8090.")
         address.visibility = View.VISIBLE
         address.setText(server.removePrefix("http://"))
-        setButtons("Connect" to { connectTo(address.text.toString()) }, "Search again" to { discover() })
+        setButtons("Connect" to { connectTo(address.text.toString()) }, "Search again" to { discover() }, "Try a demo" to { startDemo() })
         address.requestFocus()
     }
 
@@ -276,7 +298,7 @@ class MainActivity : Activity() {
     // ------------------------------------------------------------------ pairing
 
     private fun hello() {
-        if (!running) return
+        if (!running || demoOn) return
         io.execute {
             val body = JSONObject()
                 .put("deviceKey", deviceKey).put("platform", platform)
@@ -284,7 +306,7 @@ class MainActivity : Activity() {
                 .put("version", BuildConfigVersion.name(this))
             val r = request("POST", "/api/screen/hello", body.toString())
             main.post {
-                if (!running) return@post
+                if (!running || demoOn) return@post
                 if (r == null) {
                     failures++
                     if (failures >= 3) { failures = 0; askAddress("Resume Relay didn't answer at ${server.removePrefix("http://")}.") }
@@ -300,7 +322,7 @@ class MainActivity : Activity() {
                 } else {
                     showSetup("Add this screen", r.optString("code"),
                         "On a computer or phone, open Resume Relay at ${server.removePrefix("http://")}, go to the Live Poster tab, and enter this code.")
-                    setButtons("Change address" to { askAddress("") })
+                    setButtons("Change address" to { askAddress("") }, "Try a demo" to { startDemo() })
                     main.postDelayed({ hello() }, 3000)
                 }
             }
@@ -310,13 +332,13 @@ class MainActivity : Activity() {
     // ------------------------------------------------------------------ playing
 
     private fun poll(ended: String = "") {
-        if (!running || token.isEmpty()) return
+        if (!running || demoOn || token.isEmpty()) return
         main.removeCallbacks(pollTask)
         io.execute {
             val q = "/api/screen/state?token=${enc(token)}" + if (ended.isNotEmpty()) "&ended=${enc(ended)}" else ""
             val r = request("GET", q, null)
             main.post {
-                if (!running) return@post
+                if (!running || demoOn) return@post
                 when {
                     r == null -> { status.text = "Resume Relay isn't answering…"; status.visibility = View.VISIBLE }
                     !r.optBoolean("paired", false) -> { showLoading(false, 0.0, ""); token = ""; prefs.edit().remove("token").apply(); version = ""; player.stop(); hello(); return@post }
@@ -371,6 +393,7 @@ class MainActivity : Activity() {
     // ------------------------------------------------------------------ the menu (OK on the remote, or a tap)
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_UP && event.keyCode == KeyEvent.KEYCODE_BACK && demoOn && !showingMenu) { stopDemo(); return true }
         if (event.action == KeyEvent.ACTION_UP && overlay.visibility != View.VISIBLE &&
             event.keyCode in listOf(KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_NUMPAD_ENTER)) {
             showMenu(); return true
@@ -389,6 +412,12 @@ class MainActivity : Activity() {
     }
 
     private fun showMenu() {
+        if (demoOn) {
+            showSetup("Resume Relay Live Poster", "", "This is a demo with invented posters. To show your own, run Resume Relay on a computer at home (free, from github.com/ckenisell/resume-relay) and add this screen on its Live Poster tab.")
+            showingMenu = true
+            setButtons("Close" to { hideSetup() }, "Stop the demo" to { stopDemo() })
+            return
+        }
         showSetup(screenName.ifEmpty { "Resume Relay" }, "", "Connected to Resume Relay at ${server.removePrefix("http://")}. Change what this screen shows on the Live Poster tab.")
         showingMenu = true
         setButtons(
@@ -397,8 +426,55 @@ class MainActivity : Activity() {
             "Unpair this screen" to {
                 prefs.edit().remove("token").remove("deviceKey").apply()
                 token = ""; version = ""; player.stop(); hello()
-            })
+            },
+            "Try a demo" to { startDemo() })
     }
+
+    // ------------------------------------------------------------------ demo
+
+    /** The demo: 7 invented posters on the built-in backgrounds, 8 seconds each, each dissolving into the next.
+     *  The connection is paused meanwhile (nothing is looked for or played), and starts again when the demo stops. */
+    private fun startDemo() {
+        demoOn = true
+        main.removeCallbacksAndMessages(null)
+        player.pause()
+        hideSetup()
+        status.visibility = View.GONE
+        loading.visibility = View.GONE
+        demoIndex = 1
+        demoA.setImageBitmap(demoImage(1)); demoA.alpha = 1f
+        demoB.setImageBitmap(demoImage(2)); demoB.alpha = 0f
+        demo.visibility = View.VISIBLE
+        main.postDelayed(demoTick, 8000)
+    }
+
+    private fun stopDemo() {
+        demoOn = false
+        main.removeCallbacks(demoTick)
+        demo.visibility = View.GONE
+        demoA.setImageDrawable(null); demoB.setImageDrawable(null)
+        hideSetup()
+        if (token.isNotEmpty() && server.isNotEmpty()) { version = ""; poll() } else if (server.isEmpty()) discover() else hello()
+    }
+
+    private val demoTick = Runnable { demoNext() }
+
+    /** demoB sits over demoA: it fades in with the next poster, or out to show demoA's; then the hidden one is loaded
+     *  with the poster after. */
+    private fun demoNext() {
+        if (!demoOn || !running) return
+        demoIndex++
+        val bShowing = demoB.alpha > 0.5f
+        demoB.animate().alpha(if (bShowing) 0f else 1f).setDuration(1000).withEndAction {
+            if (!demoOn) return@withEndAction
+            (if (bShowing) demoB else demoA).setImageBitmap(demoImage(demoIndex + 1))
+        }.start()
+        main.postDelayed(demoTick, 8000)
+    }
+
+    private fun demoImage(i: Int) = try {
+        assets.open("demo/${(i - 1) % 7 + 1}.jpg").use { BitmapFactory.decodeStream(it) }
+    } catch (e: Exception) { null }
 
     // ------------------------------------------------------------------ helpers
 

@@ -16,6 +16,15 @@ sub init()
     m.retry.observeField("fire", "onRetry")
     m.current = invalid
     m.dialog = invalid
+    m.demo = false
+    m.demoGroup = m.top.findNode("demo")
+    m.demoA = m.top.findNode("demoA")
+    m.demoB = m.top.findNode("demoB")
+    m.demoFade = m.top.findNode("demoFade")
+    m.demoFadeB = m.top.findNode("demoFadeB")
+    m.demoTimer = m.top.findNode("demoTimer")
+    m.demoTimer.observeField("fire", "onDemoTick")
+    m.demoFade.observeField("state", "onDemoFaded")
     m.lastReported = ""
 
     m.net = CreateObject("roSGNode", "NetTask")
@@ -33,6 +42,7 @@ sub init()
 end sub
 
 sub onPhase()
+    if m.demo then return   ' the demo covers everything until it's stopped (then this runs again)
     p = m.net.phase
     msg = m.net.message
     if p = "playing"
@@ -58,6 +68,57 @@ sub onPhase()
     end if
     m.message.text = msg
     if p = "address" and m.dialog = invalid then askAddress()
+end sub
+
+' ---------------------------------------------------------------- demo
+
+' A built-in slideshow (7 invented posters on the built-in backgrounds, each dissolving into the next), so the app can
+' be tried without Resume Relay. demoB sits over demoA: it fades in with the next poster, or out to show demoA's.
+sub startDemo()
+    m.demo = true
+    m.demoIndex = 1
+    m.demoA.uri = demoUri(1)
+    m.demoB.opacity = 0
+    m.demoB.uri = demoUri(2)
+    m.panel.visible = false
+    m.status.visible = false
+    m.demoGroup.visible = true
+    m.demoTimer.control = "start"
+end sub
+
+sub stopDemo()
+    m.demo = false
+    m.demoTimer.control = "stop"
+    m.demoFade.control = "stop"
+    m.demoGroup.visible = false
+    m.demoA.uri = ""
+    m.demoB.uri = ""
+    onPhase()
+end sub
+
+function demoUri(i as integer) as string
+    return "pkg:/images/demo/" + (((i - 1) mod 7) + 1).ToStr() + ".jpg"
+end function
+
+sub onDemoTick()
+    if not m.demo then return
+    m.demoIndex = m.demoIndex + 1
+    if m.demoB.opacity > 0.5
+        m.demoFadeB.keyValue = [1.0, 0.0]   ' demoA (already holding the next poster) shows through
+    else
+        m.demoFadeB.keyValue = [0.0, 1.0]   ' demoB (already holding the next poster) fades in
+    end if
+    m.demoFade.control = "start"
+end sub
+
+' Once a dissolve is done, the poster now hidden is loaded with the one after, ready for the next dissolve.
+sub onDemoFaded()
+    if not m.demo or m.demoFade.state <> "stopped" then return
+    if m.demoB.opacity > 0.5
+        m.demoA.uri = demoUri(m.demoIndex + 1)
+    else
+        m.demoB.uri = demoUri(m.demoIndex + 1)
+    end if
 end sub
 
 ' "Loading..." while the first slideshow is made. The posters arrive already turned for a TV on its side, so the
@@ -147,7 +208,7 @@ sub askAddress()
     if server = invalid or server = "" then server = CreateObject("roRegistrySection", "rr").Read("server")
     if server <> invalid and Left(server, 7) = "http://" then server = Mid(server, 8)
     d.text = server
-    d.buttons = ["Connect", "Search again"]
+    d.buttons = ["Connect", "Search again", "Try a demo"]
     d.observeField("buttonSelected", "onAddressButton")
     d.observeField("wasClosed", "onDialogClosed")
     m.dialog = d
@@ -157,13 +218,15 @@ end sub
 sub onAddressButton()
     d = m.dialog
     if d = invalid then return
-    if d.buttonSelected = 0
+    b = d.buttonSelected
+    if b = 0
         m.net.serverInput = d.text
-    else
+    else if b = 1
         m.net.command = "search"
     end if
     d.close = true
     m.dialog = invalid
+    if b = 2 then startDemo()
 end sub
 
 sub showMenu()
@@ -172,8 +235,17 @@ sub showMenu()
     if name = invalid or name = "" then name = "Resume Relay"
     d.title = name
     server = CreateObject("roRegistrySection", "rr").Read("server")
-    d.message = ["Connected to Resume Relay at " + Mid(server, 8) + ".", "What this screen shows is set on the Live Poster tab."]
-    d.buttons = ["Close", "Change address", "Unpair this screen"]
+    if m.demo
+        d.title = "Resume Relay Live Poster"
+        d.message = ["This is a demo with invented posters.", "To show your own, run Resume Relay on a computer at home (free, from github.com/ckenisell/resume-relay) and add this screen on its Live Poster tab."]
+        d.buttons = ["Close", "Stop the demo"]
+    else if m.net.phase = "playing"
+        d.message = ["Connected to Resume Relay at " + Mid(server, 8) + ".", "What this screen shows is set on the Live Poster tab."]
+        d.buttons = ["Close", "Change address", "Unpair this screen", "Try a demo"]
+    else
+        d.message = ["This screen shows posters from Resume Relay, a free app that runs on a computer at home.", "Not set up yet? Try the demo."]
+        d.buttons = ["Close", "Change address", "Unpair this screen", "Try a demo"]
+    end if
     d.observeField("buttonSelected", "onMenuButton")
     d.observeField("wasClosed", "onDialogClosed")
     m.dialog = d
@@ -186,10 +258,14 @@ sub onMenuButton()
     b = d.buttonSelected
     d.close = true
     m.dialog = invalid
-    if b = 1
+    if m.demo
+        if b = 1 then stopDemo()
+    else if b = 1
         askAddress()
     else if b = 2
         m.net.command = "unpair"
+    else if b = 3
+        startDemo()
     end if
 end sub
 

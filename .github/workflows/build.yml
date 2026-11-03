@@ -113,12 +113,14 @@ jobs:
           # Signed with the project's key when it's set up (repository secrets), so updates install over each other.
           if [[ -n "$KS_B64" ]]; then echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/rr.jks"; export RR_KEYSTORE="$RUNNER_TEMP/rr.jks" RR_KEYSTORE_PASSWORD="$KS_PW"; fi
           # The build's errors are repeated as annotations (readable on the run's summary page).
-          if ! gradle -p apps/android --no-daemon assembleRelease > "$RUNNER_TEMP/gradle.log" 2>&1; then
+          if ! gradle -p apps/android --no-daemon assembleRelease bundleRelease > "$RUNNER_TEMP/gradle.log" 2>&1; then
             grep -E "^e: |^ERROR|error:|AAPT|Execution failed|What went wrong" -A2 "$RUNNER_TEMP/gradle.log" | grep -v "^--$" | head -9 | while IFS= read -r l; do echo "::error::${l}"; done
             tail -60 "$RUNNER_TEMP/gradle.log"; exit 1
           fi
           mkdir -p artifacts
           cp apps/android/app/build/outputs/apk/release/app-release.apk "artifacts/ResumeRelay-Screen-$RR_VERSION-android.apk"
+          # Google Play takes an app bundle (.aab), signed with the same key (Play then signs what it hands out).
+          cp apps/android/app/build/outputs/bundle/release/app-release.aab "artifacts/ResumeRelay-Screen-$RR_VERSION-android.aab"
           # Which key signed it (on the run's summary page): the project's own key, or the throwaway debug key.
           SIGNER="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner"
           CERT="$("$SIGNER" verify --print-certs "artifacts/ResumeRelay-Screen-$RR_VERSION-android.apk" 2>/dev/null | grep -E "certificate DN|SHA-256" | head -2 | tr '\n' ' ')"
@@ -131,6 +133,7 @@ jobs:
           name: android
           path: |
             artifacts/*.apk
+            artifacts/*.aab
             artifacts/*.zip
 
   release:

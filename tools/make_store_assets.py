@@ -39,7 +39,7 @@ icon(512).save(os.path.join(OUT, "icon-512.png"))
 icon(114).save(os.path.join(OUT, "icon-114.png"))
 
 # Android TV / Fire TV banner and Google Play feature graphic: the mark and the name.
-for name, (w, h) in {"tv-banner-1280x720.png": (1280, 720), "feature-1024x500.png": (1024, 500)}.items():
+for name, (w, h) in {"tv-banner-1280x720.png": (1280, 720), "feature-1024x500.png": (1024, 500), "firetv-background-1920x1080.png": (1920, 1080)}.items():
     im = Image.new("RGB", (w, h), NAVY); d = ImageDraw.Draw(im)
     mark(d, w * 0.08, h * 0.2, h * 0.46)
     d.text((w * 0.08 + h * 0.6, h * 0.30), "Resume Relay", font=ImageFont.truetype(BOLD, int(h * 0.13)), fill=TEXT)

@@ -1,6 +1,8 @@
 # Store listing text (screen apps)
 
-Use the same text in every store. Pictures are in this folder (made by tools/make_store_assets.py).
+Use the same text in every store. **No third-party brand names anywhere in the listing** (titles, descriptions,
+bullets, keywords): Amazon rejected 0.6.2 on 2026-11-03 for "Zidoo" and "Plex" in the keywords and description, as
+third-party IP. The apps themselves name neither. Pictures are in this folder (made by tools/make_store_assets.py).
 
 **App name:** Resume Relay Live Poster
 
@@ -16,7 +18,7 @@ library, each dissolving into the next under classic marquee headers. Hang the T
 the screen.
 
 How it works: Resume Relay, a free program, runs on a computer in your home (Windows, Ubuntu, or Docker on a NAS). It
-follows your Zidoo media players and Plex, makes each poster into a 4K video, and sends it to this app. Install it from
+follows your home theater's media players and media server, makes each poster into a 4K video, and sends it to this app. Install it from
 github.com/ckenisell/resume-relay, then add this screen with the 4-digit code it shows.
 
 - Finds Resume Relay on your network by itself
@@ -24,6 +26,8 @@ github.com/ckenisell/resume-relay, then add this screen with the 4-digit code it
 - Keeps the screen awake
 - No accounts, no ads, nothing collected
 - Free, with a demo you can try right away
+
+**Keywords:** movie poster, home theater, now playing, digital poster, cinema, marquee, 4K, slideshow, poster frame
 
 **Category:** Entertainment (Roku: Personalization or Utilities if offered). **Price:** free. **Ads:** none.
 

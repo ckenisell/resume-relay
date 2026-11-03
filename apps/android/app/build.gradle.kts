@@ -17,12 +17,12 @@ val rrCode: Int = run {
 
 android {
     namespace = "io.github.ckenisell.resumerelay"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "io.github.ckenisell.resumerelay"
         minSdk = 22
-        targetSdk = 34
+        targetSdk = 36
         versionCode = rrCode
         versionName = rrVersion
     }

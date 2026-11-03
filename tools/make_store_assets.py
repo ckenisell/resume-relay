@@ -85,3 +85,16 @@ for k, line in enumerate(textwrap.wrap("On a computer or phone, open Resume Rela
     d.text(((1920 - d.textlength(line, font=f)) / 2, 640 + k * 48), line, font=f, fill=MUTED)
 im.save(os.path.join(OUT, "screenshot-5.png"))
 print("store pictures in", OUT)
+
+# GitHub's social preview for the repository (1280×640): the app icon, the name, the line from the README, and the three parts.
+ico = Image.open(os.path.join(ROOT, "src/ResumeRelay.Windows/app.ico")); ico.size = (256, 256); ico = ico.convert("RGBA")
+bg = ico.getpixel((128, 30))[:3]   # the icon's own navy
+im = Image.new("RGB", (1280, 640), bg); d = ImageDraw.Draw(im)
+im.paste(ico.resize((300, 300), Image.LANCZOS), (90, 170), ico.resize((300, 300), Image.LANCZOS))
+d.text((450, 175), "Resume Relay", font=ImageFont.truetype(BOLD, 92), fill=TEXT)
+d.text((454, 300), "Stop in one room. Resume in another.", font=ImageFont.truetype(REG, 40), fill=MUTED)
+x = 454; f = ImageFont.truetype(BOLD, 29)
+for word, color in (("Resume points", (90, 160, 255)), (" · ", MUTED), ("Watched marks", (115, 199, 155)), (" · ", MUTED), ("Live Poster", TEXT)):
+    d.text((x, 385), word, font=f, fill=color); x += d.textlength(word, font=f)
+d.text((454, 450), "Free  ·  Windows, Ubuntu and Docker", font=ImageFont.truetype(REG, 30), fill=(156, 153, 181))
+im.save(os.path.join(OUT, "github-social-1280x640.png"))

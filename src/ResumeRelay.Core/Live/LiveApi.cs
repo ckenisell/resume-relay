@@ -34,7 +34,7 @@ public static class LiveApi
                     CanDownload = OperatingSystem.IsWindows() && renderer.Ffmpeg == null,
                 },
                 Config = new { cfg.StopWaitSeconds, cfg.SlideSeconds, cfg.AcclaimedMin, cfg.NowPlaying, cfg.ComingSoon, cfg.RecentlyWatched, cfg.Acclaimed, cfg.Folders },
-                PlexFolders = store.Plex().Mappings.Select(m => new LiveFolder { ZidooFolder = m.ZidooFolder, LocalFolder = m.PlexFolder }),
+                PlexFolders = store.Plex().Mappings.Concat(store.Jellyfin().Mappings).Select(m => new LiveFolder { ZidooFolder = m.ZidooFolder, LocalFolder = m.PlexFolder }),
                 Screens = cfg.Screens.Select(s =>
                 {
                     var rt = svc.RuntimeOf(s.Id);
@@ -279,7 +279,7 @@ public static class LiveApi
             var tag = Regex.Match(PathMapper.FileName(url), @"\bS(\d{1,2})E\d", RegexOptions.IgnoreCase);
             bool ep = (tv ?? 0) == 1 || tag.Success;
             var r = await svc.Finder.FindAsync(new PosterRequest(url, "", "", ep, tag.Success ? int.Parse(tag.Groups[1].Value) : 0, series == true, ""), ct);
-            return r == null ? Results.NotFound(new { Error = "No poster found (folder, Plex or Zidoo)." })
+            return r == null ? Results.NotFound(new { Error = "No poster found (folder, Plex, Jellyfin or Zidoo)." })
                 : Results.Ok(new { r.Source, r.Width, r.Height, Folder = svc.Finder.LocalPathOf(url) });
         });
 

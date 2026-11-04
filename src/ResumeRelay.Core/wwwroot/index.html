@@ -705,7 +705,7 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
     <p class="msg" id="rooms-msg" role="status"></p>
     <div class="health" id="health" role="status"></div>
     <div class="grid" id="rooms"></div>
-    <p class="plex-hint" id="plex-hint" hidden>Use Plex too? <button class="btn quiet" id="plex-go">Set it up in Settings → Plex</button></p>
+    <p class="plex-hint" id="plex-hint" hidden>Use Plex or Jellyfin too? <button class="btn quiet" id="plex-go">Set it up in Settings</button></p>
   </section>
 
   <section id="activity" role="tabpanel" aria-labelledby="tab-activity" hidden>
@@ -1394,7 +1394,7 @@ function dayLabel(d) {
   return diff === 0 ? "Today, " + long : diff === 1 ? "Yesterday, " + long : long;
 }
 
-// Activity filters: by player, Zidoo or Plex, failed only, and a search. Messages without a card (player online,
+// Activity filters: by player, by kind (Zidoo, Plex or Jellyfin), failed only, and a search. Messages without a card (player online,
 // settings changed...) show only when no player, kind or failed filter is set.
 function feedFilter() {
   const p = $("#af-player").value, k = $("#af-kind").value, failed = $("#af-failed").checked, q = $("#af-q").value.trim().toLowerCase();
@@ -1990,7 +1990,7 @@ $("#plex-go").onclick = () => { showTab("settings"); store.set("rr.plexCollapsed
 
 function renderPlex(force = false) {
   const box = $("#plex-card"), p = state?.plex; if (!box || !p) return;
-  $("#plex-hint").hidden = !!(p.server && p.users?.length);
+  $("#plex-hint").hidden = !!((p.server && p.users?.length) || state.jellyfin?.users?.length);
   if (!force && box.contains(document.activeElement) && document.activeElement.matches("input")) return; // don't redraw under typing
   // Set up = signed in, a server chosen and at least one user added: only then can the card fold away.
   const plexDevs = (state.devices || []).filter(d => d.kind === "plex");
@@ -2506,17 +2506,17 @@ document.addEventListener("click", e => { if (!$("#bmc-card").hidden && !e.targe
 
 // ---------------- help tips ----------------
 const HELP = {
-  players: ["Players", `<p>Each card is a Zidoo player (or a Plex user). The <b>power</b> button turns a Zidoo on or off; the screen button opens its HT app. <b>Sync</b> off leaves that player out of copying.</p>
+  players: ["Players", `<p>Each card is a Zidoo player (or a Plex or Jellyfin user). The <b>power</b> button turns a Zidoo on or off; the screen button opens its HT app. <b>Sync</b> off leaves that player out of copying.</p>
     <p>The <b>Copying</b> switch at the top turns copying on or off for everything. Off is <b>watch-only</b>: Resume Relay shows on the Activity tab what it would copy, and writes nothing. New installs start in watch-only so you can check it first.</p>`],
   progress: ["Progress Reset", `<p>Reads every player and lists each file someone has started, with its position on every player. Use it to reset a file or a whole TV show everywhere, to drag one player's progress onto another, or to <b>Copy all</b> from one player to the others.</p>
     <p>Once your players are in sync, Resume Relay keeps them that way by itself; this tab is for setting up and fixing.</p>`],
   watch: ["Watch Sync", `<p>Where each movie and episode is marked watched, on every player. Click a cell to change one player, use <b>Set on all</b>, <b>Watched All</b> on a show, or <b>Copy all</b> from one player's column.</p>`],
   copyall: ["Target and Copy all", `<p>Tick <b>Target</b> on the players that should receive. Then press <b>Copy all</b> under the player to copy from.</p>
     <p>It covers every file in the list <b>as filtered</b> (the Show option and the search), on every page, not just what's on screen. It shows the counts first, and each batch can be undone from its card on the Activity tab.</p>`],
-  watchedsync: ["Watched marks", `<p>Stops are copied the moment they happen, because Resume Relay asks each player what it's playing every few seconds. Marking a title watched or unwatched plays nothing, and neither the Zidoo's HT app nor Plex announces it, so Resume Relay finds these by reading the players every few minutes (15 by default) and comparing each file's mark with the last read.</p>
+  watchedsync: ["Watched marks", `<p>Stops are copied the moment they happen, because Resume Relay asks each player what it's playing every few seconds. Marking a title watched or unwatched plays nothing, and neither the Zidoo's HT app nor Plex or Jellyfin announces it, so Resume Relay finds these by reading the players every few minutes (15 by default) and comparing each file's mark with the last read.</p>
     <p>A changed file gets the same mark on the other players (watched: with no resume point). Each batch gets an Activity card with Undo. A Zidoo that's playing is read next time instead, and a file marked watched on one player and unwatched on another in between is left alone.</p>`],
   catchup: ["Catch Up", `<p>Resume Relay copies stops as they happen, so it can only miss something while it's off. When it starts after being off for more than a few minutes, it reads the players and, for every file watched meanwhile, copies the newest player's state to the others. Players that are off then are read when they come back on.</p>
-    <p><b>Catch up now</b> does the same for the last 14 days: use it after changing things where Resume Relay can't see them, such as Z-Keeper. It can't see a Plex "mark as unplayed" (Plex keeps no time for it), and it needs the players' clocks to be right.</p>
+    <p><b>Catch up now</b> does the same for the last 14 days: use it after changing things where Resume Relay can't see them, such as Z-Keeper. It can't see a Plex or Jellyfin "mark as unplayed" (neither keeps a time for it), and it needs the players' clocks to be right.</p>
     <p>Its card on the Activity tab has <b>Undo</b>.</p>`],
   poll: ["Check players every", `<p>Seconds between asking each player what it is playing. A stop is noticed within this time, so a few seconds is plenty.</p>`],
   keep: ["Keep waiting copies", `<p>When a player is off, the copy meant for it waits until it comes back on. A player that stays off longer than this misses the copy.</p>`],
@@ -2530,8 +2530,8 @@ const HELP = {
     <p>Rotten Tomatoes ratings are never used (Jellyfin's "critic rating" is Rotten Tomatoes'). Each title's table row shows where its rating came from (Plex, a Zidoo or Jellyfin) and which rating it is.</p>`],
   badges: ["Activity badges", `<p>Each Activity card shows whether the stop happened on a Zidoo, on Plex or on Jellyfin, and each player chip shows which kind it is. You can use your own small image for any of these badges; it's kept in Resume Relay's data folder on this computer.</p>`],
   backup: ["Back up and restore", `<p>One file with your players, their names, these settings, the Plex and Jellyfin setups and your badge pictures. Use it to move Resume Relay to another computer or a NAS, or after reinstalling.</p>
-    <p><b>Back up settings</b> downloads one file. <b>Restore from a backup</b> replaces this Resume Relay's players, names, settings, Plex setup and badge pictures with the ones in the file. The Activity tab is kept.</p>
-    <p>The file includes your Plex sign-in, so keep it somewhere private.</p>`],
+    <p><b>Back up settings</b> downloads one file. <b>Restore from a backup</b> replaces this Resume Relay's players, names, settings, Plex and Jellyfin setups and badge pictures with the ones in the file. The Activity tab is kept.</p>
+    <p>The file includes your Plex and Jellyfin sign-ins, so keep it somewhere private.</p>`],
   updates: ["New versions", `<p>Once a day Resume Relay asks GitHub whether a newer version is out. Only the public list of versions is fetched; nothing about you or your players is sent. When there is one, a banner explains how to update.</p>
     <p><b>Include beta versions</b> also offers test versions (always on while you're running a beta).</p>`],
   plexfolders: ["Folders", `<p>Plex and the Zidoos reach the same files by different paths: for example Plex sees <code>/shares/Entertainment/Movies/…</code> where the Zidoos see <code>smb://10.0.0.56/Entertainment/Movies/…</code>. Each line says which Plex folder is which Zidoo folder; files are then matched by the rest of their path.</p>
@@ -2546,7 +2546,7 @@ const HELP = {
     <p>Images: PNG, JPG or WebP. Videos: MP4, 10 to 20 seconds, made to loop seamlessly (the end flows into the start). Other sizes are scaled to cover the screen.</p>`],
   posterfolders: ["Poster folders", `<p>For each title, Resume Relay uses the first poster it finds, looking in this order:</p>
     <ol><li><b>The NAS:</b> the movie's or show's own folder (the file names below).</li>
-    <li><b>Plex</b>, when it's set up: the poster Plex shows.</li>
+    <li><b>Plex</b>, when it's set up: the poster Plex shows. For a Jellyfin user's title (or a Jellyfin rating), <b>Jellyfin's</b> poster.</li>
     <li><b>The Zidoo:</b> its poster, which it keeps at only 500×750.</li></ol>
     <h4>Movies</h4>
     <p>In the movie's folder, the first of these that exists:</p>
@@ -2562,7 +2562,7 @@ const HELP = {
     <p>Each name can be <code>.jpg</code>, <code>.jpeg</code>, <code>.png</code> or <code>.webp</code>, in any upper or lower case. Use 2000×3000 (2:3) for the sharpest picture; other sizes are stretched to fit. A poster you add or replace is picked up within 10 minutes (or at once with <b>Look for posters again</b>).</p>
     <h4>Where this computer finds the folders</h4>
     <p>To open those folders, Resume Relay needs to know where this computer reaches the share the Zidoos use:</p>
-    <ul><li>If Plex runs on this computer, its folders (Settings → Plex) are used. Nothing to add.</li>
+    <ul><li>If Plex or Jellyfin runs on this computer, its folders (Settings → Plex or Jellyfin) are used. Nothing to add.</li>
     <li>Otherwise, add a line here: the Zidoos' folder (like <code>smb://10.0.0.56/Entertainment</code>) and the same folder on this computer (like <code>/mnt/media</code>).</li>
     <li>On Windows, the share's own address works without a line.</li></ul>`],
   jfsignin: ["Signing in to Jellyfin", `<p>Resume Relay needs a Jellyfin <b>administrator</b>: only an administrator can see what every user is playing and change every user's resume points and watched marks. The users you add don't sign in to anything.</p>
@@ -2607,13 +2607,13 @@ function pulse(el) {
 const defaultName = n => /\(\d{1,3}(\.\d{1,3}){3}\)$/.test(n) || /^Zidoo \d/.test(n);
 function setupSteps() {
   const z = (state?.devices || []).filter(d => !isServerUser(d)), s = state.settings;
-  const plexUsers = (state.devices || []).some(d => d.kind === "plex");
+  const plexUsers = (state.devices || []).some(isServerUser);
   return [
     { id: "find", done: z.length > 0, title: "Find your players", hint: "Switch your Zidoos on, then scan. Each one appears as a card below.", btn: ["scan", "Scan network"] },
     { id: "name", done: z.length > 0 && z.every(d => !defaultName(d.name)), title: "Name each player", hint: "Click a player's name and give it its room, like Living Room.", btn: ["name", "Show me"] },
     { id: "test", done: !s.watchOnly || events.some(e => !e.manual && !e.batch), title: "Try a test stop", hint: "Play anything for a minute on one player, then stop it. Its card on the Activity tab shows what would be copied (nothing is written yet).", btn: ["activity", "Open Activity"] },
     { id: "copy", done: !s.watchOnly, title: "Turn on copying", hint: "When the test looks right, switch Copying on at the top right.", btn: ["copy", "Show me"] },
-    { id: "plex", done: plexUsers || s.setupPlexSkipped, optional: true, title: "Add Plex (optional)", hint: "Sync with Plex users too.", btn: ["plex", "Set up Plex"] },
+    { id: "plex", done: plexUsers || s.setupPlexSkipped, optional: true, title: "Add Plex or Jellyfin (optional)", hint: "Sync with Plex or Jellyfin users too (their cards are in Settings).", btn: ["plex", "Set up"] },
   ];
 }
 function renderSetup() {
@@ -2679,7 +2679,7 @@ $("#set-restore").addEventListener("change", async e => {
   if (b?.app !== "Resume Relay") { toast("That file isn't a Resume Relay backup.", true); e.target.value = ""; return; }
   const made = b.createdUtc ? new Date(b.createdUtc).toLocaleString() : "an unknown date";
   confirmReset("Restore from a backup",
-    `This replaces this Resume Relay's players, names, settings, Plex setup and badge pictures with the ones in <b>${esc(f.name)}</b> (made ${esc(made)}, version ${esc(b.version || "?")}, ${(b.devices || []).length} player(s)). The Activity tab is kept.`,
+    `This replaces this Resume Relay's players, names, settings, Plex and Jellyfin setups and badge pictures with the ones in <b>${esc(f.name)}</b> (made ${esc(made)}, version ${esc(b.version || "?")}, ${(b.devices || []).length} player(s)). The Activity tab is kept.`,
     async () => { const r = await api("POST", "/api/restore", b); toast(`Restored ${r.players} player(s) from the backup.`); cardCache.clear(); plexSig = ""; refresh(); });
   e.target.value = "";
 });
@@ -2874,7 +2874,7 @@ function renderLive() {
   // Poster folders.
   const plexDefault = L.plexFolders.filter(f => f.zidooFolder && f.localFolder);
   $("#lp-folders-hint").innerHTML = plexDefault.length
-    ? `Folders are opened through Plex's folders (Settings → Plex): ${plexDefault.map(f => `<code>${esc(f.zidooFolder)}</code> = <code>${esc(f.localFolder)}</code>`).join(", ")}. Add a line only if this computer reaches the share somewhere else.`
+    ? `Folders are opened through the Plex and Jellyfin cards' folders (Settings): ${plexDefault.map(f => `<code>${esc(f.zidooFolder)}</code> = <code>${esc(f.localFolder)}</code>`).join(", ")}. Add a line only if this computer reaches the share somewhere else.`
     : `Where this computer reaches the share the Zidoos use. On Windows the share's own address works without a line.`;
   if (!busyIn($("#lp-folders")) && !$("#lp-folders").dataset.dirty) {
     const rows = c.folders.length ? c.folders : [];

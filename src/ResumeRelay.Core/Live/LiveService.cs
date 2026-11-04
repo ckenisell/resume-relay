@@ -709,7 +709,7 @@ public sealed class LiveService : BackgroundService
                     fromJellyfin++;
                 }
             }
-            if (plexFailed && !zidooRead && !jellyfinRead) { _acclaimedNote = "The Plex server didn't answer; trying again in 10 minutes."; _acclaimedAt = DateTime.UtcNow.AddMinutes(-50); return; }
+            if (plexFailed && !zidooRead && !jellyfinRead) { _acclaimedNote = "The Plex server didn't answer (and no Zidoo or Jellyfin could be read); trying again in 10 minutes."; _acclaimedAt = DateTime.UtcNow.AddMinutes(-50); return; }
             if (plex == null && !zidooRead && !jellyfinRead) { _acclaimedNote = "No player is on to read ratings from; trying again in 10 minutes."; _acclaimedAt = DateTime.UtcNow.AddMinutes(-50); return; }
             _acclaimed = list.OrderBy(i => i.Title, StringComparer.OrdinalIgnoreCase).ToList();
             var parts = new List<string>();

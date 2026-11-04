@@ -83,9 +83,9 @@ public sealed partial class RelayEngine : BackgroundService
 
     private async Task PollAllAsync(CancellationToken ct)
     {
-        var devices = _store.Devices().Where(d => d.Enabled && (d.IsPlex || d.Ip.Length > 0)).ToList();
-        await Task.WhenAll(devices.Select(d => d.IsPlex ? PollPlexAsync(d, ct) : PollOneAsync(d, ct)));
-        MaybeRescanForMovedPlayers(devices.Where(d => !d.IsPlex).ToList(), ct);
+        var devices = _store.Devices().Where(d => d.Enabled && (d.IsServerUser || d.Ip.Length > 0)).ToList();
+        await Task.WhenAll(devices.Select(d => d.IsPlex ? PollPlexAsync(d, ct) : d.IsJellyfin ? PollJellyfinAsync(d, ct) : PollOneAsync(d, ct)));
+        MaybeRescanForMovedPlayers(devices.Where(d => !d.IsServerUser).ToList(), ct);
     }
 
     private async Task PollOneAsync(Device d, CancellationToken ct)
@@ -301,7 +301,7 @@ public sealed partial class RelayEngine : BackgroundService
     {
         var d = _store.Device(deviceId);
         if (d == null) return "Unknown player.";
-        if (d.IsPlex) return $"{d.Name} is a Plex user, not a player: there's nothing to turn on.";
+        if (d.IsServerUser) return $"{d.Name} is a {d.ServerLabel} user, not a player: there's nothing to turn on.";
         var live = LiveOf(d.Id);
         if (live.Power != PowerAction.None) return $"{d.Name} is already being switched.";
         var macs = new[] { d.NetMac, d.WifiMac, d.Mac }.Where(m => WakeOnLan.ParseMac(m) != null).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
@@ -352,7 +352,7 @@ public sealed partial class RelayEngine : BackgroundService
     {
         var d = _store.Device(deviceId);
         if (d == null) return "Unknown player.";
-        if (d.IsPlex) return $"{d.Name} is a Plex user, not a player: there's nothing to turn off.";
+        if (d.IsServerUser) return $"{d.Name} is a {d.ServerLabel} user, not a player: there's nothing to turn off.";
         var live = LiveOf(d.Id);
         if (live.Power != PowerAction.None) return $"{d.Name} is already being switched.";
         live.Power = PowerAction.TurningOff;
@@ -393,7 +393,7 @@ public sealed partial class RelayEngine : BackgroundService
     {
         var d = _store.Device(deviceId);
         if (d == null) return "Unknown player.";
-        if (d.IsPlex) return $"{d.Name} is a Plex user: there's no Home Theater app to open.";
+        if (d.IsServerUser) return $"{d.Name} is a {d.ServerLabel} user: there's no Home Theater app to open.";
         var api = new ZidooClient(d.Ip, d.Port);
         if (!await api.LaunchHomeTheaterAsync(ct)) return $"{d.Name} didn't accept the request. Is it on?";
         if (await WaitForHomeTheaterAsync(d, api, TimeSpan.FromSeconds(30), interval: 1000))
@@ -431,9 +431,9 @@ public sealed partial class RelayEngine : BackgroundService
     {
         string label = Label(last.Title, last.Path);
 
-        if (last.SourceUrl.Length == 0 && source.IsPlex)
+        if (last.SourceUrl.Length == 0 && source.IsServerUser)
         {
-            _store.Log(ActivityLevel.Skip, $"{label} {how} on {source.Name} at {Clock(last.PositionMs)}, but Plex's path for it ({last.Path}) isn't covered by the folder mapping on the Plex card, so the Zidoos can't be matched to it.");
+            _store.Log(ActivityLevel.Skip, $"{label} {how} on {source.Name} at {Clock(last.PositionMs)}, but {source.ServerLabel}'s path for it ({last.Path}) isn't covered by the folder mapping on the {source.ServerLabel} card, so the Zidoos can't be matched to it.");
             return;
         }
         if (last.SourceUrl.Length == 0)
@@ -453,7 +453,7 @@ public sealed partial class RelayEngine : BackgroundService
         // The polled position can be up to one poll interval old. The player saved its own bookmark when it
         // stopped; ask for it, so every room gets the exact second.
         int position = !canAskPlayer ? last.PositionMs
-            : source.IsPlex ? await ExactPlexStopPositionAsync(source, last, stoppedUtc)
+            : source.IsServerUser ? await ExactPlexStopPositionAsync(source, last, stoppedUtc)
             : await ExactStopPositionAsync(source, last);
 
         // Any position is copied, however short. A stop at 0:00 (under one second) means "start over": the other
@@ -508,7 +508,7 @@ public sealed partial class RelayEngine : BackgroundService
         }
         // Finished on a Zidoo: the HT app keeps the stop position on a watched file. Clear it there too, so every player
         // stores "finished" the same way (watched, no resume point). Not shown as a chip on the card.
-        if (finished && !source.IsPlex)
+        if (finished && !source.IsServerUser)
             _store.Enqueue(new PendingCopy
             {
                 TargetId = source.Id, SourceUrl = last.SourceUrl, Title = label, FromName = source.Name,
@@ -778,7 +778,7 @@ public sealed partial class RelayEngine : BackgroundService
         var m = EpisodeTag.Match(PathMapper.FileName(playPath));
         if (m.Success) subtitle = $"S{int.Parse(m.Groups[1].Value):00}E{int.Parse(m.Groups[2].Value):00}";
         else if (Regex.Match(PathMapper.FileName(playPath), @"\((19\d\d|20\d\d)\)") is { Success: true } y) subtitle = y.Groups[1].Value;
-        if (d.IsPlex)
+        if (d.IsServerUser)
         {
             try { return await LookUpPlexTitleAsync(d, sourceUrl, subtitle); }
             catch (OperationCanceledException) { throw; }
@@ -882,7 +882,7 @@ public sealed partial class RelayEngine : BackgroundService
             return;
         }
 
-        if (target.IsPlex) { await ProcessPlexAsync(job, target, ct); return; }
+        if (target.IsServerUser) { await ProcessPlexAsync(job, target, ct); return; }
         var api = new ZidooClient(target.Ip, target.Port);
         if (job.Kind == PendingCopy.SeriesKind) { await ProcessSeriesResetAsync(job, target, api, htNotReady, ct); return; }
 
@@ -1126,7 +1126,7 @@ public sealed partial class RelayEngine : BackgroundService
         _store.UpdatePending(job);
         _store.UpdateEventTarget(job.EventId, job.TargetId, TargetState.Waiting,
             reason != WaitOff ? "waiting, Home Theater isn't open"
-            : _store.Device(job.TargetId)?.IsPlex == true ? "waiting, the Plex server isn't answering" : "waiting, player is off", job.SourceUrl);
+            : _store.Device(job.TargetId) is { IsServerUser: true } sd ? $"waiting, the {sd.ServerLabel} server isn't answering" : "waiting, player is off", job.SourceUrl);
     }
 
     private void WaitForHomeTheater(PendingCopy job, Device target, HashSet<string> htNotReady)
@@ -1177,7 +1177,7 @@ public sealed partial class RelayEngine : BackgroundService
 
     // ===================================================================== helpers
 
-    private static string KindOf(Device d) => d.IsPlex ? "plex" : "zidoo";
+    private static string KindOf(Device d) => d.KindName;
 
     public static string Clock(int ms)
     {

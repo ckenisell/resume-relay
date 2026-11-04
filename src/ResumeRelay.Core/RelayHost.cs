@@ -88,6 +88,7 @@ public static class RelayHost
         MapApi(app, store, app.Services.GetRequiredService<RelayEngine>(), options.Host, updates, catchUp);
         MapProgressApi(app, app.Services.GetRequiredService<ProgressService>(), app.Lifetime.ApplicationStopping);
         PlexApi.Map(app, store, app.Services.GetRequiredService<RelayEngine>());
+        JellyfinApi.Map(app, store, app.Services.GetRequiredService<RelayEngine>());
         MapIcons(app, store);
         Live.LiveApi.Map(app, store, app.Services.GetRequiredService<Live.LiveStore>(), app.Services.GetRequiredService<Live.LiveService>(),
             app.Services.GetRequiredService<RelayEngine>());
@@ -96,12 +97,12 @@ public static class RelayHost
 
     private static void MapApi(WebApplication app, Store store, RelayEngine engine, IHostIntegration host, UpdateService updates, CatchUpService catchUp)
     {
-        // Back up: players, names, settings, the Plex setup (with its sign-in) and badge pictures, as one file.
+        // Back up: players, names, settings, the Plex and Jellyfin setups (with their sign-ins) and badge pictures, as one file.
         app.MapGet("/api/backup", () =>
         {
             var icons = IconKinds.Select(k => (k, f: IconFile(store, k))).Where(x => x.f != null)
                 .ToDictionary(x => x.k, x => new BackupIcon(Path.GetExtension(x.f!), Convert.ToBase64String(File.ReadAllBytes(x.f!))));
-            var b = new Backup("Resume Relay", Version, DateTime.UtcNow, store.Devices(), store.Settings(), store.Plex(), icons);
+            var b = new Backup("Resume Relay", Version, DateTime.UtcNow, store.Devices(), store.Settings(), store.Plex(), icons, store.Jellyfin());
             var json = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(b, new System.Text.Json.JsonSerializerOptions { WriteIndented = true, PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
             return Results.File(json, "application/json", $"resume-relay-backup-{DateTime.Now:yyyy-MM-dd}.json");
         });
@@ -109,7 +110,7 @@ public static class RelayHost
         {
             if (b == null || b.App != "Resume Relay" || b.Devices == null || b.Settings == null)
                 return Results.BadRequest(new { Error = "That isn't a Resume Relay backup file." });
-            store.Restore(b.Devices, b.Settings, b.Plex ?? new PlexConfig());
+            store.Restore(b.Devices, b.Settings, b.Plex ?? new PlexConfig(), b.Jellyfin);
             foreach (var k in IconKinds) if (IconFile(store, k) is { } old) File.Delete(old);
             foreach (var (k, icon) in b.Icons ?? new())
                 if (IconKinds.Contains(k) && IconTypes.ContainsKey(icon.Ext))
@@ -145,7 +146,7 @@ public static class RelayHost
             {
                 var l = engine.LiveOf(dev.Id);
                 bool online = dev.Enabled && l.Online;
-                string power = dev.IsPlex ? (l.Online ? "on" : "off") : l.Power switch
+                string power = dev.IsServerUser ? (l.Online ? "on" : "off") : l.Power switch
                 {
                     PowerAction.TurningOn => "turningOn",
                     PowerAction.TurningOff => "turningOff",
@@ -153,13 +154,13 @@ public static class RelayHost
                 };
                 return new
                 {
-                    dev.Id, Kind = dev.IsPlex ? "plex" : "zidoo", dev.Name, dev.Ip, dev.Port, dev.Enabled, dev.Model, dev.Firmware, dev.Mac, dev.HtVersion, dev.HtVersionCode,
-                    PlexUser = dev.IsPlex ? dev.PlexUserTitle : null,
+                    dev.Id, Kind = dev.KindName, dev.Name, dev.Ip, dev.Port, dev.Enabled, dev.Model, dev.Firmware, dev.Mac, dev.HtVersion, dev.HtVersionCode,
+                    PlexUser = dev.IsPlex ? dev.PlexUserTitle : dev.IsJellyfin ? dev.JellyfinUserName : null,
                     Online = online,
                     l.LastSeenUtc,
                     Power = power,
-                    CanWake = !dev.IsPlex && new[] { dev.NetMac, dev.WifiMac, dev.Mac }.Any(m => WakeOnLan.ParseMac(m) != null),
-                    HomeTheater = l.Online && !dev.IsPlex ? l.HomeTheaterRunning : null,
+                    CanWake = !dev.IsServerUser && new[] { dev.NetMac, dev.WifiMac, dev.Mac }.Any(m => WakeOnLan.ParseMac(m) != null),
+                    HomeTheater = l.Online && !dev.IsServerUser ? l.HomeTheaterRunning : null,
                     Playing = l.Playing == null || !dev.Enabled ? null : new
                     {
                         l.Playing.Title,
@@ -194,6 +195,7 @@ public static class RelayHost
                 Settings = store.Settings(),
                 Devices = devices,
                 Plex = PlexApi.Summary(store),
+                Jellyfin = JellyfinApi.Summary(store),
                 Update = store.Settings().CheckUpdates ? updates.Available : null,
                 UpdateCheckedUtc = updates.CheckedUtc,
                 Health = Health(store, engine, app.Services.GetRequiredService<ProgressService>()),
@@ -203,7 +205,7 @@ public static class RelayHost
                     Waiting = catchUp.WaitingFor.Select(id => store.Device(id)?.Name).Where(n => n != null),
                 },
                 WatchedSync = new { watchedSync.Status, watchedSync.LastRunUtc, watchedSync.LastResult },
-                Icons = new { Zidoo = IconFile(store, "zidoo") != null, Plex = IconFile(store, "plex") != null, Imdb = IconFile(store, "imdb") != null, Tmdb = IconFile(store, "tmdb") != null, V = IconVersion(store) },
+                Icons = new { Zidoo = IconFile(store, "zidoo") != null, Plex = IconFile(store, "plex") != null, Jellyfin = IconFile(store, "jellyfin") != null, Imdb = IconFile(store, "imdb") != null, Tmdb = IconFile(store, "tmdb") != null, V = IconVersion(store) },
                 Pending = pending,
                 DataFolder = store.DataDirectory,
             });
@@ -363,28 +365,33 @@ public static class RelayHost
         foreach (var d in store.Devices().Where(d => d.Enabled))
         {
             var live = engine.LiveOf(d.Id);
-            if (!d.IsPlex && d.HtVersionCode is > 0 and < 5111)
+            if (!d.IsServerUser && d.HtVersionCode is > 0 and < 5111)
                 Add("ht-old:" + d.Id, $"{d.Name}'s HT app is v{d.HtVersion} ({d.HtVersionCode}). Resume Relay needs 5.1.11 (5111) or newer: update the HT app on that player.");
             var old = pending.Where(p => p.TargetId == d.Id && now - p.CreatedUtc > TimeSpan.FromDays(2)).ToList();
             if (old.Count > 0)
                 Add("waiting:" + d.Id, $"{old.Count} cop{(old.Count == 1 ? "y has" : "ies have")} waited {Math.Floor((now - old.Min(p => p.CreatedUtc)).TotalDays):N0} days for {d.Name}. " +
-                    (d.IsPlex ? "Is the Plex server running?" : "Is it unplugged, or is its HT app closed?"));
-            if (!d.IsPlex && !live.Online && live.OfflineSinceUtc is { } off && now - off > TimeSpan.FromDays(3))
+                    (d.IsServerUser ? $"Is the {d.ServerLabel} server running?" : "Is it unplugged, or is its HT app closed?"));
+            if (!d.IsServerUser && !live.Online && live.OfflineSinceUtc is { } off && now - off > TimeSpan.FromDays(3))
                 Add("unseen:" + d.Id, $"{d.Name} hasn't answered for {Math.Floor((now - off).TotalDays):N0} days. If it's gone for good, remove it so copies don't wait for it.");
             if (d.IsPlex && !live.Online && live.OfflineSinceUtc is { } poff && now - poff > TimeSpan.FromMinutes(10))
                 Add("plex-down", $"The Plex server hasn't answered for {(int)(now - poff).TotalMinutes:N0} minutes, so Plex users aren't syncing.");
+            if (d.IsJellyfin && !live.Online && live.OfflineSinceUtc is { } joff && now - joff > TimeSpan.FromMinutes(10))
+                Add("jellyfin-down", $"The Jellyfin server hasn't answered for {(int)(now - joff).TotalMinutes:N0} minutes, so Jellyfin users aren't syncing.");
             if (progress.ClockAhead(d.Id))
                 Add("clock:" + d.Id, $"{d.Name}'s clock seems to be ahead: it recorded watch times in the future. Check its date, time and time zone settings, or Catch Up may pick the wrong player.");
         }
         if (store.Plex().Ready && engine.PlexUnmapped() is { Count: > 0 } um)
             Add("plex-unmapped", $"{um.Count:N0} Plex file{(um.Count == 1 ? " is" : "s are")} outside the folders on the Plex card (Settings), so {(um.Count == 1 ? "it" : "they")} can't sync" +
                 (um.Folders.Count > 0 ? $", for example in {um.Folders[0]}." : "."));
+        if (store.Jellyfin().Ready && engine.JellyfinUnmapped() is { Count: > 0 } jm)
+            Add("jellyfin-unmapped", $"{jm.Count:N0} Jellyfin file{(jm.Count == 1 ? " is" : "s are")} outside the folders on the Jellyfin card (Settings), so {(jm.Count == 1 ? "it" : "they")} can't sync" +
+                (jm.Folders.Count > 0 ? $", for example in {jm.Folders[0]}." : "."));
         return notes.DistinctBy(n => n.Key).ToList();
     }
 
     // ---------- badge icons (Settings: "Activity badges" and "Rating badges") ----------
 
-    private static readonly string[] IconKinds = { "zidoo", "plex", "imdb", "tmdb" };
+    private static readonly string[] IconKinds = { "zidoo", "plex", "jellyfin", "imdb", "tmdb" };
     private static readonly Dictionary<string, string> IconTypes = new()
     {
         [".png"] = "image/png", [".jpg"] = "image/jpeg", [".webp"] = "image/webp", [".gif"] = "image/gif", [".ico"] = "image/x-icon", [".svg"] = "image/svg+xml",
@@ -500,7 +507,7 @@ public static class RelayHost
     private sealed record ProgressCopyItem(string? Key, string? From, List<string>? To);
     private sealed record WatchSetRequest(string? Key, List<string>? DeviceIds, bool Watched);
     private sealed record BackupIcon(string Ext, string Data);
-    private sealed record Backup(string App, string Version, DateTime CreatedUtc, List<Device> Devices, Settings Settings, PlexConfig? Plex, Dictionary<string, BackupIcon>? Icons);
+    private sealed record Backup(string App, string Version, DateTime CreatedUtc, List<Device> Devices, Settings Settings, PlexConfig? Plex, Dictionary<string, BackupIcon>? Icons, JellyfinConfig? Jellyfin = null);
     private sealed record ProgressBatchRequest(string? From, List<string>? To, List<string>? Keys, bool IncludeNotStarted, bool DryRun);
     private sealed record WatchBatchRequest(string? From, List<string>? To, string? Show, string? Players, string? Q, bool DryRun);
     private sealed record TidyRequest(List<string>? DeviceIds, bool DryRun);

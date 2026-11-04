@@ -1000,6 +1000,107 @@ except urllib.error.HTTPError as e:
     gone = e.code == 401
 check("a removed screen is told it's no longer paired", gone)
 
+# ---------------------------------------------------------------- 60. Jellyfin users as players
+JF = "http://127.0.0.8:8096"
+def jfmock(path, **q):
+    return http("GET", f"{JF}/_test/{path}?" + urllib.parse.urlencode(q))
+def jfitem(user, iid):
+    return jfmock("item", user=user, id=iid)
+def refused(method, url, body=None):
+    try:
+        http(method, url, body)
+        return ""
+    except urllib.error.HTTPError as e:
+        return e.read().decode() or str(e.code)
+settings(watchedSync=False)
+found = http("GET", RELAY + "/api/jellyfin/discover")
+check("Jellyfin: the server is found on the network", found and found[0]["url"] == JF and found[0]["name"] == "CHETJF", str(found))
+srv = http("POST", RELAY + "/api/jellyfin/server", {"url": "127.0.0.8"})
+check("...an address typed without http:// or a port works (Jellyfin's port 8096)", srv["url"] == JF and srv["version"] == "10.11.2", str(srv))
+check("a wrong password is refused", "accept" in refused("POST", RELAY + "/api/jellyfin/signin", {"user": "chet", "password": "nope"}))
+check("a user who isn't an administrator is refused, and told why",
+      "administrator" in refused("POST", RELAY + "/api/jellyfin/signin", {"user": "Wife", "password": "pw2"}))
+qc = http("POST", RELAY + "/api/jellyfin/quick")
+check("Quick Connect gives a code", qc["code"] == "246810" and http("GET", RELAY + "/api/state")["jellyfin"]["linking"] == "246810", str(qc))
+check("...not signed in until the code is approved", http("GET", RELAY + "/api/jellyfin/quick")["done"] is False)
+jfmock("approve")
+qr = http("GET", RELAY + "/api/jellyfin/quick")
+check("...signed in once it's approved", qr["done"] and qr["userName"] == "chet", str(qr))
+http("POST", RELAY + "/api/jellyfin/signout")
+check("an API key works too", http("POST", RELAY + "/api/jellyfin/apikey", {"key": "apikey-0123456789abcdef"})["done"]
+      and http("GET", RELAY + "/api/state")["jellyfin"]["apiKey"] is True)
+r = http("POST", RELAY + "/api/jellyfin/signin", {"user": "chet", "password": "pw"})
+check("signing in with an administrator's user name and password", r["done"] and r["userName"] == "chet", str(r))
+st = http("GET", RELAY + "/api/state")
+check("the Jellyfin sign-in never reaches the page", "tok-chet" not in json.dumps(st) and "apikey-0123" not in json.dumps(st))
+sug = http("GET", RELAY + "/api/jellyfin/suggest")
+check("Jellyfin's folders are suggested (from the Plex card's, the same computer)",
+      sug["suggested"] and sug["suggested"][0] == {"plexFolder": "/shares/Entertainment", "zidooFolder": SHARE}, str(sug))
+http("POST", RELAY + "/api/jellyfin/mapping", {"mappings": sug["suggested"][:1]})
+t = http("POST", RELAY + "/api/jellyfin/test")
+check("...and cover every Jellyfin file", t["total"] >= 4 and t["mapped"] == t["total"], str(t))
+users = http("GET", RELAY + "/api/jellyfin/users")
+check("Jellyfin's users are listed", {u["title"] for u in users} == {"chet", "Wife"}, str(users))
+for u in users:
+    http("POST", RELAY + "/api/jellyfin/users", {"id": u["id"]})
+jdev = [d for d in http("GET", RELAY + "/api/state")["devices"] if d["kind"] == "jellyfin"]
+check("Jellyfin users become players", len(jdev) == 2 and all(d["name"].endswith(" on Jellyfin") for d in jdev), str(jdev))
+JC = next(d["id"] for d in jdev if d["plexUser"] == "chet")
+JW = next(d["id"] for d in jdev if d["plexUser"] == "Wife")
+check("Jellyfin users show as on", wait_for(lambda: all(d["online"] for d in http("GET", RELAY + "/api/state")["devices"] if d["kind"] == "jellyfin"), 15))
+jids = jfmock("ids")
+J_ARR, J_E04 = jids["Arrival (2016).mkv"], jids["Andor - S01E04.mkv"]
+
+play_then_stop(LR, ARRIVAL, 1234000)
+check("a Zidoo stop is copied to each Jellyfin user", wait_for(lambda: jfitem("u-chet", J_ARR)["pos"] == 1234000 and jfitem("u-wife", J_ARR)["pos"] == 1234000, 30),
+      str((jfitem("u-chet", J_ARR), jfitem("u-wife", J_ARR))))
+jzc = wait_for(lambda: (lambda c: c if c and all(t["state"] != "Pending" for t in c["targets"]) else None)(card_for("Arrival", 1234000)), 20)
+check("...and its card shows the Jellyfin users as Jellyfin", jzc and {t["name"]: t["kind"] for t in jzc["targets"]}.get("Wife on Jellyfin") == "jellyfin", str(jzc))
+jfmock("play", user="u-wife", id=J_ARR, pos=2000000)
+check("what a Jellyfin user is playing shows on their card",
+      wait_for(lambda: (lambda d: d["playing"] and d["playing"]["title"] == "Arrival")(next(d for d in http("GET", RELAY + "/api/state")["devices"] if d["id"] == JW)), 15))
+jfmock("stop", user="u-wife", final=2010000)
+check("a Jellyfin stop is copied to the Zidoos at the saved time", wait_for(lambda: bookmark(LR, ARRIVAL)["playPoint"] == 2010000 and bookmark(BR, ARRIVAL)["playPoint"] == 2010000, 30),
+      str((bookmark(LR, ARRIVAL)["playPoint"], bookmark(BR, ARRIVAL)["playPoint"])))
+check("...and to Plex and the other Jellyfin user", wait_for(lambda: plexitem("1001", P_ARR)["viewOffset"] == 2010000 and jfitem("u-chet", J_ARR)["pos"] == 2010000, 30),
+      str((plexitem("1001", P_ARR), jfitem("u-chet", J_ARR))))
+jc = wait_for(lambda: card_for("Arrival", 2010000), 20)
+check("the card says the stop was on Jellyfin", jc and jc["fromKind"] == "jellyfin" and jc["fromName"] == "Wife on Jellyfin", str(jc))
+jfmock("play", user="u-chet", id=J_ARR, pos=6500000)
+time.sleep(4)
+jfmock("stop", user="u-chet", final=6800000)
+check("finishing on Jellyfin (it marks it played) marks it watched on the Zidoos and for the other Jellyfin user",
+      wait_for(lambda: (bookmark(LR, ARRIVAL)["playPoint"] >= 6900000 or bookmark(LR, ARRIVAL).get("watched")) and jfitem("u-wife", J_ARR)["played"], 30),
+      str((bookmark(LR, ARRIVAL), jfitem("u-wife", J_ARR))))
+http("POST", RELAY + "/api/progress/read", {"deviceIds": [JC, JW]})
+wait_for(lambda: not http("GET", RELAY + "/api/progress")["reading"], 60)
+jw = {f["key"]: f for f in http("GET", RELAY + f"/api/watched?show=all&players={urllib.parse.quote(JC + ',' + JW)}")["files"]}
+check("Progress Reset and Watch Sync read Jellyfin users as columns", k4 in jw and JW in jw[k4]["cells"], str(jw.get(k4)))
+r = http("POST", RELAY + "/api/watched/set", {"key": k4, "deviceIds": [JW], "watched": True})
+check("Watch Sync marks played on Jellyfin", r and r[0]["ok"] and jfitem("u-wife", J_E04)["played"], str(r))
+r = http("POST", RELAY + "/api/watched/set", {"key": k4, "deviceIds": [JW], "watched": False})
+check("Watch Sync marks unplayed on Jellyfin", r and r[0]["ok"] and not jfitem("u-wife", J_E04)["played"], str(r))
+jfmock("set", user="u-chet", id=J_E04, pos=600000)
+jfmock("set", user="u-wife", id=J_E04, pos=700000)
+http("POST", RELAY + "/api/progress/reset-series", {"key": k4})
+check("Reset TV Show clears the show on Jellyfin with one 'mark unplayed' on the series",
+      wait_for(lambda: any(x["what"] == "unplayed" and x["id"] != J_E04 for x in jfitem("u-wife", J_E04)["writes"]) and jfitem("u-wife", J_E04)["pos"] == 0, 30),
+      str(jfitem("u-wife", J_E04)))
+http("POST", RELAY + "/api/live/acclaimed/refresh")
+jacc = {t["title"]: t for t in http("GET", RELAY + "/api/live/acclaimed")["titles"]}
+check("Highly Acclaimed takes Jellyfin's rating only for titles nobody else rates (and says so)",
+      jacc.get("Heat (1995)", {}).get("from") == "jellyfin" and jacc["Heat (1995)"]["source"] == "Jellyfin"
+      and jacc.get("Braveheart (2016)", {}).get("from") == "plex", str(jacc))
+with urllib.request.urlopen(RELAY + "/api/jellyfin/sessions", timeout=20) as resp:
+    txt = resp.read().decode()
+check("the Jellyfin troubleshooting page leaves out device ids", "Jellyfin server CHETJF" in txt and "dev-secret" not in txt, txt[:300])
+req = urllib.request.Request(RELAY + "/api/icon/jellyfin", data=b"\x89PNG\r\n\x1a\nfake", method="POST", headers={"Content-Type": "image/png"})
+urllib.request.urlopen(req, timeout=10).read()
+check("a Jellyfin activity badge picture can be set", http("GET", RELAY + "/api/state")["icons"]["jellyfin"] is True)
+http("DELETE", RELAY + "/api/icon/jellyfin")
+http("POST", RELAY + "/api/jellyfin/signout")
+check("signing out of Jellyfin removes its users", not any(d["kind"] == "jellyfin" for d in http("GET", RELAY + "/api/state")["devices"]))
+
 # Without Plex, Highly Acclaimed uses the Zidoo's ratings: IMDb for movies, TMDB for series. (Plex is signed out last.)
 http("POST", RELAY + "/api/plex/signout")
 http("POST", RELAY + "/api/live/acclaimed/refresh")

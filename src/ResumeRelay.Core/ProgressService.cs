@@ -197,7 +197,7 @@ public sealed class ProgressService
         return Enqueue(new BulkJob
         {
             Key = "sync:" + fromId + ":" + Guid.NewGuid().ToString("N")[..6], Watched = true, Label = $"Copying watched marks set on {source.Name}", Plan = Plan,
-            Card = ($"Watched marks from {source.Name}", $"Marked on {source.Name}", source.Name, source.IsPlex ? "plex" : "zidoo"),
+            Card = ($"Watched marks from {source.Name}", $"Marked on {source.Name}", source.Name, source.KindName),
             Summary = (n, failed) => $"Watched marks set on {source.Name} were copied to the other players ({n:N0} change{(n == 1 ? "" : "s")})" + (failed > 0 ? $"; {failed} didn't take." : "."),
         });
     }
@@ -280,7 +280,7 @@ public sealed class ProgressService
         var files = new ConcurrentDictionary<string, ProgressFile>(StringComparer.Ordinal);
         try
         {
-            if (d.IsPlex) { await ReadPlexAsync(d, result, files, ct); return; }
+            if (d.IsServerUser) { await ReadPlexAsync(d, result, files, ct); return; }
             var api = new ZidooClient(d.Ip, d.Port);
             _status[d.Id] = $"Connecting to {d.Name}…";
             if (await api.GetModelAsync(TimeSpan.FromSeconds(6), ct) == null) { result.Error = "off or not answering"; return; }
@@ -430,18 +430,19 @@ public sealed class ProgressService
         }
     }
 
-    /// <summary>A Plex user: the whole library in one listing per library, with that user's progress.</summary>
+    /// <summary>A Plex or Jellyfin user: the whole library in one listing, with that user's progress.</summary>
     private async Task ReadPlexAsync(Device d, ProgressDevice result, ConcurrentDictionary<string, ProgressFile> files, CancellationToken ct)
     {
-        _status[d.Id] = $"Reading {d.Name} from Plex…";
-        var cfg = _store.Plex();
+        string server = d.ServerLabel;
+        _status[d.Id] = $"Reading {d.Name} from {server}…";
+        var mappings = _engine.MappingsFor(d);
         var items = await _engine.PlexItemsAsync(d, refresh: true, ct);
-        if (items == null) { result.Error = "the Plex server isn't answering"; return; }
+        if (items == null) { result.Error = $"the {server} server isn't answering"; return; }
         int unmapped = 0;
         foreach (var it in items)
             foreach (var f in it.Files)
             {
-                var rel = PlexPaths.Rel(f, cfg.Mappings);
+                var rel = PlexPaths.Rel(f, mappings);
                 if (rel == null) { unmapped++; continue; }
                 var m = EpisodeTag.Match(Path.GetFileName(rel));
                 var file = new ProgressFile
@@ -468,7 +469,7 @@ public sealed class ProgressService
                 };
             }
         result.Titles = items.Count;
-        result.Diagnostics.Add($"Plex: {items.Count:N0} movies and episodes, {result.Cells.Count:N0} files" + (unmapped > 0 ? $"; {unmapped:N0} file(s) outside the Plex card's folder mapping were left out" : ""));
+        result.Diagnostics.Add($"{server}: {items.Count:N0} movies and episodes, {result.Cells.Count:N0} files" + (unmapped > 0 ? $"; {unmapped:N0} file(s) outside the {server} card's folder mapping were left out" : ""));
         result.ReadUtc = DateTime.UtcNow;
     }
 
@@ -683,7 +684,7 @@ public sealed class ProgressService
             lock (_lock) cell = _devices.GetValueOrDefault(id)?.Cells.GetValueOrDefault(key);
             if (cell == null || cell.FileId <= 0) { results.Add(new(id, d.Name, false, "not in its library")); continue; }
             if (!_engine.LiveOf(id).Online) { results.Add(new(id, d.Name, false, "is off or not answering")); continue; }
-            if (d.IsPlex) { results.Add(await SetPlexWatchedAsync(d, file, key, cell, watched)); continue; }
+            if (d.IsServerUser) { results.Add(await SetPlexWatchedAsync(d, file, key, cell, watched)); continue; }
 
             var api = new ZidooClient(d.Ip, d.Port);
             async Task<ProgressCell?> ReadBack()
@@ -729,7 +730,7 @@ public sealed class ProgressService
     /// written back afterwards), then read back.</summary>
     private async Task<WatchResult> SetPlexWatchedAsync(Device d, ProgressFile file, string key, ProgressCell cell, bool watched)
     {
-        var api = _engine.PlexFor(d);
+        var api = _engine.ServerFor(d);
         if (watched) await api.ScrobbleAsync(cell.FileId);
         else
         {
@@ -750,8 +751,8 @@ public sealed class ProgressService
         Changed();
         _store.LogCopy(ok ? ActivityLevel.Ok : ActivityLevel.Error, ok
             ? $"Marked {file.FileName} {(watched ? "watched" : "unwatched")} on {d.Name} (Watch Sync)."
-            : $"Could not mark {file.FileName} {(watched ? "watched" : "unwatched")} on {d.Name}: Plex still shows it {(after?.Watched == true ? "played" : "unplayed")}.");
-        return new WatchResult(d.Id, d.Name, ok, ok ? "" : "Plex didn't take the change");
+            : $"Could not mark {file.FileName} {(watched ? "watched" : "unwatched")} on {d.Name}: {d.ServerLabel} still shows it {(after?.Watched == true ? "played" : "unplayed")}.");
+        return new WatchResult(d.Id, d.Name, ok, ok ? "" : $"{d.ServerLabel} didn't take the change");
     }
 
     /// <summary>A Watched All / Unwatched All / Copy all (Watch Sync) / cleanup job. They run one at a time, in order.</summary>
@@ -870,7 +871,7 @@ public sealed class ProgressService
         string? err = Enqueue(new BulkJob
         {
             Key = "copy:" + fromId, Watched = true, Label = $"Copying watched marks from {source.Name}", Plan = Plan,
-            Card = ($"Watched marks from {source.Name}", $"Copied from {source.Name} on Watch Sync", source.Name, source.IsPlex ? "plex" : "zidoo"),
+            Card = ($"Watched marks from {source.Name}", $"Copied from {source.Name} on Watch Sync", source.Name, source.KindName),
             Summary = (n, failed) => $"Watch Sync: copied {source.Name}'s watched marks ({n:N0} change{(n == 1 ? "" : "s")})" + (failed > 0 ? $"; {failed} didn't take." : "."),
         });
         return (err, work.Count, toW, toU);
@@ -885,7 +886,7 @@ public sealed class ProgressService
         List<(string Key, List<string> Devices, bool Watched)> Plan()
         {
             lock (_lock)
-                return _files.Values.Select(f => (f.Key, deviceIds.Where(id => _store.Device(id) is { IsPlex: false }
+                return _files.Values.Select(f => (f.Key, deviceIds.Where(id => _store.Device(id) is { IsServerUser: false }
                         && _devices.TryGetValue(id, out var d) && d.Cells.TryGetValue(f.Key, out var c) && c.FileId > 0 && c.Watched && c.PlayPointMs > 0).ToList(), true))
                     .Where(w => w.Item2.Count > 0).ToList();
         }
@@ -982,7 +983,7 @@ public sealed class ProgressService
             Changes = work.Select(w => new BatchChange { Key = w.Key, Title = _files.GetValueOrDefault(w.Key)?.Display ?? w.Key, Watched = w.Watched }).ToList(),
             Targets = work.SelectMany(w => w.Devices).Distinct().Where(devices.ContainsKey).Select(id => new StopTarget
             {
-                DeviceId = id, Name = devices[id].Name, Kind = devices[id].IsPlex ? "plex" : "zidoo",
+                DeviceId = id, Name = devices[id].Name, Kind = devices[id].KindName,
                 Items = work.Where(w => w.Devices.Contains(id)).ToDictionary(w => w.Key, _ => TargetState.Pending),
             }).ToList(),
         };
@@ -1045,7 +1046,7 @@ public sealed class ProgressService
         }
         if (items.Count == 0) return ("None of the players holding these files is answering right now.", 0, 0, 0, notStarted);
         _engine.CopyBatch($"Progress from {source.Name}", $"{items.Count:N0} file{(items.Count == 1 ? "" : "s")}", $"Copied from {source.Name} on Progress Reset",
-            source.Name, source.IsPlex ? "plex" : "zidoo", items, undoAll);
+            source.Name, source.KindName, items, undoAll);
         return (null, items.Count, copies, resets, notStarted);
     }
 
@@ -1062,11 +1063,11 @@ public sealed class ProgressService
     {
         if (Find(key) is not { } found) return null;
         string rel = found.File.Uri;
-        foreach (var (deviceId, fileId) in found.Holders.OrderBy(h => _store.Device(h.DeviceId)?.IsPlex == true).ThenByDescending(h => _engine.LiveOf(h.DeviceId).Online))
+        foreach (var (deviceId, fileId) in found.Holders.OrderBy(h => _store.Device(h.DeviceId)?.IsServerUser == true).ThenByDescending(h => _engine.LiveOf(h.DeviceId).Online))
         {
             var d = _store.Device(deviceId);
             if (d == null || fileId <= 0) continue;
-            if (d.IsPlex) { if (await _engine.PlexSourceUrlAsync(d, fileId) is { } pu) return pu; continue; }
+            if (d.IsServerUser) { if (await _engine.PlexSourceUrlAsync(d, fileId) is { } pu) return pu; continue; }
             if (rel.Length > 0 && _sharePrefix.TryGetValue(deviceId, out var prefix)) return prefix + rel;
             var entry = await new ZidooClient(d.Ip, d.Port).GetEntryAsync(fileId);
             if (entry == null || entry.Path.Length == 0) continue;
@@ -1192,11 +1193,11 @@ public sealed class ProgressService
         if (Find(key) is not { } found) return (null, "That file is no longer in the list. Read the players again.", "");
         // A Zidoo that has the file is asked first (it has the exact network path); a Plex user's path comes from the
         // folder mapping.
-        foreach (var (deviceId, fileId) in found.Holders.OrderByDescending(h => _engine.LiveOf(h.DeviceId).Online).ThenBy(h => _store.Device(h.DeviceId)?.IsPlex == true))
+        foreach (var (deviceId, fileId) in found.Holders.OrderByDescending(h => _engine.LiveOf(h.DeviceId).Online).ThenBy(h => _store.Device(h.DeviceId)?.IsServerUser == true))
         {
             var d = _store.Device(deviceId);
             if (d == null || fileId <= 0) continue;
-            if (d.IsPlex)
+            if (d.IsServerUser)
             {
                 if (await _engine.PlexSourceUrlAsync(d, fileId) is not { } url) continue;
                 string pp = "";

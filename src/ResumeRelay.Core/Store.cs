@@ -24,6 +24,7 @@ public sealed class Store
     private List<Device> _devices;
     private Settings _settings;
     private PlexConfig _plex;
+    private JellyfinConfig _jellyfin;
     private List<PendingCopy> _pending;
     private readonly LinkedList<ActivityEntry> _activity;
     private readonly LinkedList<StopEvent> _events;
@@ -42,6 +43,8 @@ public sealed class Store
         _settings = Load<Settings>("settings.json") ?? new();
         _plex = Load<PlexConfig>("plex.json") ?? new();
         if (_plex.ClientId.Length == 0) { _plex.ClientId = "resume-relay-" + Guid.NewGuid().ToString("N"); Save("plex.json", _plex); }
+        _jellyfin = Load<JellyfinConfig>("jellyfin.json") ?? new();
+        if (_jellyfin.DeviceId.Length == 0) { _jellyfin.DeviceId = "resume-relay-" + Guid.NewGuid().ToString("N"); Save("jellyfin.json", _jellyfin); }
         _pending = Load<List<PendingCopy>>("pending.json") ?? new();
         _activity = new LinkedList<ActivityEntry>(Load<List<ActivityEntry>>("activity.json") ?? new());
         _events = new LinkedList<StopEvent>(Load<List<StopEvent>>("events.json") ?? new());
@@ -125,7 +128,7 @@ public sealed class Store
         }
     }
 
-    /// <summary>Adds a Plex user as a player, or refreshes its token. Returns true when it is new.</summary>
+    /// <summary>Adds a Plex or Jellyfin user as a player, or refreshes its details. Returns true when it is new.</summary>
     public bool UpsertPlexUser(Device d)
     {
         lock (_lock)
@@ -135,6 +138,7 @@ public sealed class Store
             existing.PlexToken = d.PlexToken;
             existing.PlexUserTitle = d.PlexUserTitle;
             existing.PlexOwner = d.PlexOwner;
+            existing.JellyfinUserName = d.JellyfinUserName;
             Save("devices.json", _devices);
             return false;
         }
@@ -142,7 +146,7 @@ public sealed class Store
 
     /// <summary>Restore from a backup: players, names, settings and the Plex setup are replaced. Waiting copies for
     /// players that are no longer there are dropped. Activity is kept.</summary>
-    public void Restore(List<Device> devices, Settings settings, PlexConfig plex)
+    public void Restore(List<Device> devices, Settings settings, PlexConfig plex, JellyfinConfig? jellyfin)
     {
         lock (_lock)
         {
@@ -150,6 +154,12 @@ public sealed class Store
             _settings = Clone(settings);
             if (plex.ClientId.Length == 0) plex.ClientId = _plex.ClientId;
             _plex = Clone(plex);
+            if (jellyfin != null)
+            {
+                if (jellyfin.DeviceId.Length == 0) jellyfin.DeviceId = _jellyfin.DeviceId;
+                _jellyfin = Clone(jellyfin);
+                Save("jellyfin.json", _jellyfin);
+            }
             var ids = _devices.Select(d => d.Id).ToHashSet();
             _pending.RemoveAll(p => !ids.Contains(p.TargetId));
             Save("devices.json", _devices);
@@ -170,6 +180,18 @@ public sealed class Store
     public void SavePlex(PlexConfig p)
     {
         lock (_lock) { _plex = Clone(p); Save("plex.json", _plex); }
+    }
+
+    // ---------- jellyfin ----------
+
+    public JellyfinConfig Jellyfin()
+    {
+        lock (_lock) return Clone(_jellyfin);
+    }
+
+    public void SaveJellyfin(JellyfinConfig j)
+    {
+        lock (_lock) { _jellyfin = Clone(j); Save("jellyfin.json", _jellyfin); }
     }
 
     // ---------- settings ----------

@@ -322,8 +322,8 @@ a.btn { text-decoration: none; color: var(--text); display: inline-flex; align-i
 /* Settings: groups, each with a colored heading and a divider to the right edge, made of compact setting cards.
    The colors only say which group you're in: amber Plex (like the Plex badge), blue resume points, green watched
    marks, white for the app itself. Purple is kept free for Jellyfin. */
-:root { --sg-plex: var(--amber); --sg-resume: #6FA8F5; --sg-watched: var(--ok); --sg-app: var(--text); }
-@media (prefers-color-scheme: light) { :root { --sg-resume: #2F6DB5; } }
+:root { --sg-plex: var(--amber); --sg-jellyfin: #A985F2; --sg-resume: #6FA8F5; --sg-watched: var(--ok); --sg-app: var(--text); }
+@media (prefers-color-scheme: light) { :root { --sg-resume: #2F6DB5; --sg-jellyfin: #7A4FD6; } }
 #settings { max-width: 1040px; }
 .set-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin-bottom: 18px; }
 .set-head h2 { margin: 0; font-size: 22px; }
@@ -331,7 +331,7 @@ a.btn { text-decoration: none; color: var(--text); display: inline-flex; align-i
 .set-jump a { --c: var(--text); text-decoration: none; color: var(--c); font-size: 13px; font-weight: 600; white-space: nowrap; padding: 6px 12px; border-radius: 999px;
   border: 1px solid color-mix(in srgb, var(--c) 40%, var(--line)); background: color-mix(in srgb, var(--c) 9%, var(--panel)); }
 .set-jump a:hover { background: color-mix(in srgb, var(--c) 18%, var(--panel)); }
-.set-jump .plex { --c: var(--sg-plex); } .set-jump .resume { --c: var(--sg-resume); }
+.set-jump .plex { --c: var(--sg-plex); } .set-jump .jellyfin { --c: var(--sg-jellyfin); } .set-jump .resume { --c: var(--sg-resume); }
 .set-jump .watched { --c: var(--sg-watched); } .set-jump .app { --c: var(--sg-app); }
 .sg { --c: var(--text); margin-top: 28px; scroll-margin-top: 170px; }
 .sg.resume { --c: var(--sg-resume); } .sg.watched { --c: var(--sg-watched); } .sg.app { --c: var(--sg-app); }
@@ -522,6 +522,11 @@ dialog.info { max-width: min(680px, 94vw); }
 .kb svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .kb.zidoo svg { color: #5FA8E8; }
 .kb.plex svg { color: var(--amber); }
+.kb.jellyfin svg { color: var(--sg-jellyfin); }
+/* The Jellyfin card is the Plex card in purple. */
+.plex-card.jf { border-top-color: var(--sg-jellyfin); margin-top: 16px; }
+.plex-card.jf .plex-code { color: var(--sg-jellyfin); }
+.plex-card.jf .jf-or { margin: 14px 0 4px; font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
 .kb.icon { padding: 0; border: 0; background: none; gap: 0; }
 .chip .kb.icon svg, .chip .kb.icon img { width: 14px; height: 14px; }
 table.pr th .kb.icon, .pr-head .kb.icon { margin-right: 6px; }
@@ -708,7 +713,7 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
     <p class="hint">Every stop and where it was copied, newest first.</p>
     <div class="feed-filters" role="search">
       <select id="af-player" aria-label="Player"><option value="">All players</option></select>
-      <select id="af-kind" aria-label="Zidoo or Plex"><option value="">Zidoo and Plex</option><option value="zidoo">Zidoo only</option><option value="plex">Plex only</option></select>
+      <select id="af-kind" aria-label="Where it happened"><option value="">Every kind of player</option><option value="zidoo">Zidoo only</option><option value="plex">Plex only</option><option value="jellyfin">Jellyfin only</option></select>
       <label><input type="checkbox" id="af-failed"> Failed only</label>
       <input type="search" id="af-q" placeholder="Search titles" aria-label="Search the Activity tab">
     </div>
@@ -828,6 +833,7 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
       <h2>Settings</h2>
       <nav class="set-jump" aria-label="Jump to">
         <a href="#plex-card" class="plex">Plex</a>
+        <a href="#jf-card" class="jellyfin">Jellyfin</a>
         <a href="#set-resume" class="resume">Resume points</a>
         <a href="#set-watched" class="watched">Watched marks</a>
         <a href="#set-app" class="app">App</a>
@@ -836,6 +842,7 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
     <p class="msg" id="set-msg" role="status"></p>
 
     <section class="plex-card" id="plex-card" aria-labelledby="plex-h"></section>
+    <section class="plex-card jf" id="jf-card" aria-labelledby="jf-h"></section>
 
     <section class="sg resume" id="set-resume" aria-labelledby="sg-resume-h">
       <h3 class="sg-h" id="sg-resume-h">Resume points</h3>
@@ -971,8 +978,11 @@ const HT_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" w
 const KIND_SVG = {
   zidoo: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="8" width="19" height="8" rx="2"/><path d="M6 12h4"/><circle cx="17.5" cy="12" r=".6"/><path d="M5.5 16v2M18.5 16v2"/></svg>`,
   plex: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3.5" width="16" height="7" rx="1.5"/><rect x="4" y="13.5" width="16" height="7" rx="1.5"/><path d="M7.5 7h.01M7.5 17h.01M11 7h5M11 17h5"/></svg>`,
+  jellyfin: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M10.2 8.6v6.8l5.4-3.4z"/></svg>`,
 };
-const KIND_NAME = { zidoo: "Zidoo", plex: "Plex", imdb: "IMDb", tmdb: "TMDB" };
+const KIND_NAME = { zidoo: "Zidoo", plex: "Plex", jellyfin: "Jellyfin", imdb: "IMDb", tmdb: "TMDB" };
+// Plex and Jellyfin users are a media server's users, not boxes: no power button, no HT app.
+const isServerUser = d => d.kind === "plex" || d.kind === "jellyfin";
 // Where a rating comes from: the person's own small picture, or a tiny pill with the name.
 function ratingBadge(source) {
   const k = String(source || "").toLowerCase();
@@ -1096,18 +1106,18 @@ function cardHtml(d) {
   if (!d.enabled) status = "Not synced";
   else if (d.power === "turningOn") status = "Turning on…";
   else if (d.power === "turningOff") status = "Turning off…";
-  else if (!d.online && d.kind === "plex") status = "Plex server isn't answering";
+  else if (!d.online && isServerUser(d)) status = `${KIND_NAME[d.kind]} server isn't answering`;
   else if (!d.online) status = d.lastSeenUtc ? `Off · last seen ${ago(d.lastSeenUtc)}` : "Off";
   else if (p) status = p.paused ? "Paused" : "Playing";
   else status = "Idle";
-  const plex = d.kind === "plex";
-  const meta = (plex ? [status, "Plex user"] : [status, d.model, d.ip]).filter(Boolean).map(esc).join(" · ");
+  const plex = isServerUser(d), server = KIND_NAME[d.kind];
+  const meta = (plex ? [status, `${server} user`] : [status, d.model, d.ip]).filter(Boolean).map(esc).join(" · ");
 
   let stage = "";
   if (p) {
     stage = `<div class="stage">${poster(p.poster, p.title || p.file)}
       <div class="grow"><div class="t">${esc(p.title || p.file)}</div>${p.subtitle ? `<div class="s">${esc(p.subtitle)}</div>` : ""}${p.file && p.title ? `<div class="file">${esc(p.file)}</div>` : ""}
-        ${p.shareable ? "" : plex ? `<div class="note">Plex's path for this file isn't covered by the folders on the Plex card, so it can't be copied.</div>` : `<div class="note">Playing from a drive the other players can't see, so this one can't be copied.</div>`}
+        ${p.shareable ? "" : plex ? `<div class="note">${server}'s path for this file isn't covered by the folders on the ${server} card, so it can't be copied.</div>` : `<div class="note">Playing from a drive the other players can't see, so this one can't be copied.</div>`}
         <div class="push"><div class="track" role="progressbar" aria-label="Position" aria-valuemin="0" aria-valuemax="100" data-track><i></i></div>
         <div class="times tnum"><span data-pos></span><span data-dur></span></div></div></div></div>`;
   }
@@ -1117,7 +1127,7 @@ function cardHtml(d) {
   let waiting = "";
   if (d.waiting && d.waiting.length) {
     const n = d.waiting.length;
-    const until = plex ? "Copies as soon as the Plex server answers." : d.online ? "Copies as soon as Home Theater is open." : "Copies as soon as it's on.";
+    const until = plex ? `Copies as soon as the ${server} server answers.` : d.online ? "Copies as soon as Home Theater is open." : "Copies as soon as it's on.";
     waiting = `<div class="cwait"><h3>${n} waiting · ${until}</h3><ul>${d.waiting.map(w => `<li><div>
       ${esc(w.title)} <span class="tnum">${clock(w.positionMs)}</span>, from ${esc(w.fromName)} <span class="why">· ${ago(w.createdUtc)}${w.why ? " · " + esc(w.why) : ""}</span></div>
       <button class="btn quiet danger" data-discard="${esc(w.key)}" title="Don't copy this one">Discard</button></li>`).join("")}</ul></div>`;
@@ -1127,11 +1137,11 @@ function cardHtml(d) {
   const cls = ["card", p ? "playing" : "", (!d.online || !d.enabled) ? "dim" : ""].filter(Boolean).join(" ");
   const nameEl = editing === d.id ? "" : `<button class="name" data-rename title="Rename">${esc(d.name)}</button>`;
   return `<article class="${cls}" data-id="${esc(d.id)}" aria-label="${esc(d.name)}">
-    <div class="chead">${plex ? kindBadge("plex", true) : powerButton(d) + htButton(d)}${nameEl}
+    <div class="chead">${plex ? kindBadge(d.kind, true) : powerButton(d) + htButton(d)}${nameEl}
       <label class="switch" title="Copy bookmarks to and from this player"><input type="checkbox" data-enable ${d.enabled ? "checked" : ""}> Sync</label></div>
     <div class="cmeta">${meta}</div>
     ${htNote}${stage}${waiting}
-    <div class="cfoot"><span class="meta tnum">${plex ? `Plex user ${esc(d.plexUser)}${state?.plex?.server ? " · server " + esc(state.plex.server.name) : ""}`
+    <div class="cfoot"><span class="meta tnum">${plex ? `${server} user ${esc(d.plexUser)}${state?.[d.kind]?.server ? " · server " + esc(state[d.kind].server.name) : ""}`
       : `${esc(d.ip)}${macs ? " · " + macs : ""}${d.firmware ? " · firmware " + esc(d.firmware) : ""}${htVersion(d)}`}</span>
       <button class="btn quiet danger" data-remove>Remove</button></div>
   </article>`;
@@ -1202,8 +1212,8 @@ $("#rooms").addEventListener("click", async e => {
     await api("DELETE", "/api/pending?key=" + encodeURIComponent(t.dataset.discard)); refresh();
   }
   else if (t.matches("[data-remove]")) {
-    if (!confirm(dev.kind === "plex"
-      ? `Remove ${dev.name}? Their Plex resume points will no longer sync. You can add them back on the Plex card.`
+    if (!confirm(isServerUser(dev)
+      ? `Remove ${dev.name}? Their ${KIND_NAME[dev.kind]} resume points will no longer sync. You can add them back on the ${KIND_NAME[dev.kind]} card.`
       : `Remove ${dev.name}? It will no longer send or receive bookmarks. Scan again to add it back.`)) return;
     await api("DELETE", `/api/devices/${encodeURIComponent(id)}`); refresh();
   }
@@ -1749,7 +1759,7 @@ function renderProgress() {
     const label = { different: " with different progress between players", same: " with the same progress on all players" }[show] || "";
     const nq = prQueue.size;
     // Watched files a Zidoo still holds a resume point for (a stop near the end keeps it): the one-time cleanup.
-    const zdevs = devs.filter(d => d.kind !== "plex" && readOf[d.id]?.readUtc);
+    const zdevs = devs.filter(d => !isServerUser(d) && readOf[d.id]?.readUtc);
     const leftovers = (progress.files || []).reduce((n, f) => n + zdevs.filter(d => f.cells[d.id]?.watched && f.cells[d.id].playPointMs > 0).length, 0);
     const tidyJob = jobFor(progress.jobs, "tidy");
     const tidy = tidyJob ? `<button class="btn quiet" disabled>${tidyJob.running ? "Clearing…" : "Queued…"}</button>`
@@ -2157,6 +2167,218 @@ $("#plex-card").addEventListener("click", async e => {
   } catch (err) { plexUi.busy = ""; plexSay(err.message, "err"); }
 });
 
+// ---------------- Jellyfin card ----------------
+// Find the server → sign in as an administrator (user name and password, Quick Connect, or an API key) → map the
+// folders → add users. Each user becomes a player card, like a Plex user. The same look as the Plex card, in purple.
+const jfUi = { found: null, finding: false, folders: null, users: null, test: null, mappings: null, suggested: null, choosing: false, method: "password", msg: "", kind: "", busy: "" };
+let jfSig = "", jfPolling = false, jfWasProblem = false;
+function jfSay(msg, kind = "") { jfUi.msg = msg; jfUi.kind = kind; renderJellyfin(true); }
+
+function renderJellyfin(force = false) {
+  const box = $("#jf-card"), j = state?.jellyfin; if (!box || !j) return;
+  if (!force && box.contains(document.activeElement) && document.activeElement.matches("input")) return; // don't redraw under typing
+  const devs = (state.devices || []).filter(d => d.kind === "jellyfin");
+  const setUp = !!(j.signedIn && j.server && j.users?.length && !j.linking && !jfUi.choosing);
+  const problem = setUp && devs.length > 0 && devs.every(d => !d.online);
+  if (problem && !jfWasProblem) store.set("rr.jfCollapsed", "");
+  jfWasProblem = problem;
+  // Folds away once set up (as the person left it), and starts folded before it's used at all, out of the way of
+  // people without Jellyfin.
+  const unused = !j.server && !jfUi.choosing, stored = store.get("rr.jfCollapsed");
+  const collapsed = (setUp || unused) && !(jfUi.msg && jfUi.kind === "err") && (stored === "1" || (stored === null && unused));
+  const sig = JSON.stringify([j, jfUi, state.icons, problem, collapsed]);
+  if (!force && sig === jfSig) return;
+  jfSig = sig;
+  const busy = what => jfUi.busy === what ? "disabled" : "";
+  let body;
+  if (!j.server || jfUi.choosing) {
+    if (jfUi.found === null && !jfUi.finding && !collapsed) jfFind();
+    const list = jfUi.found || [];
+    body = `<p>Sync resume points and watched marks with Jellyfin too. Each Jellyfin user you add becomes a player: stop something on a Zidoo and resume it in Jellyfin, or the other way round.</p>
+      <h4>Your Jellyfin server</h4>
+      ${jfUi.finding ? `<p>Looking for Jellyfin on the network…</p>` : list.length ? `<ul class="plex-users">${list.map(x => `<li><span class="who">${esc(x.name || "Jellyfin")}<small class="tnum">${esc(x.url)}</small></span>
+          <button class="btn" data-jf="server" data-url="${esc(x.url)}" ${busy("server")}>${j.server?.id === x.id ? "In use" : "Use this server"}</button></li>`).join("")}</ul>`
+        : `<p>No Jellyfin server answered on the network. Type its address instead.</p>`}
+      <div class="plex-row"><input id="jf-url" placeholder="Address, e.g. 10.0.0.30:8096" aria-label="Jellyfin address" value="${esc(j.server?.url || "")}">
+        <button class="btn" data-jf="server" ${busy("server")}>Use this address</button>
+        <button class="btn quiet" data-jf="find" ${jfUi.finding ? "disabled" : ""}>Look again</button></div>
+      ${j.server && jfUi.choosing ? `<div class="plex-foot"><button class="btn quiet" data-jf="keep">Keep ${esc(j.server.name)}</button></div>` : ""}`;
+  } else if (j.linking) {
+    body = `<p>In a Jellyfin app or the web page, signed in <b>as an administrator</b>, open your profile → <b>Quick Connect</b>, and enter this code:</p>
+      <div class="plex-code" aria-live="polite">${esc(j.linking)}</div>
+      <p>This page carries on by itself once the code is approved. No password goes through Resume Relay.</p>
+      <div class="plex-row"><button class="btn quiet" data-jf="cancel">Cancel</button></div>`;
+    if (!jfPolling) jfWaitForQuick();
+  } else if (!j.signedIn) {
+    const m = jfUi.method;
+    body = `<p>Server <b>${esc(j.server.name)}</b> <span class="tnum">(${esc(j.server.url)}, version ${esc(j.server.version || "?")})</span> <button class="btn quiet" data-jf="change">Change server</button></p>
+      <h4>Sign in as a Jellyfin administrator<button class="help" data-help="jfsignin" aria-label="About signing in">?</button></h4>
+      <p>An administrator can see what everyone is playing and copy everyone's progress; the users you add sign in to nothing.</p>
+      ${m === "password" ? `<form class="plex-row" id="jf-signin" autocomplete="off">
+          <input id="jf-user" placeholder="User name" aria-label="Jellyfin user name" autocomplete="username">
+          <input id="jf-pw" type="password" placeholder="Password" aria-label="Jellyfin password" autocomplete="current-password">
+          <button class="btn" type="submit" ${busy("signin")}>${jfUi.busy === "signin" ? "Signing in…" : "Sign in"}</button></form>
+        <p>Resume Relay keeps only the sign-in Jellyfin gives back, never the password.</p>`
+      : m === "key" ? `<div class="plex-row"><input id="jf-key" placeholder="API key (Jellyfin: Dashboard → API Keys)" aria-label="Jellyfin API key">
+          <button class="btn" data-jf="apikey" ${busy("apikey")}>Connect</button></div>` : ""}
+      <p class="jf-or">or</p>
+      <div class="plex-row">${m !== "password" ? `<button class="btn quiet" data-jf="method" data-m="password">Sign in with a user name and password</button>` : ""}
+        <button class="btn quiet" data-jf="quick" ${busy("quick")}>Use Quick Connect</button>
+        ${m !== "key" ? `<button class="btn quiet" data-jf="method" data-m="key">Use an API key</button>` : ""}</div>`;
+  } else {
+    const usersSig = (j.users || []).map(u => u.id).sort().join("|");
+    if (jfUi.usersSig !== undefined && jfUi.usersSig !== usersSig) jfUi.users = null;
+    jfUi.usersSig = usersSig;
+    if (jfUi.users === null && jfUi.busy !== "users" && !collapsed) jfLoadUsers();
+    let maps = jfUi.mappings ?? j.mappings.map(m => ({ ...m }));
+    let note = "";
+    if (!maps.length && jfUi.suggested === null && jfUi.busy !== "suggest" && !collapsed) jfSuggest();
+    if (!maps.length && jfUi.suggested?.length) { maps = jfUi.suggested.map(m => ({ ...m })); jfUi.mappings = maps; jfUi.unsaved = true; }
+    if (jfUi.unsaved) note = `<p><b>Not saved yet.</b> These were suggested from the Plex card's folders or a file your Zidoos have played that Jellyfin also has. Check them, then press <b>Save folders</b>.</p>`;
+    if (!maps.length && jfUi.suggested) {
+      const libs = (jfUi.folders || []).flatMap(f => f.locations).filter(Boolean);
+      note = `<p>${libs.length ? `Jellyfin's library folders are <b>${libs.map(esc).join("</b>, <b>")}</b>. ` : ""}Play anything on a Zidoo for a few seconds and stop it, then reload this page: Resume Relay then fills these in for you from that file.</p>`;
+    }
+    if (!maps.length) maps = [{ plexFolder: "", zidooFolder: "" }];
+    const t = jfUi.test;
+    const test = !t ? "" : t.error ? `<div class="plex-test err">${esc(t.error)}</div>` : `<div class="plex-test ${t.mapped === t.total && (!t.asked || t.found === t.asked) ? "ok" : "err"}">
+        ${t.mapped.toLocaleString()} of ${t.total.toLocaleString()} Jellyfin files are inside these folders.
+        ${t.player ? (t.asked ? ` ${t.found} of ${t.asked} sample files were found on ${esc(t.player)} by the mapped path.` : "") : " Turn a Zidoo on to check the paths against it."}
+        ${t.outside.length ? `<ul>${t.outside.map(o => `<li>Not covered: ${esc(o)}</li>`).join("")}</ul>` : ""}
+        ${t.samples.filter(x => !x.found).length ? `<ul>${t.samples.filter(x => !x.found).map(x => `<li>Not found on ${esc(t.player)}: ${esc(x.zidoo)}</li>`).join("")}</ul>` : ""}</div>`;
+    const users = jfUi.users;
+    body = `<p>${j.apiKey ? "Connected with an API key" : `Signed in as <b>${esc(j.userName)}</b>`} · server <b>${esc(j.server.name)}</b> <span class="tnum">(${esc(j.server.url)})</span>
+        <button class="btn quiet" data-jf="change">Change server</button></p>
+      <h4>Folders<button class="help" data-help="jffolders" aria-label="About the folders">?</button></h4>
+      <p>Jellyfin and the Zidoos reach the same files by different paths. Each line says which Jellyfin folder is which Zidoo folder; files are then matched by the rest of their path.</p>
+      ${note}
+      <div id="jf-maps">${maps.map((m, i) => `<div class="plex-row" data-i="${i}">
+          <input data-map="plexFolder" value="${esc(m.plexFolder)}" placeholder="Jellyfin folder, e.g. /shares/Entertainment" aria-label="Jellyfin folder">
+          <span class="arrow" aria-hidden="true">=</span>
+          <input data-map="zidooFolder" value="${esc(m.zidooFolder)}" placeholder="Zidoo folder, e.g. smb://10.0.0.56/Entertainment" aria-label="Zidoo folder">
+          <button class="btn quiet danger" data-jf="unmap" data-i="${i}" aria-label="Remove this folder">Remove</button></div>`).join("")}</div>
+      <div class="plex-row"><button class="btn quiet" data-jf="addmap">+ Add folder</button>
+        <button class="btn" data-jf="savemaps" ${busy("save")}>Save folders</button>
+        <button class="btn" data-jf="test" ${busy("test")}>${jfUi.busy === "test" ? "Testing…" : "Test"}</button></div>
+      ${test}
+      <h4>Jellyfin users<button class="help" data-help="jfusers" aria-label="About Jellyfin users">?</button></h4>
+      <p>Each user you add becomes a player on the Players tab, with their own resume points and watched marks.</p>
+      ${users === null ? `<p>Loading users…</p>` : `<ul class="plex-users">${users.map(u => `<li><span class="who">${esc(u.title)}<small>${u.admin ? "Administrator" : "User"}</small></span>
+        ${u.added ? `<span class="on">✓ Syncing</span>` : `<button class="btn" data-jf="adduser" data-id="${esc(u.id)}" ${busy("add:" + u.id)}>Add</button>`}</li>`).join("")}</ul>`}
+      <div class="plex-foot"><button class="btn quiet danger" data-jf="signout">Sign out of Jellyfin</button></div>`;
+  }
+  const chip = !j.server ? "" : j.linking ? `<span class="st-chip warn">Waiting for the code</span>`
+    : !j.signedIn ? `<span class="st-chip warn">Sign in</span>`
+    : !j.users?.length ? `<span class="st-chip warn">Add a Jellyfin user</span>`
+    : problem ? `<span class="st-chip bad">Jellyfin server isn't answering</span>` : `<span class="st-chip">✓ Connected</span>`;
+  const nm = (j.mappings || []).length, nu = (j.users || []).length;
+  const sum = setUp ? `<span class="pc-sum tnum">${esc(String(j.server.url || "").replace(/^https?:\/\//, ""))} · ${nm} folder${nm === 1 ? "" : "s"} · ${nu} user${nu === 1 ? "" : "s"}</span>`
+    : !j.server ? `<span class="pc-sum">Optional</span>` : "";
+  const canFold = setUp || !j.server;
+  const tog = canFold ? `<button class="pc-tog" data-jf="toggle" aria-controls="jf-body" aria-expanded="${!collapsed}" aria-label="${collapsed ? "Show" : "Hide"} the Jellyfin setup">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14l-7 9z"/></svg></button>` : "";
+  box.classList.toggle("collapsed", collapsed);
+  box.classList.toggle("problem", problem);
+  box.innerHTML = `<div class="pc-head"><span class="pc-title">${kindBadge("jellyfin", true)}<h3 id="jf-h">Jellyfin</h3>${chip}${sum}</span>${tog}</div>
+    <div class="pc-body" id="jf-body">${body}${jfUi.msg ? `<p class="msg ${esc(jfUi.kind)}" role="status">${esc(jfUi.msg)}</p>` : ""}</div>`;
+}
+
+async function jfFind() {
+  jfUi.finding = true; renderJellyfin(true);
+  try { jfUi.found = await api("GET", "/api/jellyfin/discover"); } catch { jfUi.found = []; }
+  jfUi.finding = false; renderJellyfin(true);
+}
+async function jfUseServer(url) {
+  jfUi.busy = "server"; renderJellyfin(true);
+  try {
+    const r = await api("POST", "/api/jellyfin/server", { url });
+    Object.assign(jfUi, { choosing: false, users: null, test: null, suggested: null, mappings: null });
+    jfUi.busy = ""; await refresh(); jfSay(`Using ${r.name} (Jellyfin ${r.version}).`, "ok");
+  } catch (err) { jfUi.busy = ""; jfSay(err.message, "err"); }
+}
+async function jfWaitForQuick() {
+  jfPolling = true;
+  try {
+    for (let i = 0; i < 200; i++) {
+      await new Promise(r => setTimeout(r, 3000));
+      if (!state?.jellyfin?.linking) break;
+      const r = await api("GET", "/api/jellyfin/quick");
+      if (r.done) { jfUi.users = null; await refresh(); jfSay(`Signed in to Jellyfin as ${r.userName}.`, "ok"); break; }
+      if (r.expired) { await refresh(); jfSay("The code expired. Press Use Quick Connect to get a new one.", "err"); break; }
+    }
+  } catch (err) { await refresh(); jfSay(err.message, "err"); }
+  jfPolling = false;
+}
+async function jfLoadUsers() {
+  jfUi.busy = "users";
+  try { jfUi.users = await api("GET", "/api/jellyfin/users"); } catch (err) { jfUi.users = []; jfUi.msg = err.message; jfUi.kind = "err"; }
+  jfUi.busy = ""; renderJellyfin(true);
+}
+async function jfSuggest() {
+  jfUi.busy = "suggest";
+  try { const r = await api("GET", "/api/jellyfin/suggest"); jfUi.suggested = r.suggested || []; jfUi.folders = r.folders || []; } catch { jfUi.suggested = []; }
+  jfUi.busy = ""; renderJellyfin(true);
+}
+function jfReadMaps() {
+  return [...document.querySelectorAll("#jf-maps .plex-row")].map(r => ({
+    plexFolder: r.querySelector("[data-map=plexFolder]").value.trim(), zidooFolder: r.querySelector("[data-map=zidooFolder]").value.trim(),
+  }));
+}
+$("#jf-card").addEventListener("input", e => { if (e.target.matches("[data-map]")) jfUi.mappings = jfReadMaps(); });
+$("#jf-card").addEventListener("submit", async e => {
+  if (e.target.id !== "jf-signin") return;
+  e.preventDefault();
+  const user = $("#jf-user").value.trim(), password = $("#jf-pw").value;
+  if (!user) { jfSay("Type the administrator's user name.", "err"); return; }
+  jfUi.busy = "signin"; jfUi.msg = ""; renderJellyfin(true);
+  try { const r = await api("POST", "/api/jellyfin/signin", { user, password }); jfUi.busy = ""; jfUi.users = null; await refresh(); jfSay(`Signed in to Jellyfin as ${r.userName}.`, "ok"); }
+  catch (err) { jfUi.busy = ""; jfSay(err.message, "err"); }
+});
+$("#jf-card").addEventListener("keydown", e => { if (e.key === "Enter" && e.target.id === "jf-url") { e.preventDefault(); jfUseServer(e.target.value); } });
+$("#jf-card").addEventListener("click", async e => {
+  const b = e.target.closest("[data-jf]"); if (!b) return;
+  const what = b.dataset.jf;
+  if (what === "toggle") { store.set("rr.jfCollapsed", $("#jf-card").classList.contains("collapsed") ? "" : "1"); renderJellyfin(true); return; }
+  jfUi.msg = "";
+  try {
+    if (what === "find") { jfUi.found = null; jfFind(); }
+    else if (what === "server") await jfUseServer(b.dataset.url || $("#jf-url").value);
+    else if (what === "change") { jfUi.choosing = true; jfUi.found = null; renderJellyfin(true); }
+    else if (what === "keep") { jfUi.choosing = false; renderJellyfin(true); }
+    else if (what === "method") { jfUi.method = b.dataset.m; renderJellyfin(true); }
+    else if (what === "quick") {
+      jfUi.busy = "quick"; renderJellyfin(true);
+      try { await api("POST", "/api/jellyfin/quick"); jfUi.busy = ""; await refresh(); renderJellyfin(true); }
+      catch (err) { jfUi.busy = ""; jfSay(err.message, "err"); }
+    } else if (what === "cancel") { await api("POST", "/api/jellyfin/signout"); await refresh(); renderJellyfin(true); }
+    else if (what === "apikey") {
+      jfUi.busy = "apikey"; renderJellyfin(true);
+      try { await api("POST", "/api/jellyfin/apikey", { key: $("#jf-key").value }); jfUi.busy = ""; jfUi.users = null; await refresh(); jfSay("Connected to Jellyfin with the API key.", "ok"); }
+      catch (err) { jfUi.busy = ""; jfSay(err.message, "err"); }
+    } else if (what === "addmap") { jfUi.mappings = [...jfReadMaps(), { plexFolder: "", zidooFolder: "" }]; renderJellyfin(true); }
+    else if (what === "unmap") { const m = jfReadMaps(); m.splice(+b.dataset.i, 1); jfUi.mappings = m; renderJellyfin(true); }
+    else if (what === "savemaps") {
+      jfUi.busy = "save"; renderJellyfin(true);
+      await api("POST", "/api/jellyfin/mapping", { mappings: jfReadMaps() });
+      jfUi.busy = ""; jfUi.mappings = null; jfUi.unsaved = false; jfUi.test = null; await refresh(); jfSay("Folders saved.", "ok");
+    } else if (what === "test") {
+      jfUi.busy = "test"; jfUi.test = null; renderJellyfin(true);
+      try { jfUi.test = await api("POST", "/api/jellyfin/test"); } catch (err) { jfUi.test = { error: err.message }; }
+      jfUi.busy = ""; renderJellyfin(true);
+    } else if (what === "adduser") {
+      const id = b.dataset.id;
+      jfUi.busy = "add:" + id; renderJellyfin(true);
+      try { const r = await api("POST", "/api/jellyfin/users", { id }); jfUi.busy = ""; jfUi.users = null; await refresh(); jfSay(`Added ${r.name}. Their card is on the Players tab with the other players.`, "ok"); }
+      catch (err) { jfUi.busy = ""; jfSay(err.message, "err"); }
+    } else if (what === "signout") {
+      if (!confirm("Sign out of Jellyfin? The Jellyfin users are removed from the players and stop syncing.")) return;
+      await api("POST", "/api/jellyfin/signout");
+      Object.assign(jfUi, { users: null, test: null, mappings: null, suggested: null, choosing: false });
+      await refresh(); jfSay("Signed out of Jellyfin.");
+    }
+  } catch (err) { jfUi.busy = ""; jfSay(err.message, "err"); }
+});
+
 // ---------------- Settings: badge pictures ----------------
 let iconSig = "";
 function renderIcons() {
@@ -2164,7 +2386,7 @@ function renderIcons() {
   $("#rating-rows").innerHTML = ["imdb", "tmdb"].map(k => `<div class="icon-row"><span class="rb-cell">${ratingBadge(k)}</span>
     <label class="btn">Choose image…<input type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/x-icon,image/vnd.microsoft.icon,image/svg+xml" data-icon="${k}" hidden></label>
     ${state.icons[k] ? `<button class="btn quiet" data-icon-reset="${k}">Use the default</button>` : ""}</div>`).join("");
-  $("#icon-rows").innerHTML = ["zidoo", "plex"].map(k => `<div class="icon-row">${kindBadge(k)}
+  $("#icon-rows").innerHTML = ["zidoo", "plex", "jellyfin"].map(k => `<div class="icon-row">${kindBadge(k)}
     <label class="btn">Choose image…<input type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/x-icon,image/vnd.microsoft.icon,image/svg+xml" data-icon="${k}" hidden></label>
     ${state.icons[k] ? `<button class="btn quiet" data-icon-reset="${k}">Use the default</button>` : ""}</div>`).join("");
 }
@@ -2303,10 +2525,11 @@ const HELP = {
   acclaimed: ["Where the ratings come from", `<p>Highly Acclaimed takes each title's rating from, in this order:</p>
     <ol><li><b>Plex</b>, when it's set up: the rating Plex shows for the movie or series. That's the IMDb rating when IMDb is the ratings source in Plex's library settings.</li>
     <li>For a movie Plex rates only by TMDB, the <b>Zidoo's IMDb rating</b> is used instead when it has one.</li>
-    <li>Titles Plex doesn't have or doesn't rate, and every title when Plex isn't set up: the <b>Zidoo's</b> rating, which is IMDb for movies and TMDB for series (the HT app keeps no IMDb rating for series).</li></ol>
-    <p>Rotten Tomatoes ratings are never used. Each title's table row shows where its rating came from (Plex or a Zidoo) and which rating it is.</p>`],
-  badges: ["Activity badges", `<p>Each Activity card shows whether the stop happened on a Zidoo or on Plex, and each player chip shows which kind it is. You can use your own small image for either badge; it's kept in Resume Relay's data folder on this computer.</p>`],
-  backup: ["Back up and restore", `<p>One file with your players, their names, these settings, the Plex setup and your badge pictures. Use it to move Resume Relay to another computer or a NAS, or after reinstalling.</p>
+    <li>Titles Plex doesn't have or doesn't rate, and every title when Plex isn't set up: the <b>Zidoo's</b> rating, which is IMDb for movies and TMDB for series (the HT app keeps no IMDb rating for series).</li>
+    <li>Last, titles only <b>Jellyfin</b> rates: Jellyfin's community rating. Jellyfin takes it from TMDB (or from IMDb when its OMDb plugin is installed) and doesn't say which, so it's shown as Jellyfin's.</li></ol>
+    <p>Rotten Tomatoes ratings are never used (Jellyfin's "critic rating" is Rotten Tomatoes'). Each title's table row shows where its rating came from (Plex, a Zidoo or Jellyfin) and which rating it is.</p>`],
+  badges: ["Activity badges", `<p>Each Activity card shows whether the stop happened on a Zidoo, on Plex or on Jellyfin, and each player chip shows which kind it is. You can use your own small image for any of these badges; it's kept in Resume Relay's data folder on this computer.</p>`],
+  backup: ["Back up and restore", `<p>One file with your players, their names, these settings, the Plex and Jellyfin setups and your badge pictures. Use it to move Resume Relay to another computer or a NAS, or after reinstalling.</p>
     <p><b>Back up settings</b> downloads one file. <b>Restore from a backup</b> replaces this Resume Relay's players, names, settings, Plex setup and badge pictures with the ones in the file. The Activity tab is kept.</p>
     <p>The file includes your Plex sign-in, so keep it somewhere private.</p>`],
   updates: ["New versions", `<p>Once a day Resume Relay asks GitHub whether a newer version is out. Only the public list of versions is fetched; nothing about you or your players is sent. When there is one, a banner explains how to update.</p>
@@ -2342,6 +2565,13 @@ const HELP = {
     <ul><li>If Plex runs on this computer, its folders (Settings → Plex) are used. Nothing to add.</li>
     <li>Otherwise, add a line here: the Zidoos' folder (like <code>smb://10.0.0.56/Entertainment</code>) and the same folder on this computer (like <code>/mnt/media</code>).</li>
     <li>On Windows, the share's own address works without a line.</li></ul>`],
+  jfsignin: ["Signing in to Jellyfin", `<p>Resume Relay needs a Jellyfin <b>administrator</b>: only an administrator can see what every user is playing and change every user's resume points and watched marks. The users you add don't sign in to anything.</p>
+    <ul><li><b>User name and password:</b> an administrator's. Resume Relay sends them to Jellyfin once and keeps only the sign-in Jellyfin gives back (it shows in Jellyfin under Dashboard → Devices as "Resume Relay"), never the password.</li>
+    <li><b>Quick Connect:</b> Resume Relay shows a 6-character code; approve it in a Jellyfin app or web page where you're signed in as an administrator (your profile → Quick Connect). Quick Connect has to be on (Dashboard → General).</li>
+    <li><b>API key:</b> make one in Jellyfin under Dashboard → API Keys and paste it here.</li></ul>
+    <p>Jellyfin 10.9 or newer works best.</p>`],
+  jffolders: ["Folders", `<p>Jellyfin and the Zidoos reach the same files by different paths: for example Jellyfin sees <code>/shares/Entertainment/Movies/…</code> where the Zidoos see <code>smb://10.0.0.56/Entertainment/Movies/…</code>. Each line says which Jellyfin folder is which Zidoo folder; files are then matched by the rest of their path. When Plex runs on the same computer, its folders usually work here too.</p>`],
+  jfusers: ["Jellyfin users", `<p>Each Jellyfin user you add becomes a player: their resume points and watched marks sync with the Zidoos (and Plex) in both directions. Users need no password: the administrator's sign-in covers them.</p>`],
   plexusers: ["Plex users", `<p>Each Plex user you add becomes a player: their resume points and watched marks sync with the Zidoos in both directions. Users with a PIN need it once, to add them.</p>`],
 };
 document.addEventListener("click", e => {
@@ -2376,7 +2606,7 @@ function pulse(el) {
 }
 const defaultName = n => /\(\d{1,3}(\.\d{1,3}){3}\)$/.test(n) || /^Zidoo \d/.test(n);
 function setupSteps() {
-  const z = (state?.devices || []).filter(d => d.kind !== "plex"), s = state.settings;
+  const z = (state?.devices || []).filter(d => !isServerUser(d)), s = state.settings;
   const plexUsers = (state.devices || []).some(d => d.kind === "plex");
   return [
     { id: "find", done: z.length > 0, title: "Find your players", hint: "Switch your Zidoos on, then scan. Each one appears as a card below.", btn: ["scan", "Scan network"] },
@@ -2792,7 +3022,7 @@ async function refresh() {
     const [s, ev, sys] = await Promise.all([api("GET", "/api/state"), api("GET", "/api/events?n=300"), api("GET", "/api/activity?n=150&system=true")]);
     state = s; events = ev; systemRows = sys;
     for (const [id, t] of launching) if (Date.now() - t > 60000) launching.delete(id);
-    renderMode(s.settings); renderRooms(s.devices); renderPlex(); renderFeed(); renderSettings(s.settings); renderIcons(); renderBadges();
+    renderMode(s.settings); renderRooms(s.devices); renderPlex(); renderJellyfin(); renderFeed(); renderSettings(s.settings); renderIcons(); renderBadges();
     renderUpdate(); renderUpdateSettings(s.settings); renderHealth(); renderSetup(); renderCatchUp(); renderWatchedSync();
     if (!$("#progress").hidden || progress?.reading) await loadProgress(); else renderProgressControls();
     if (!$("#watch").hidden) await loadWatch(false); else renderWatchControls();

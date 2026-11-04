@@ -387,7 +387,7 @@ public sealed class LiveService : BackgroundService
             string file = p.SourceUrl.Length > 0 ? p.SourceUrl : p.Path;
             _started.TryAdd(id + "|" + file, DateTime.UtcNow);
             var tag = EpisodeTag.Match(p.Subtitle + " " + PathMapper.FileName(p.Path) + " " + PathMapper.FileName(p.SourceUrl));
-            playing.Add(new NowItem(id, d.Name, p.SourceUrl, d.IsPlex ? p.Path : "", p.Title, tag.Success, tag.Success ? int.Parse(tag.Groups[1].Value) : 0, p.PlexKey, p.Paused));
+            playing.Add(new NowItem(id, d.Name, p.SourceUrl, d.IsServerUser ? p.Path : "", p.Title, tag.Success, tag.Success ? int.Parse(tag.Groups[1].Value) : 0, p.PlexKey, p.Paused));
         }
         foreach (var k in _started.Keys.Where(k => s.Players.Any(id => k.StartsWith(id + "|")) && !playing.Any(x => k == x.DeviceId + "|" + (x.SourceUrl.Length > 0 ? x.SourceUrl : x.PlexFile))).ToList())
             _started.TryRemove(k, out _);
@@ -610,7 +610,7 @@ public sealed class LiveService : BackgroundService
             string title = ep ? ShowName(e.SourceUrl, e.Title) : e.Title;
             list.Add(new SlideItem("recent:" + e.FromName, title,
                 new PosterRequest(e.SourceUrl, "", e.FromDeviceId, ep, season, false, title), null)
-                { TimeUtc = e.TimeUtc, Player = e.FromName, PlayerKind = _store.Device(e.FromDeviceId)?.IsPlex == true ? "plex" : "zidoo" });
+                { TimeUtc = e.TimeUtc, Player = e.FromName, PlayerKind = _store.Device(e.FromDeviceId)?.KindName ?? "zidoo" });
         }
         _recentAll = list;
     }
@@ -634,7 +634,7 @@ public sealed class LiveService : BackgroundService
             // The Zidoo's ratings first: IMDb for movies (by file), TMDB for series.
             var zidooRated = new Dictionary<string, ZidooRatings.Rated>(StringComparer.Ordinal);
             var zidooList = new List<ZidooRatings.Rated>();
-            var zidoo = _store.Devices().FirstOrDefault(d => !d.IsPlex && d.Enabled && _engine.LiveOf(d.Id).Online);
+            var zidoo = _store.Devices().FirstOrDefault(d => !d.IsServerUser && d.Enabled && _engine.LiveOf(d.Id).Online);
             if (zidoo != null)
             {
                 zidooList = await ZidooRatings.ReadAsync(new ZidooClient(zidoo.Ip, zidoo.Port), min, ct);
@@ -681,12 +681,44 @@ public sealed class LiveService : BackgroundService
                     list.Add(new SlideItem("acclaimed", title, new PosterRequest(r.SourceUrl, "", zidoo.Id, false, 0, r.Kind == "show", title), null)
                         { Score = r.Score, Source = r.Source, Kind = r.Kind, From = "zidoo" });
                     fromZidoo++;
+                    if (rel != null) keys.Add(PlexPaths.Key(rel));
+                    keys.Add(r.Kind + "|" + r.Title.ToLowerInvariant());
                 }
-            if (plexFailed && !zidooRead) { _acclaimedNote = "The Plex server didn't answer; trying again in 10 minutes."; _acclaimedAt = DateTime.UtcNow.AddMinutes(-50); return; }
-            if (plex == null && !zidooRead) { _acclaimedNote = "No player is on to read ratings from; trying again in 10 minutes."; _acclaimedAt = DateTime.UtcNow.AddMinutes(-50); return; }
+            // Last, Jellyfin's community rating, for what neither Plex nor the Zidoo rates. Jellyfin gets it from TMDB
+            // (or IMDb with its OMDb plugin) and can't say which, so it's shown as Jellyfin's. Never its critic rating
+            // (Rotten Tomatoes).
+            var jellyfin = _engine.JellyfinServer();
+            int fromJellyfin = 0;
+            bool jellyfinRead = false;
+            if (jellyfin != null && await jellyfin.RatedTitlesAsync(ct) is { } jrated)
+            {
+                jellyfinRead = true;
+                var jmaps = _store.Jellyfin().Mappings;
+                var jdev = _store.Devices().FirstOrDefault(d => d.IsJellyfin && d.Enabled);
+                foreach (var r in jrated.Where(r => r.Score >= min - 1e-9))
+                {
+                    string file = r.Files.FirstOrDefault() ?? "";
+                    string url = file.Length > 0 ? PlexPaths.ToSourceUrl(file, jmaps) ?? "" : "";
+                    string? key = url.Length > 0 && PlexPaths.RelOfUrl(url) is { } rel ? PlexPaths.Key(rel) : null;
+                    if ((key != null && keys.Contains(key)) || keys.Contains(r.Type + "|" + r.Title.ToLowerInvariant())) continue;
+                    if (r.Type == "show") { file = await jellyfin.AnyEpisodeFileAsync(r.Key, ct) ?? ""; url = file.Length > 0 ? PlexPaths.ToSourceUrl(file, jmaps) ?? "" : ""; }
+                    string title = r.Year > 0 && r.Type == "movie" ? $"{r.Title} ({r.Year})" : r.Title;
+                    keys.Add(r.Type + "|" + r.Title.ToLowerInvariant());
+                    list.Add(new SlideItem("acclaimed", title, new PosterRequest(url, file, jdev?.Id ?? "", false, 0, r.Type == "show", title, r.Key, r.Thumb, "jellyfin"), null)
+                        { Score = r.Score, Source = "Jellyfin", Kind = r.Type, From = "jellyfin" });
+                    fromJellyfin++;
+                }
+            }
+            if (plexFailed && !zidooRead && !jellyfinRead) { _acclaimedNote = "The Plex server didn't answer; trying again in 10 minutes."; _acclaimedAt = DateTime.UtcNow.AddMinutes(-50); return; }
+            if (plex == null && !zidooRead && !jellyfinRead) { _acclaimedNote = "No player is on to read ratings from; trying again in 10 minutes."; _acclaimedAt = DateTime.UtcNow.AddMinutes(-50); return; }
             _acclaimed = list.OrderBy(i => i.Title, StringComparer.OrdinalIgnoreCase).ToList();
-            string where = fromPlex > 0 && fromZidoo > 0 ? $" ({fromPlex:N0} rated by Plex, {fromZidoo:N0} by the Zidoo)"
-                : fromZidoo > 0 ? " (from the Zidoo: IMDb for movies, TMDB for series)" : "";
+            var parts = new List<string>();
+            if (fromPlex > 0) parts.Add($"{fromPlex:N0} rated by Plex");
+            if (fromZidoo > 0) parts.Add($"{fromZidoo:N0} by the Zidoo");
+            if (fromJellyfin > 0) parts.Add($"{fromJellyfin:N0} by Jellyfin");
+            string where = parts.Count > 1 ? $" ({string.Join(", ", parts)})"
+                : fromZidoo > 0 ? " (from the Zidoo: IMDb for movies, TMDB for series)"
+                : fromJellyfin > 0 ? " (from Jellyfin)" : "";
             _acclaimedNote = $"{list.Count:N0} title{(list.Count == 1 ? "" : "s")} rated {min:0.0} or higher{where}. 10 picked at random each round.";
         }
         catch (OperationCanceledException) { }

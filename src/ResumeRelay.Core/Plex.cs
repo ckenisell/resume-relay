@@ -122,7 +122,7 @@ public sealed record PlexSection(string Key, string Type, string Title, List<str
 /// <summary>A movie or series with its rating (Highly Acclaimed).</summary>
 public sealed record PlexRated(int Key, string Type, string Title, int Year, double Score, string Source, string Thumb, List<string> Files);
 
-public sealed class PlexClient
+public sealed class PlexClient : IMediaServer
 {
     private static readonly HttpClient Http = new(new SocketsHttpHandler
     {

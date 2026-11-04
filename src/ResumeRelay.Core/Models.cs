@@ -1,12 +1,25 @@
 namespace ResumeRelay;
 
-/// <summary>A Zidoo player the user has registered (identified by MAC, never by IP), or a Plex user (Kind "plex").</summary>
+/// <summary>A Zidoo player the user has registered (identified by MAC, never by IP), or a Plex or Jellyfin user
+/// (Kind "plex" / "jellyfin": a media server's user, not a box).</summary>
 public sealed class Device
 {
     /// <summary>"" for a Zidoo player, "plex" for a Plex user on the Plex server set up on the Players tab.</summary>
     public string Kind { get; set; } = "";
     public const string PlexKind = "plex";
+    public const string JellyfinKind = "jellyfin";
     public bool IsPlex => Kind == PlexKind;
+    public bool IsJellyfin => Kind == JellyfinKind;
+    /// <summary>A media server's user (Plex or Jellyfin) rather than a Zidoo: nothing to turn on, no HT app, paths
+    /// through the server card's folder mapping.</summary>
+    public bool IsServerUser => IsPlex || IsJellyfin;
+    /// <summary>"zidoo", "plex" or "jellyfin" (the badges, the Activity cards).</summary>
+    public string KindName => IsPlex ? "plex" : IsJellyfin ? "jellyfin" : "zidoo";
+    /// <summary>"Plex" or "Jellyfin" for messages ("" for a Zidoo).</summary>
+    public string ServerLabel => IsPlex ? "Plex" : IsJellyfin ? "Jellyfin" : "";
+    /// <summary>Jellyfin only: the user's id and name on the Jellyfin server.</summary>
+    public string JellyfinUserId { get; set; } = "";
+    public string JellyfinUserName { get; set; } = "";
     /// <summary>Plex only: the plex.tv account id, the name Plex shows for the user, whether it is the server's owner,
     /// and the user's own access token for the server (never sent to the page).</summary>
     public string PlexUserId { get; set; } = "";
@@ -111,7 +124,7 @@ public sealed class StopEvent
     public string FromName { get; set; } = "";
     /// <summary>The player the stop happened on (0.6+; older cards only have FromName).</summary>
     public string FromDeviceId { get; set; } = "";
-    /// <summary>Where the stop happened: "zidoo", "plex", or "" for a reset pressed in Resume Relay.</summary>
+    /// <summary>Where the stop happened: "zidoo", "plex", "jellyfin", or "" for a reset pressed in Resume Relay.</summary>
     public string FromKind { get; set; } = "";
     public int PositionMs { get; set; }
     public int DurationMs { get; set; }
@@ -150,7 +163,7 @@ public sealed class StopTarget
 {
     public string DeviceId { get; set; } = "";
     public string Name { get; set; } = "";
-    /// <summary>"zidoo" or "plex" ("" on cards made before 0.4: those were all Zidoo players).</summary>
+    /// <summary>"zidoo", "plex" or "jellyfin" ("" on cards made before 0.4: those were all Zidoo players).</summary>
     public string Kind { get; set; } = "";
     public TargetState State { get; set; } = TargetState.Pending;
     public string Note { get; set; } = "";
@@ -211,6 +224,7 @@ public sealed class NowPlaying
     /// <summary>Poster file for the card, filled in the background once the title is identified.</summary>
     public string Poster { get; set; } = "";
     public string Subtitle { get; set; } = "";
-    /// <summary>Plex only: the item's ratingKey, to read its saved position back after the stop.</summary>
+    /// <summary>Plex or Jellyfin: the item's key (Plex's ratingKey; a Jellyfin item's number, see JellyfinKeys), to
+    /// read its saved position back after the stop.</summary>
     public int PlexKey { get; set; }
 }

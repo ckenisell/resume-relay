@@ -2,6 +2,8 @@
 
 **Stop a movie or episode on one Zidoo, walk to another room, and press Resume.**
 
+![Resume Relay: stop in one room, resume in another. Resume points, watched marks and Live Poster.](docs/store/github-social-1280x640.png)
+
 Resume Relay watches every Zidoo player on your network. A few seconds after one stops, it copies
 that file's resume point to all the others. You don't need a watch list or any setup per title:
 anything you watch is copied.
@@ -24,8 +26,8 @@ Resume Relay is free and always will be. If it saves you some walking, you can
 
 ## What it does
 
-- **Works with Plex too.** Sign in with Plex in Settings and add your Plex users: resume points and watched
-  marks then sync between the Zidoos and Plex, in both directions.
+- **Works with Plex and Jellyfin too.** Sign in in Settings and add your Plex or Jellyfin users: resume points and
+  watched marks then sync between the Zidoos, Plex and Jellyfin, in every direction.
 - **Copies resume points between rooms automatically.** Within seconds of stopping, the same file
   on every other player resumes where you left off, to the exact second. Movies, TV episodes and
   extras are all matched exactly by file path.
@@ -73,7 +75,7 @@ Resume Relay is free and always will be. If it saves you some walking, you can
     **uGreen** NAS (UGOS Pro, with the Docker app), QNAP, Unraid or TrueNAS. Intel/AMD and ARM
     (64-bit) are both supported. The container must use **host networking**.
 - Zidoo players with **Home Theater v5.1.11 (code 5111) or newer**
-- Optional: a **Plex Media Server** that reads the same network share as the Zidoos
+- Optional: a **Plex Media Server** or **Jellyfin** (10.9 or newer) server that reads the same network share as the Zidoos
 - Your video files on a network share (SMB or NFS) that all players use, so each file has the same
   path everywhere
 - To turn players on from the app (Wake-on-LAN): the player in standby (not unplugged), on a
@@ -101,6 +103,23 @@ The **Plex** card in **Settings** (the gear tab) sets it up:
 
 Plex counts a file as finished at about 90% (its default), so finishing in Plex marks it watched on the Zidoos. If
 Plex doesn't keep a very early resume point (a stop in the first minute), the Activity chip says so.
+
+## Jellyfin
+
+The **Jellyfin** card in **Settings** sets it up (it starts folded away: open it with the triangle):
+
+1. **Your server.** Resume Relay finds Jellyfin on the network by itself, or type its address (like `10.0.0.30:8096`).
+2. **Sign in as a Jellyfin administrator**, one of three ways: a **user name and password** (Resume Relay keeps only
+   the sign-in Jellyfin gives back, never the password), **Quick Connect** (approve the code it shows in a Jellyfin app,
+   under your profile → Quick Connect), or an **API key** (Jellyfin: Dashboard → API Keys). It has to be an
+   administrator: only they can see what everyone is playing and copy everyone's progress. The users you add sign in
+   to nothing.
+3. **Folders**, as on the Plex card. When Plex runs on the same computer, its folders are suggested.
+4. **Add users.** Each becomes a player card on the Players tab, in purple.
+
+Finishing a file in Jellyfin (it counts 90% as finished by default) marks it watched on the other players. Highly
+Acclaimed uses Jellyfin's rating only for titles neither Plex nor a Zidoo rates; Jellyfin's critic rating (Rotten
+Tomatoes) is never used.
 
 ## Live Poster
 

@@ -104,8 +104,9 @@ public sealed record PosterRequest(
     int Season,
     bool SeriesOnly,         // a whole series (Highly Acclaimed): the series poster, never a season's
     string Title,
-    int PlexKey = 0,         // the Plex item (movie, episode or show), when known
-    string PlexThumb = "");  // Plex's poster path for it (movie poster, or the series poster for TV)
+    int PlexKey = 0,         // the Plex (or Jellyfin) item (movie, episode or show), when known
+    string PlexThumb = "",   // the server's poster path for it (movie poster, or the series poster for TV)
+    string Server = "");     // "jellyfin" when PlexKey/PlexThumb are Jellyfin's (else Plex's, or found from DeviceId)
 
 /// <summary>A poster found for a title: the cached file, where it came from, and its size.</summary>
 public sealed record PosterResult(string Path, string Source, int Width, int Height);

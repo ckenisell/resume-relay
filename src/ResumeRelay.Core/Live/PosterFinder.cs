@@ -35,7 +35,7 @@ public sealed class PosterFinder
 
     public async Task<PosterResult?> FindAsync(PosterRequest r, CancellationToken ct = default)
     {
-        string key = $"{r.SourceUrl}|{r.PlexFile}|{r.SeriesOnly}|{r.Season}|{r.PlexKey}";
+        string key = $"{r.SourceUrl}|{r.PlexFile}|{r.SeriesOnly}|{r.Season}|{r.PlexKey}|{r.Server}";
         if (_cache.TryGetValue(key, out var hit) && DateTime.UtcNow - hit.At < TimeSpan.FromMinutes(4)
             && (hit.Result == null || File.Exists(hit.Result.Path)))
             return hit.Result;
@@ -56,7 +56,7 @@ public sealed class PosterFinder
             var hit = tv ? FolderTvPoster(local, r.Season, r.SeriesOnly) : FolderMoviePoster(local);
             if (hit != null) return hit;
         }
-        // 2. Plex (the series poster for TV).
+        // 2. Plex, or Jellyfin for a Jellyfin user (the series poster for TV).
         if (await PlexPosterAsync(r, tv, ct) is { } plex) return plex;
         // 3. The Zidoo (the series poster for TV).
         return await ZidooPosterAsync(r, tv, ct);
@@ -80,7 +80,7 @@ public sealed class PosterFinder
         var cfg = _live.Get();
         var maps = cfg.Folders.Where(f => f.ZidooFolder.Length > 0 && f.LocalFolder.Length > 0)
             .Select(f => (Z: f.ZidooFolder, L: f.LocalFolder))
-            .Concat(_store.Plex().Mappings.Where(m => m.ZidooFolder.Length > 0 && m.PlexFolder.Length > 0).Select(m => (Z: m.ZidooFolder, L: m.PlexFolder)));
+            .Concat(_store.Plex().Mappings.Concat(_store.Jellyfin().Mappings).Where(m => m.ZidooFolder.Length > 0 && m.PlexFolder.Length > 0).Select(m => (Z: m.ZidooFolder, L: m.PlexFolder)));
         foreach (var (z, l) in maps)
         {
             string zz = z.Replace('\\', '/').TrimEnd('/');
@@ -155,26 +155,33 @@ public sealed class PosterFinder
 
     private async Task<PosterResult?> PlexPosterAsync(PosterRequest r, bool tv, CancellationToken ct)
     {
-        var plex = _engine.PlexServer();
+        // A Jellyfin user's title (or a Jellyfin rating's) comes from Jellyfin; anything else from Plex.
+        var device = r.DeviceId.Length > 0 ? _store.Device(r.DeviceId) : null;
+        bool jellyfin = r.Server == "jellyfin" || device?.IsJellyfin == true;
+        IMediaServer? plex = jellyfin ? (device is { IsJellyfin: true } ? _engine.ServerFor(device) : _engine.JellyfinServer()) : _engine.PlexServer();
         if (plex == null) return null;
+        string label = jellyfin ? "Jellyfin" : "Plex";
         string thumb = r.PlexThumb;
         if (thumb.Length == 0)
         {
             PlexItem? item = r.PlexKey > 0 ? await plex.ItemAsync(r.PlexKey, ct) : null;
-            item ??= r.SourceUrl.Length > 0 ? await _engine.PlexItemForUrlAsync(r.SourceUrl, ct) : null;
+            item ??= r.SourceUrl.Length > 0
+                ? jellyfin ? await _engine.ServerItemForUrlAsync(device ?? _store.Devices().FirstOrDefault(d => d.IsJellyfin && d.Enabled), r.SourceUrl, ct)
+                  : await _engine.PlexItemForUrlAsync(r.SourceUrl, ct)
+                : null;
             if (item == null) return null;
             thumb = tv ? (item.Type == "show" ? item.Thumb : item.GrandparentThumb) : item.Thumb;
             if (tv && thumb.Length == 0 && item.ShowKey > 0 && await plex.ItemAsync(item.ShowKey, ct) is { } show) thumb = show.Thumb;
         }
         if (thumb.Length == 0) return null;
         var bytes = await plex.OriginalImageAsync(thumb, ct);
-        return bytes == null ? null : Save("plex|" + thumb, bytes, tv ? "Plex series poster" : "Plex");
+        return bytes == null ? null : Save(label.ToLowerInvariant() + "|" + thumb, bytes, tv ? $"{label} series poster" : label);
     }
 
     private async Task<PosterResult?> ZidooPosterAsync(PosterRequest r, bool tv, CancellationToken ct)
     {
         if (r.SourceUrl.Length == 0) return null;
-        var zidoos = _store.Devices().Where(d => !d.IsPlex && d.Enabled && _engine.LiveOf(d.Id).Online)
+        var zidoos = _store.Devices().Where(d => !d.IsServerUser && d.Enabled && _engine.LiveOf(d.Id).Online)
             .OrderByDescending(d => d.Id == r.DeviceId).ToList();
         foreach (var d in zidoos.Take(2))
         {

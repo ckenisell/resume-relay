@@ -63,7 +63,7 @@ public sealed class WatchedSyncService : BackgroundService
 
     private async Task RunAsync(TimeSpan interval, CancellationToken ct)
     {
-        var players = _store.Devices().Where(d => d.Enabled && _engine.LiveOf(d.Id).Online && (d.IsPlex || _engine.LiveOf(d.Id).Playing == null)).ToList();
+        var players = _store.Devices().Where(d => d.Enabled && _engine.LiveOf(d.Id).Online && (d.IsServerUser || _engine.LiveOf(d.Id).Playing == null)).ToList();
         if (players.Count == 0) return;
         Status = $"Reading {players.Count} player{(players.Count == 1 ? "" : "s")}…";
         await _progress.ReadAndWaitAsync(players.Select(p => p.Id).ToList(), ct);

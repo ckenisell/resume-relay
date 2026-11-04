@@ -53,7 +53,7 @@ public static class LiveApi
                 Coming = cfg.Coming.Select(c => new { c.Id, c.Title, c.Width, c.Height }),
                 AcclaimedNote = svc.AcclaimedNote,
                 AcclaimedCount = svc.Acclaimed.Count,
-                Players = devices.Where(d => d.Enabled).Select(d => new { d.Id, d.Name, Kind = d.IsPlex ? "plex" : "zidoo" }),
+                Players = devices.Where(d => d.Enabled).Select(d => new { d.Id, d.Name, Kind = d.KindName }),
             });
         });
 

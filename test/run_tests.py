@@ -1047,6 +1047,8 @@ jdev = [d for d in http("GET", RELAY + "/api/state")["devices"] if d["kind"] == 
 check("Jellyfin users become players", len(jdev) == 2 and all(d["name"].endswith(" on Jellyfin") for d in jdev), str(jdev))
 JC = next(d["id"] for d in jdev if d["plexUser"] == "chet")
 JW = next(d["id"] for d in jdev if d["plexUser"] == "Wife")
+check("the Live Poster tab lists Jellyfin users with the Jellyfin badge (not Zidoo's)",
+      {p["id"]: p["kind"] for p in http("GET", RELAY + "/api/live")["players"]}.get(JC) == "jellyfin")
 check("Jellyfin users show as on", wait_for(lambda: all(d["online"] for d in http("GET", RELAY + "/api/state")["devices"] if d["kind"] == "jellyfin"), 15))
 jids = jfmock("ids")
 J_ARR, J_E04 = jids["Arrival (2016).mkv"], jids["Andor - S01E04.mkv"]

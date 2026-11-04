@@ -174,7 +174,7 @@ public static class PlexApi
             var outside = mapped.Where(x => x.Url == null).Select(x => Path.GetDirectoryName(x.Plex.Replace('\\', '/'))?.Replace('\\', '/') ?? "")
                 .GroupBy(x => x).OrderByDescending(g => g.Count()).Take(5).Select(g => g.Key).ToList();
 
-            var zidoo = store.Devices().FirstOrDefault(d => !d.IsPlex && d.Enabled && engine.LiveOf(d.Id).Online);
+            var zidoo = store.Devices().FirstOrDefault(d => !d.IsServerUser && d.Enabled && engine.LiveOf(d.Id).Online);
             var samples = new List<object>();
             int found = 0, asked = 0;
             if (zidoo != null)

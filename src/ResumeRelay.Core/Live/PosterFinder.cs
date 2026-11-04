@@ -175,7 +175,9 @@ public sealed class PosterFinder
         }
         if (thumb.Length == 0) return null;
         var bytes = await plex.OriginalImageAsync(thumb, ct);
-        return bytes == null ? null : Save(label.ToLowerInvariant() + "|" + thumb, bytes, tv ? $"{label} series poster" : label);
+        // A season's own poster is only ever asked for by its path (Feature Presentation); the rest is the series poster.
+        string what = !tv ? label : r.PlexThumb.Length > 0 && r.IsEpisode && !r.SeriesOnly ? $"{label} season poster" : $"{label} series poster";
+        return bytes == null ? null : Save(label.ToLowerInvariant() + "|" + thumb, bytes, what);
     }
 
     private async Task<PosterResult?> ZidooPosterAsync(PosterRequest r, bool tv, CancellationToken ct)

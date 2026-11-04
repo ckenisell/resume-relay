@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Resume Relay</title>
+<link rel="icon" type="image/png" href="/icon-64.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <style>
 :root {
   --bg: #151A2E;
@@ -54,7 +57,8 @@ header {
   display: flex; flex-wrap: wrap; align-items: center; gap: 16px 24px;
   padding: 22px clamp(16px, 4vw, 40px) 0;
 }
-h1 { margin: 0; font-size: 26px; font-weight: 750; letter-spacing: -0.02em; }
+h1 { margin: 0; font-size: 26px; font-weight: 750; letter-spacing: -0.02em; display: flex; align-items: center; gap: 12px; }
+h1 .logo { width: 44px; height: 44px; flex: none; }
 h1 small { display: block; font-size: 13px; font-weight: 400; color: var(--muted); letter-spacing: 0; }
 .mode {
   margin-left: auto; display: flex; align-items: center; gap: 12px; cursor: pointer; user-select: none;
@@ -404,6 +408,41 @@ a.btn { text-decoration: none; color: var(--text); display: inline-flex; align-i
 .lp-step.done .lp-bar i { background: var(--ok, #4caf50); }
 .lp-prev.lp-loading::after { content: "Loading…"; position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 13px; }
 .lp-now .btn.quiet { padding: 0 6px; font-size: 12px; vertical-align: 1px; color: var(--amber); }
+.lp-head { display: flex; align-items: center; gap: 14px; margin: 0 0 14px; }
+.lp-head .hint { margin: 0; }
+.lp-logo { width: 40px; height: 52px; flex: none; }
+.lp-feat { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.lp-feat .poster { width: 44px; height: 66px; flex: none; border-radius: 4px; border: 1px solid var(--line); background: #000 center / cover no-repeat; }
+.lp-feat .poster.none { background: var(--panel-2); border-style: dashed; }
+.lp-feat .t { font-size: 13px; min-width: 0; }
+.lp-feat .t b { display: block; font-size: 12.5px; color: var(--muted); font-weight: 600; }
+.lp-feat .t span { display: block; overflow-wrap: anywhere; }
+.lp-feat .btn { font-size: 12.5px; padding: 4px 10px; margin-top: 4px; }
+.lp-feats { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; }
+.lp-feats figure { margin: 0; width: 110px; }
+.lp-feats img, .lp-feats .none { width: 110px; height: 165px; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); display: block; background: #000; }
+.lp-feats .none { background: var(--panel-2); border-style: dashed; display: grid; place-items: center; font-size: 12px; text-align: center; padding: 8px; box-sizing: border-box; }
+.lp-feats figcaption { font-size: 12px; margin-top: 4px; }
+.lp-feats figcaption b { display: block; color: var(--text); font-weight: 600; }
+dialog.fp { width: min(640px, calc(100vw - 32px)); max-width: none; }
+dialog.fp p { margin: 0 0 8px; }
+#fp-search { width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--line); background: var(--panel-2); color: var(--text); font: inherit; font-size: 14px; }
+.fp-count { font-size: 12.5px; color: var(--muted); margin: 6px 0 0; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; }
+.fp-count button { border: 0; background: none; color: var(--amber); cursor: pointer; font: inherit; padding: 0; }
+.fp-list { height: min(46vh, 420px); overflow: auto; border: 1px solid var(--line); border-radius: var(--radius-sm); margin: 8px 0; background: var(--panel-2); }
+.fp-list label { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-bottom: 1px solid var(--line); cursor: pointer; font-size: 13.5px; }
+.fp-list label:last-child { border-bottom: 0; }
+.fp-list label:hover { background: color-mix(in srgb, var(--text) 5%, transparent); }
+.fp-list label:has(input:checked) { background: color-mix(in srgb, var(--amber) 16%, var(--panel-2)); }
+.fp-list input { accent-color: var(--amber); margin: 0; flex: none; }
+.fp-list .n { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.fp-list small { color: var(--muted); flex: none; }
+.fp-list .empty { padding: 18px; text-align: center; color: var(--muted); font-size: 13px; }
+.fp-pager { display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 13px; color: var(--muted); }
+.fp-pager .btn { font-size: 12.5px; padding: 4px 10px; }
+.fp-season { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0 0; font-size: 13.5px; }
+.fp-season select { padding: 6px 8px; border-radius: var(--radius-sm); border: 1px solid var(--line); background: var(--panel-2); color: var(--text); font: inherit; font-size: 13.5px; }
+dialog.fp .row { margin-top: 14px; }
 .lp-field { display: block; font-size: 12.5px; font-weight: 600; margin: 8px 0 4px; color: var(--muted); }
 .lp-players { display: flex; flex-wrap: wrap; gap: 6px; }
 .lp-players label { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px 3px 8px; font-size: 13px; cursor: pointer; background: var(--panel-2); }
@@ -643,7 +682,8 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
 @media (max-width: 600px) {
   /* A compact top bar on phones: the title, and the copying switch at the top right. */
   header { padding-top: 12px; gap: 10px; flex-wrap: nowrap; }
-  h1 { font-size: 20px; }
+  h1 { font-size: 20px; gap: 9px; }
+  h1 .logo { width: 32px; height: 32px; }
   h1 small { display: none; }
   .mode { padding: 5px 8px 5px 12px; gap: 8px; }
   .mode-text span { display: none; }
@@ -672,7 +712,7 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
 <body>
 <div class="topbar">
 <header>
-  <h1>Resume Relay<small>Stop in one room, resume in another.</small></h1>
+  <h1><img class="logo" src="/icon-192.png" alt="" width="44" height="44"><span>Resume Relay<small>Stop in one room, resume in another.</small></span></h1>
   <label class="mode" id="mode" aria-live="polite"></label>
 </header>
 
@@ -767,8 +807,13 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
   </section>
 
   <section id="live" role="tabpanel" aria-labelledby="tab-live" hidden>
-    <h2>Live Poster<button class="help" data-help="live" aria-label="About Live Poster">?</button></h2>
-    <p class="hint">A TV or tablet outside a room shows the poster of what that room is playing, over a background, and a slideshow when nothing is. Resume Relay makes each picture into a 4K video, and the screen app plays it.</p>
+    <div class="lp-head">
+      <svg class="lp-logo" viewBox="0 0 40 52" aria-hidden="true"><rect width="40" height="52" rx="4" fill="#F0B44C"/><rect x="3" y="5" width="34" height="42" fill="#151A2E"/><path d="M15 16l14 10-14 10z" fill="#F0B44C"/></svg>
+      <div>
+        <h2>Live Poster<button class="help" data-help="live" aria-label="About Live Poster">?</button></h2>
+        <p class="hint">A TV or tablet outside a room shows the poster of what that room is playing, over a background, and a slideshow when nothing is. Resume Relay makes each picture into a 4K video, and the screen app plays it.</p>
+      </div>
+    </div>
     <div class="lp-status" id="lp-status" role="status"></div>
 
     <div class="lp-sec">
@@ -913,6 +958,11 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
             <button class="help" data-help="ratingbadges" aria-label="About rating badges">?</button></div>
           <div id="rating-rows"></div>
         </div>
+        <div class="st stack">
+          <div class="row"><span class="st-l st-t">Community</span></div>
+          <div class="row"><span class="st-d">News, help and ideas from other Resume Relay users.</span></div>
+          <div class="row"><a class="btn" id="set-discord" href="https://discord.gg/wqxfxFBDpd" target="_blank" rel="noopener">Join our Discord</a></div>
+        </div>
         <div class="sg-col">
           <div class="st" id="autostart-row" hidden>
             <input type="checkbox" class="tg" id="autostart">
@@ -951,6 +1001,20 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
   <h3 id="info-h"></h3>
   <div class="info-body" id="info-body"></div>
   <div class="row"><button class="btn" id="info-close" type="button">Close</button></div>
+</dialog>
+<dialog class="confirm fp" id="fp-dialog" aria-labelledby="fp-h">
+  <h3 id="fp-h">Select a title</h3>
+  <p class="st-d" id="fp-for"></p>
+  <input type="search" id="fp-search" placeholder="Search titles" aria-label="Search titles" autocomplete="off">
+  <div class="fp-count" id="fp-count" role="status"></div>
+  <div class="fp-list" id="fp-list" role="radiogroup" aria-label="Titles"></div>
+  <div class="fp-pager" id="fp-pager"></div>
+  <div class="fp-season" id="fp-season" hidden></div>
+  <p class="msg" id="fp-msg" role="status" style="margin:8px 0 0"></p>
+  <div class="row">
+    <button class="btn" id="fp-cancel" type="button">Cancel</button>
+    <button class="btn go" id="fp-ok" type="button" disabled>OK</button>
+  </div>
 </dialog>
 <dialog class="confirm" id="reset-dialog" aria-labelledby="reset-h">
   <h3 id="reset-h">Reset Progress</h3>
@@ -2539,7 +2603,7 @@ const HELP = {
   live: ["Live Poster", `<p>Each <b>screen</b> is a TV, stick or tablet running the Resume Relay app (or the web page at <code>/screen</code>). Tick the players it follows: when one of them plays something, the screen shows that title's poster; when none is, it shows the slideshow.</p>
     <p><b>Mounted:</b> TVs and sticks always send a landscape picture, so a TV hung upright is turned on its side. Tell Resume Relay which way (where the top of the TV is now), and press <b>Test picture</b>: the arrow should point up. A tablet held upright is "Upright".</p>
     <p><b>4K:</b> stick and TV apps draw their own pictures at 1080p but play video at 4K, so Resume Relay sends every picture as a short 4K video. Making one takes a few seconds (longer with a video background); each is made once and kept. Use 1080p for screens that can't play 4K video.</p>`],
-  slideshow: ["Slideshow", `<p><b>Coming Soon</b>: the posters you add here. <b>Recently Watched</b>: the last 10 titles stopped on the screen's players. <b>Highly Acclaimed</b>: movies and whole series rated at least the minimum (the IMDb rating when Plex has it), 10 per round so they don't crowd out the others.</p>
+  slideshow: ["Slideshow", `<p><b>Coming Soon</b>: the posters you add here. <b>Recently Watched</b>: the last 10 titles stopped on the screen's players. <b>Highly Acclaimed</b>: movies and whole series rated at least the minimum (the IMDb rating when Plex has it), 10 per round so they don't crowd out the others. <b>Feature Presentation</b>: one title each screen chooses for itself (on its card), once per round. To show only that title, turn the other sets off on the screen's card.</p>
     <p>Each screen shows the sets ticked on its card (one screen can show Coming Soon while another shows Highly Acclaimed). They take turns, each with its own background, and the posters fade in and out.</p>`],
   backgrounds: ["Backgrounds", `<p>A background fills the whole screen around the poster. Design it at <b>2160×3840</b> (portrait) and keep the poster's place clear: the poster is <b>2000×3000</b>, centered across and set low: <b>80 px</b> at each side, <b>750 px</b> above it for "NOW SHOWING" and the like, and <b>90 px</b> below.</p>
     <p><b>In front of the poster:</b> a PNG or WebP with a see-through (transparent) window where the poster goes is placed <i>in front of</i> the poster, so the window's frame, shadows and glows fall on it. The built-in designs work this way. A background with no see-through parts (a JPG, an MP4, a solid PNG) goes behind the poster.</p>
@@ -2686,8 +2750,8 @@ $("#set-restore").addEventListener("change", async e => {
 
 // ---------------- Live Poster ----------------
 let live = null, liveTimer = 0;
-const SET_NAME = { coming: "Coming Soon", recent: "Recently Watched", acclaimed: "Highly Acclaimed", added: "Recently Added" };
-const SET_KEY = { comingSoon: "coming", recentlyWatched: "recent", acclaimed: "acclaimed" };
+const SET_NAME = { coming: "Coming Soon", recent: "Recently Watched", acclaimed: "Highly Acclaimed", feature: "Feature Presentation", added: "Recently Added" };
+const SET_KEY = { comingSoon: "coming", recentlyWatched: "recent", acclaimed: "acclaimed", feature: "feature" };
 // The preview on each screen card: the real video the screen gets, when this browser can play it (H.264 almost
 // everywhere; HEVC in Safari, and in Chrome, Edge and Brave when the computer's graphics can decode it). Otherwise a
 // still that steps through the slideshow's posters, one every 4 seconds (Now Playing: its one picture).
@@ -2755,7 +2819,9 @@ function lpFolds() {
 }
 lpFolds();
 const MOUNTS = [["right", "TV on its side, top on the right"], ["left", "TV on its side, top on the left"], ["portrait", "Upright (tablet, phone)"]];
-const SETS = [["comingSoon", "Coming Soon"], ["recentlyWatched", "Recently Watched"], ["acclaimed", "Highly Acclaimed"]];
+const SETS = [["comingSoon", "Coming Soon"], ["recentlyWatched", "Recently Watched"], ["acclaimed", "Highly Acclaimed"], ["feature", "Feature Presentation"]];
+// A screen's Feature Presentation poster (its card, and the set's card): the address changes when the title does.
+const featPoster = s => `/api/live/screens/${encodeURIComponent(s.id)}/feature/poster?v=${encodeURIComponent(s.feature?.chosenUtc || "")}`;
 const busyIn = el => el && el.contains(document.activeElement) && document.activeElement.matches("input, select, textarea");
 function setHtml(el, html) { if (el.dataset.html !== html && !busyIn(el)) { el.innerHTML = html; el.dataset.html = html; } }
 async function loadLive() {
@@ -2821,6 +2887,8 @@ function renderLive() {
       <div class="lp-players">${players.map(p => `<label><input type="checkbox" data-lp-player="${esc(p.id)}"${s.players.includes(p.id) ? " checked" : ""}>${kindBadge(p.kind, true)}${esc(p.name)}</label>`).join("") || `<small>No players yet.</small>`}</div>
       <span class="lp-field">Slideshow</span>
       <div class="lp-sets-on">${SETS.map(([key, name]) => { const k = SET_KEY[key]; return `<label><input type="checkbox" class="lp-sw" data-lp-showset="${k}"${(s.sets || []).includes(k) ? " checked" : ""}>${name}</label>`; }).join("")}</div>
+      <div class="lp-feat">${s.feature ? `<img class="poster" alt="" src="${featPoster(s)}" onerror="this.className='poster none';this.removeAttribute('src')">` : `<span class="poster none"></span>`}
+        <div class="t"><b>Feature Presentation</b><span>${s.feature ? esc(s.feature.display) : "No title chosen yet"}</span><button class="btn" data-lp-feature>Select a title</button></div></div>
       <span class="lp-field">Mounted</span>
       <div class="lp-row"><select data-lp-mount aria-label="How it's mounted">${MOUNTS.map(([v, t]) => `<option value="${v}"${s.mount === v ? " selected" : ""}>${t}</option>`).join("")}</select>
         <select data-lp-res aria-label="Resolution"><option value="4k"${s.resolution === "4k" ? " selected" : ""}>4K</option><option value="1080"${s.resolution === "1080" ? " selected" : ""}>1080p</option></select>
@@ -2853,6 +2921,10 @@ function renderLive() {
           <input type="text" value="${esc(p.title)}" data-lp-ctitle aria-label="Title">
           <div class="lp-mini"><span><button data-lp-up${i === 0 ? " disabled" : ""} title="Earlier" aria-label="Move earlier">◀</button><button data-lp-down${i === L.coming.length - 1 ? " disabled" : ""} title="Later" aria-label="Move later">▶</button></span><button class="del" data-lp-cdel title="Remove" aria-label="Remove">✕</button></div></figure>`).join("")}
           <label class="lp-add">+ Add posters<input type="file" id="lp-coming-file" accept="image/png,image/jpeg,image/webp" multiple hidden></label></div><p class="lp-progress" id="lp-coming-progress"></p>`
+      : key === "feature"
+      ? `One title of each screen's own, once per round (a TV show as one season, with its season poster). Choose it with <b>Select a title</b> on the screen's card above.
+         ${L.screens.length ? `<div class="lp-feats">${L.screens.map(sc => `<figure>${sc.feature ? `<img alt="" src="${featPoster(sc)}">` : `<span class="none">No title chosen</span>`}
+           <figcaption><b>${esc(sc.name)}</b>${sc.feature ? esc(sc.feature.display) : ""}${(sc.sets || []).includes("feature") ? "" : " (switched off)"}</figcaption></figure>`).join("")}</div>` : ""}`
       : key === "recentlyWatched"
       ? `The last 10 titles stopped on each screen's players (a TV show once).
          <span class="lp-row" style="margin-top:6px"><button class="btn quiet" id="lp-recent-list">See the titles</button></span>`
@@ -2961,6 +3033,7 @@ $("#live").addEventListener("click", async e => {
         <td>${esc(t.title)}</td><td class="b">${esc(SET_NAME[t.set] || t.set)}</td>
         ${t.score > 0 ? `<td class="n">${t.score.toFixed(1)}</td><td>${t.from ? kindBadge(t.from, true) : ""}</td><td>${ratingBadge(t.source)}</td>` : `<td class="n none">—</td><td></td><td></td>`}</tr>`).join("")}</tbody></table></div>`);
   }
+  if (b.matches("[data-lp-feature]")) return featPick(id, card.querySelector("[data-lp-rename]").value);
   if (b.matches("[data-lp-test]")) { await api("POST", `/api/live/screens/${encodeURIComponent(id)}/test`); toast("The test picture shows on the screen for 30 seconds."); return loadLive(); }
   if (b.matches("[data-lp-remove]")) return confirmReset("Remove screen", `Remove <b>${esc(card.querySelector("[data-lp-rename]").value)}</b>? Its app goes back to showing a code, and can be added again.`,
     async () => { await api("DELETE", `/api/live/screens/${encodeURIComponent(id)}`); loadLive(); });
@@ -3015,6 +3088,84 @@ $("#live").addEventListener("click", async e => {
   }
   if (b.id === "lp-forget") { await api("POST", "/api/live/posters/forget"); toast("Posters will be looked for again."); return loadLive(); }
 });
+
+// ---- Feature Presentation: "Select a title". One entry per movie and per show (from Plex, Jellyfin and a Zidoo's
+// poster wall), searchable, 500 to a page; a show then asks for its season. OK saves it for that screen.
+const FP_PAGE = 500;
+const fp = { screen: "", titles: [], shown: [], page: 0, pick: null, seasons: null, note: "" };
+const fpFold = t => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+async function featPick(screenId, screenName) {
+  Object.assign(fp, { screen: screenId, page: 0, pick: null, seasons: null });
+  $("#fp-for").textContent = `For ${screenName}. It shows once per round, over the Feature Presentation background.`;
+  $("#fp-search").value = ""; say($("#fp-msg"), "");
+  $("#fp-season").hidden = true; $("#fp-ok").disabled = true;
+  $("#fp-list").innerHTML = `<div class="empty">Reading the libraries…</div>`; $("#fp-count").textContent = ""; $("#fp-pager").innerHTML = "";
+  $("#fp-dialog").showModal(); $("#fp-search").focus();
+  await fpLoad(false);
+}
+async function fpLoad(fresh) {
+  try {
+    const r = await api("GET", "/api/live/feature/titles" + (fresh ? "?fresh=true" : ""));
+    fp.titles = r.titles.map(t => ({ ...t, key: fpFold(t.title) }));
+    fp.note = r.note;
+  } catch (err) { fp.titles = []; fp.note = err.message; }
+  fpFilter();
+}
+function fpFilter() {
+  const words = fpFold($("#fp-search").value.trim()).split(/\s+/).filter(Boolean);
+  fp.shown = words.length ? fp.titles.filter(t => words.every(w => t.key.includes(w) || String(t.year) === w)) : fp.titles;
+  fp.page = 0; fpDraw();
+}
+function fpDraw() {
+  const pages = Math.max(1, Math.ceil(fp.shown.length / FP_PAGE));
+  fp.page = Math.min(fp.page, pages - 1);
+  const rows = fp.shown.slice(fp.page * FP_PAGE, (fp.page + 1) * FP_PAGE);
+  const filtered = fp.shown.length !== fp.titles.length;
+  $("#fp-count").innerHTML = `<span>${filtered ? `${fp.shown.length.toLocaleString()} of ` : ""}${esc(fp.note)}</span><button type="button" id="fp-reread">Read the libraries again</button>`;
+  $("#fp-list").innerHTML = rows.length ? rows.map(t => `<label><input type="radio" name="fp-pick" value="${esc(t.id)}"${fp.pick?.id === t.id ? " checked" : ""}>
+      <span class="n">${esc(t.title)}${t.year > 0 ? ` (${t.year})` : ""}</span><small>${t.kind === "show" ? "TV show" : "Movie"}</small>${kindBadge(t.from, true)}</label>`).join("")
+    : `<div class="empty">${fp.titles.length ? "No titles match." : "No titles found. Is Plex, Jellyfin or a Zidoo on?"}</div>`;
+  $("#fp-list").scrollTop = 0;
+  $("#fp-pager").innerHTML = pages > 1 ? `<button class="btn quiet" type="button" data-fp-page="-1"${fp.page === 0 ? " disabled" : ""}>Previous</button>
+      <span>Page ${fp.page + 1} of ${pages}</span><button class="btn quiet" type="button" data-fp-page="1"${fp.page === pages - 1 ? " disabled" : ""}>Next</button>` : "";
+}
+async function fpChoose(id) {
+  const t = fp.titles.find(x => x.id === id); if (!t) return;
+  fp.pick = t; fp.seasons = null; say($("#fp-msg"), "");
+  const box = $("#fp-season");
+  if (t.kind !== "show") { box.hidden = true; $("#fp-ok").disabled = false; return; }
+  // A TV show: which season (its poster is the one shown).
+  $("#fp-ok").disabled = true; box.hidden = false;
+  box.innerHTML = `<span>Season of <b>${esc(t.title)}</b>:</span><span class="st-d">Reading its seasons…</span>`;
+  try {
+    const seasons = await api("GET", "/api/live/feature/seasons?id=" + encodeURIComponent(id));
+    if (fp.pick !== t) return;
+    if (!seasons.length) { box.innerHTML = `<span>No seasons with episodes were found for <b>${esc(t.title)}</b>.</span>`; return; }
+    fp.seasons = seasons;
+    const first = seasons.find(x => x.season > 0) || seasons[0];
+    box.innerHTML = `<label for="fp-season-pick">Season of <b>${esc(t.title)}</b>:</label><select id="fp-season-pick">${seasons.map(x => `<option value="${x.season}"${x === first ? " selected" : ""}>${esc(x.name)}</option>`).join("")}</select><span class="st-d">Its season poster is shown.</span>`;
+    $("#fp-ok").disabled = false;
+  } catch (err) { if (fp.pick === t) box.innerHTML = `<span style="color:var(--bad)">${esc(err.message)}</span>`; }
+}
+$("#fp-search").addEventListener("input", fpFilter);
+$("#fp-list").addEventListener("change", e => { if (e.target.name === "fp-pick") fpChoose(e.target.value); });
+$("#fp-dialog").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  if (b.dataset.fpPage) { fp.page += +b.dataset.fpPage; fpDraw(); return; }
+  if (b.id === "fp-reread") { $("#fp-list").innerHTML = `<div class="empty">Reading the libraries…</div>`; fpLoad(true); }
+});
+$("#fp-cancel").onclick = () => $("#fp-dialog").close();
+$("#fp-ok").onclick = async () => {
+  if (!fp.pick) return;
+  const season = fp.pick.kind === "show" ? +($("#fp-season-pick")?.value ?? 0) : 0;
+  $("#fp-ok").disabled = true; say($("#fp-msg"), "Saving…");
+  try {
+    await api("PUT", `/api/live/screens/${encodeURIComponent(fp.screen)}/feature`, { id: fp.pick.id, season });
+    $("#fp-dialog").close();
+    toast("Saved. It's in the screen's next slideshow round.");
+    loadLive();
+  } catch (err) { say($("#fp-msg"), err.message, "err"); $("#fp-ok").disabled = false; }
+};
 
 async function refresh() {
   if (busy) return; busy = true;

@@ -595,6 +595,7 @@ public sealed class Renderer
         ("builtin-comingsoon", "Coming Soon", "bg-comingsoon.png"),
         ("builtin-recent", "Recently Watched", "bg-recent.png"),
         ("builtin-acclaimed", "Highly Acclaimed", "bg-acclaimed.png"),
+        ("builtin-feature", "Feature Presentation", "bg-feature.png"),
     };
 
     private Task EnsureBuiltInBackgroundsAsync(CancellationToken ct)

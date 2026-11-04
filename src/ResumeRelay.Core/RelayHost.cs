@@ -138,6 +138,19 @@ public static class RelayHost
         using (var r = new StreamReader(s))
             indexHtml = r.ReadToEnd();
         app.MapGet("/", () => Results.Content(indexHtml, "text/html; charset=utf-8"));
+        // The dashboard's icons (browser tab, home screen, page header): Resume Relay's own, not the screen apps'.
+        foreach (var name in new[] { "icon-64.png", "icon-192.png", "apple-touch-icon.png" })
+        {
+            byte[] png;
+            using (var s = typeof(RelayHost).Assembly.GetManifestResourceStream("web-" + name)!)
+            using (var m = new MemoryStream()) { s.CopyTo(m); png = m.ToArray(); }
+            app.MapGet("/" + name, (HttpContext ctx) =>
+            {
+                ctx.Response.Headers.CacheControl = "public, max-age=86400";
+                return Results.File(png, "image/png");
+            });
+        }
+        app.MapGet("/favicon.ico", () => Results.Redirect("/icon-64.png"));
 
         app.MapGet("/api/state", () =>
         {

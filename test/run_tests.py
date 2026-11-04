@@ -1,5 +1,5 @@
 """End-to-end scenarios for Resume Relay against mock_zidoo.py. Run with the relay on :8090."""
-import json, time, urllib.request, urllib.parse, urllib.error, sys
+import json, re, time, urllib.request, urllib.parse, urllib.error, sys
 
 RELAY = "http://127.0.0.1:8090"
 LR, BR, HT = "127.0.0.2", "127.0.0.3", "127.0.0.4"
@@ -840,7 +840,7 @@ lv = wait_for(lambda: (lambda l: l if l["renderer"]["ready"] else None)(live()),
 check("Live Poster: ffmpeg is found and an encoder works", lv, str(live()["renderer"]))
 bi = {b["name"]: b for b in live()["backgrounds"] if b["builtIn"]}
 check("the built-in backgrounds are the marquee designs, one per set",
-      set(bi) == {"Now Showing", "Coming Soon", "Recently Watched", "Highly Acclaimed"} and all(b["width"] == 2160 and b["height"] == 3840 for b in bi.values()), str(bi))
+      set(bi) == {"Now Showing", "Coming Soon", "Recently Watched", "Highly Acclaimed", "Feature Presentation"} and all(b["width"] == 2160 and b["height"] == 3840 for b in bi.values()), str(bi))
 nas = tempfile.mkdtemp(prefix="rr-nas-")
 os.makedirs(os.path.join(nas, "Movies", "Braveheart"))
 os.makedirs(os.path.join(nas, "TV", "Andor", "Season 01"))
@@ -986,11 +986,49 @@ check("Rebuild slideshow: a new round goes up without waiting for the current on
       wait_for(lambda: state_of()["mode"] == "idle" and (state_of()["version"] != v0 or len(screen_of(sid)["roundTitles"]) > 0), 300),
       str((state_of(), screen_of(sid)["roundTitles"])))
 check("...and the screen card still lists the round's titles", len(screen_of(sid)["roundTitles"]) > 0, str(screen_of(sid)))
-check("a new screen shows every slideshow set", screen_of(sid)["sets"] == ["coming", "recent", "acclaimed"], str(screen_of(sid)))
+check("a new screen shows every slideshow set", screen_of(sid)["sets"] == ["coming", "recent", "acclaimed", "feature"], str(screen_of(sid)))
 http("PATCH", RELAY + f"/api/live/screens/{sid}", {"sets": ["coming"]})
 sc = wait_for(lambda: (lambda x: x if x["roundTitles"] and set(x["roundTitles"]) == {"Test Coming"} else None)(screen_of(sid)), 240)
 check("each screen shows only the sets ticked on its card", sc and screen_of(sid)["sets"] == ["coming"], str(screen_of(sid)))
 check("...and its card doesn't say it's off while it's on", "off" not in screen_of(sid)["note"], str(screen_of(sid)))
+
+# Feature Presentation: one title per screen, chosen from the libraries' titles (one per movie or show, never files).
+ft = http("GET", RELAY + "/api/live/feature/titles")
+fnames = [(t["kind"], t["title"]) for t in ft["titles"]]
+check("Feature Presentation lists titles, not files: each movie and show once", ft["titles"] and len(fnames) == len(set(fnames))
+      and ("show", "Andor") in fnames and any(k == "movie" and n == "Braveheart" for k, n in fnames)
+      and not any(n.lower().endswith((".mkv", ".mp4")) or "S01E" in n for _, n in fnames), str(ft))
+check("...sorted A to Z (ignoring The/A/An)", [t["title"] for t in ft["titles"]] == sorted([t["title"] for t in ft["titles"]],
+      key=lambda n: re.sub(r"^(the|a|an)\s+", "", n, flags=re.I).lower()), str([t["title"] for t in ft["titles"]]))
+andor = next(t for t in ft["titles"] if t["kind"] == "show" and t["title"] == "Andor")
+seas = http("GET", RELAY + "/api/live/feature/seasons?id=" + urllib.parse.quote(andor["id"]))
+check("a show's seasons can be listed", any(x["season"] == 1 and x["name"] == "Season 1" for x in seas), str(seas))
+http("PUT", RELAY + f"/api/live/screens/{sid}/feature", {"id": andor["id"], "season": 1})
+check("choosing a show and season makes it the screen's Feature Presentation",
+      (screen_of(sid)["feature"] or {}).get("display") == "Andor: Season 1", str(screen_of(sid)["feature"]))
+check("...and the set's background is the Feature Presentation design", live()["config"]["feature"]["backgroundId"] == "builtin-feature")
+with urllib.request.urlopen(RELAY + f"/api/live/screens/{sid}/feature/poster", timeout=60) as r:
+    fp = r.read()
+check("...whose poster (the season's) shows on the card", r.headers.get("Content-Type", "").startswith("image/") and len(fp) > 50, str(r.headers.get("Content-Type")))
+http("PATCH", RELAY + f"/api/live/screens/{sid}", {"sets": ["coming", "feature"]})
+sc = wait_for(lambda: (lambda x: x if x["roundTitles"] and set(x["roundTitles"]) == {"Test Coming", "Andor: Season 1"} else None)(screen_of(sid)), 300)
+check("the Feature Presentation shows in the slideshow, once per round", sc and sc["roundTitles"].count("Andor: Season 1") == sc["roundTitles"].count("Test Coming")
+      and http("GET", RELAY + f"/api/live/screens/{sid}/titles")["titles"][1]["set"] == "feature", str(screen_of(sid)))
+brave = next(t for t in ft["titles"] if t["kind"] == "movie" and t["title"] == "Braveheart")
+http("PUT", RELAY + f"/api/live/screens/{sid}/feature", {"id": brave["id"], "season": 0})
+sc = wait_for(lambda: (lambda x: x if x["roundTitles"] and any(t.startswith("Braveheart") for t in x["roundTitles"]) and "Andor: Season 1" not in x["roundTitles"] else None)(screen_of(sid)), 300)
+check("choosing another title replaces it", sc, str(screen_of(sid)))
+try:
+    http("PUT", RELAY + f"/api/live/screens/{sid}/feature", {"id": "plex:999999", "season": 0})
+    bad = False
+except urllib.error.HTTPError as e:
+    bad = e.code == 400
+check("...and a title that isn't in the libraries is refused", bad)
+http("PATCH", RELAY + f"/api/live/screens/{sid}", {"sets": ["coming"]})
+sc = wait_for(lambda: (lambda x: x if x["roundTitles"] and set(x["roundTitles"]) == {"Test Coming"} else None)(screen_of(sid)), 300)
+check("with its switch off, the screen keeps its title but doesn't show it", sc and screen_of(sid)["feature"], str(screen_of(sid)))
+http("DELETE", RELAY + f"/api/live/screens/{sid}/feature")
+check("...and the title can be cleared", screen_of(sid)["feature"] is None)
 http("DELETE", RELAY + f"/api/live/coming/{cid}")
 http("DELETE", RELAY + f"/api/live/screens/{sid}")
 try:

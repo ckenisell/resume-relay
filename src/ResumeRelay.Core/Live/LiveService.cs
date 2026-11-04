@@ -12,13 +12,14 @@ namespace ResumeRelay.Live;
 /// Decides what every screen shows, about once a second:
 ///  • something is playing (or paused) on one of its players → that title's poster over the Now Playing background;
 ///    after a stop it stays up for the "wait after a stop" time;
-///  • otherwise the slideshow: Coming Soon, Recently Watched and Highly Acclaimed take turns (each on/off, each with its
-///    own background), 10 Highly Acclaimed titles per round so a big library doesn't crowd out the others.
+///  • otherwise the slideshow: Coming Soon, Recently Watched, Highly Acclaimed and Feature Presentation take turns (each
+///    on/off per screen, each with its own background), 10 Highly Acclaimed titles per round so a big library doesn't
+///    crowd out the others, and the screen's one Feature Presentation title once per round.
 /// A screen app asks for its state every couple of seconds and plays the video it's given; when a slideshow round
 /// ends it says so and gets the next round.
 /// It also answers screen apps looking for Resume Relay on the network (a UDP broadcast on port 47090).
 /// </summary>
-public sealed class LiveService : BackgroundService
+public sealed partial class LiveService : BackgroundService
 {
     public const int DiscoveryPort = 47090;
     private const int AcclaimedPerRound = 10;
@@ -351,12 +352,18 @@ public sealed class LiveService : BackgroundService
     public static readonly TimeSpan AwakeFor = TimeSpan.FromSeconds(
         int.TryParse(Environment.GetEnvironmentVariable("RESUMERELAY_SCREEN_AWAKE"), out var a) && a > 0 ? a : 120);
     /// <summary>The slideshow sets, in their turn order.</summary>
-    public static readonly string[] SetKeys = { "coming", "recent", "acclaimed" };
+    public static readonly string[] SetKeys = { "coming", "recent", "acclaimed", "feature" };
 
     /// <summary>Whether a screen shows a slideshow set (each screen has its own; older ones follow the old all-screens switches).</summary>
     public static bool Shows(LiveScreen s, LiveConfig cfg, string set) =>
         s.Sets != null ? s.Sets.Contains(set)
-        : set switch { "coming" => cfg.ComingSoon.Enabled, "recent" => cfg.RecentlyWatched.Enabled, _ => cfg.Acclaimed.Enabled };
+        : set switch { "coming" => cfg.ComingSoon.Enabled, "recent" => cfg.RecentlyWatched.Enabled, "acclaimed" => cfg.Acclaimed.Enabled, _ => false };
+
+    /// <summary>A set's shared settings (its background).</summary>
+    public static LiveSet SetOf(LiveConfig cfg, string set) => set switch
+    {
+        "coming" => cfg.ComingSoon, "recent" => cfg.RecentlyWatched, "acclaimed" => cfg.Acclaimed, "feature" => cfg.Feature, _ => cfg.NowPlaying,
+    };
 
     public static bool Awake(ScreenRuntime rt) => rt.LastSeenUtc is { } seen && DateTime.UtcNow - seen < AwakeFor;
 
@@ -466,6 +473,9 @@ public sealed class LiveService : BackgroundService
             var all = _acclaimed;
             sets.Add(Enumerable.Range(0, all.Count).OrderBy(_ => rnd.Next()).Take(AcclaimedPerRound).Select(i => all[i]).ToList());
         }
+        // Feature Presentation: the screen's own title, once per round.
+        if (Shows(s, cfg, "feature") && s.Feature is { } f)
+            sets.Add(new() { new SlideItem("feature", f.Display, FeatureRequest(f), null) });
         // The sets take turns, one poster each (Coming Soon 1, Recently Watched 1, Highly Acclaimed 1, Coming Soon 2…);
         // a set that runs out drops out of the turns.
         var items = new List<SlideItem>();
@@ -516,7 +526,7 @@ public sealed class LiveService : BackgroundService
                 poster = t.IsCompletedSuccessfully ? t.Result?.Path : null;
             }
             if (poster == null) continue; // no poster anywhere: left out
-            var setCfg = it.Set switch { "coming" => cfg.ComingSoon, "recent" => cfg.RecentlyWatched, _ => cfg.Acclaimed };
+            var setCfg = SetOf(cfg, it.Set.StartsWith("recent", StringComparison.Ordinal) ? "recent" : it.Set);
             var slide = _renderer.SlideAsync(Background(cfg, setCfg.BackgroundId), poster, s.Mount, s.Resolution, CodecOf(s), cfg.SlideSeconds);
             if (!slide.IsCompleted) { waiting++; continue; }
             if (slide.IsCompletedSuccessfully && slide.Result != null) { slides.Add(slide.Result); titles.Add(it.Title); shown.Add(it); }
@@ -567,7 +577,7 @@ public sealed class LiveService : BackgroundService
         }
         // Nothing made yet (or no posters at all): a background on its own.
         var firstKey = SetKeys.FirstOrDefault(k => Shows(s, cfg, k));
-        var firstSet = firstKey switch { "coming" => cfg.ComingSoon, "recent" => cfg.RecentlyWatched, "acclaimed" => cfg.Acclaimed, _ => cfg.NowPlaying };
+        var firstSet = SetOf(cfg, firstKey ?? "");
         var plain = _renderer.HoldAsync(Background(cfg, firstSet.BackgroundId), null, s.Mount, s.Resolution, CodecOf(s), priority: 1);
         if (plain.IsCompletedSuccessfully && plain.Result != null)
         {

@@ -125,8 +125,9 @@ Tomatoes) is never used.
 
 A TV, stick or tablet hung outside a room shows the poster of what that room is playing, over a background of your
 own design ("NOW SHOWING"…), and a slideshow when nothing is: **Coming Soon** (posters you add), **Recently Watched**
-and **Highly Acclaimed** (movies and series rated 8.0 or higher: Plex's ratings, or without Plex the Zidoo's, IMDb for
-movies and TMDB for series; 10 picked at random each round). Set it all up on the **Live Poster** tab.
+**Highly Acclaimed** (movies and series rated 8.0 or higher: Plex's ratings, or without Plex the Zidoo's, IMDb for
+movies and TMDB for series; 10 picked at random each round) and **Feature Presentation** (one movie, or one season of a
+TV show, that each screen chooses for itself, once per round). Set it all up on the **Live Poster** tab.
 
 - **4K:** stick and TV apps draw their own pictures at 1080p but play video at 4K, so Resume Relay turns each picture
   into a short 4K video (with ffmpeg, on the computer's video hardware when it can) and the screen app plays it.

@@ -15,6 +15,30 @@ public static class ZidooRatings
 
     public static async Task<List<Rated>> ReadAsync(ZidooClient api, double min, CancellationToken ct)
     {
+        var (movies, series) = await WallAsync(api, ct);
+
+        var result = new List<Rated>();
+        foreach (var m in movies.DistinctBy(m => m.Id).Where(m => m.Rating >= min - 1e-9))
+        {
+            string url = await FirstFileAsync(api, m.Id, ct);
+            if (url.Length > 0) result.Add(new Rated(m.Id, "movie", m.Name, m.Year, m.Rating, "IMDb", url));
+        }
+        foreach (var sr in series.DistinctBy(x => x.Id))
+        {
+            var (score, name) = await SeriesRatingAsync(api, sr.Id, ct);
+            if (score < min - 1e-9) continue;
+            string url = await FirstFileAsync(api, sr.Id, ct);
+            if (url.Length > 0) result.Add(new Rated(sr.Id, "show", name.Length > 0 ? name : sr.Name, sr.Year, score, "TMDB", url));
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Every movie and series on the poster wall (page by page; collections opened): one entry per movie and one per
+    /// series, never their files. A series is type 3, or 4 for a one-season show the wall lists as its season.
+    /// </summary>
+    public static async Task<(List<LibraryRow> Movies, List<LibraryRow> Series)> WallAsync(ZidooClient api, CancellationToken ct)
+    {
         // 1. The poster wall, page by page (some players repeat the first page instead of ending).
         var tiles = new List<LibraryRow>();
         var seen = new HashSet<int>();
@@ -43,21 +67,7 @@ public static class ZidooRatings
             }
         }
         foreach (var t in tiles) await Expand(t, 0);
-
-        var result = new List<Rated>();
-        foreach (var m in movies.DistinctBy(m => m.Id).Where(m => m.Rating >= min - 1e-9))
-        {
-            string url = await FirstFileAsync(api, m.Id, ct);
-            if (url.Length > 0) result.Add(new Rated(m.Id, "movie", m.Name, m.Year, m.Rating, "IMDb", url));
-        }
-        foreach (var sr in series.DistinctBy(x => x.Id))
-        {
-            var (score, name) = await SeriesRatingAsync(api, sr.Id, ct);
-            if (score < min - 1e-9) continue;
-            string url = await FirstFileAsync(api, sr.Id, ct);
-            if (url.Length > 0) result.Add(new Rated(sr.Id, "show", name.Length > 0 ? name : sr.Name, sr.Year, score, "TMDB", url));
-        }
-        return result;
+        return (movies.DistinctBy(m => m.Id).ToList(), series.DistinctBy(x => x.Id).ToList());
     }
 
     /// <summary>A series' TMDB rating and name, from its details ("tv" section). (0, "") when there's none.</summary>
@@ -77,7 +87,7 @@ public static class ZidooRatings
 
     /// <summary>The Zidoos' path of one of a title's files: for a movie its main file (the one highest in the folder,
     /// not an extra in a subfolder), for a series any episode. "" when none is found.</summary>
-    private static async Task<string> FirstFileAsync(ZidooClient api, int id, CancellationToken ct)
+    public static async Task<string> FirstFileAsync(ZidooClient api, int id, CancellationToken ct)
     {
         for (int depth = 0, cur = id; depth < 4 && cur > 0; depth++)
         {

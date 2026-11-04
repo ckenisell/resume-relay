@@ -19,6 +19,9 @@ public sealed class LiveConfig
     public LiveSet ComingSoon { get; set; } = new() { Enabled = true, BackgroundId = "builtin-comingsoon" };
     public LiveSet RecentlyWatched { get; set; } = new() { Enabled = true, BackgroundId = "builtin-recent" };
     public LiveSet Acclaimed { get; set; } = new() { Enabled = true, BackgroundId = "builtin-acclaimed" };
+    /// <summary>Feature Presentation: one title each screen picks for itself (LiveScreen.Feature), once per round.
+    /// Only its background is shared.</summary>
+    public LiveSet Feature { get; set; } = new() { Enabled = true, BackgroundId = "builtin-feature" };
 
     /// <summary>Where Resume Relay can read the players' share for folder posters: the Zidoos' folder → a folder this
     /// computer can open. Empty: Plex's folder mapping is used (Plex runs on this computer), or on Windows the share's
@@ -59,14 +62,49 @@ public sealed class LiveScreen
     /// its top is on the left) or "right" (its top on the right). TVs and sticks always play landscape video, so for
     /// "left"/"right" the portrait picture is turned into a 3840×2160 frame.</summary>
     public string Mount { get; set; } = "right";
-    /// <summary>The slideshow sets this screen shows: "coming", "recent", "acclaimed". Null for screens added before
+    /// <summary>The slideshow sets this screen shows: "coming", "recent", "acclaimed", "feature". Null for screens added before
     /// each screen had its own (they keep the sets that were on for all screens then).</summary>
     public List<string>? Sets { get; set; }
     /// <summary>"4k" or "1080" (for players that can't play 4K video).</summary>
     public string Resolution { get; set; } = "4k";
     /// <summary>"auto" (HEVC, except H.264 for web browsers), "hevc" or "h264". Rokus play 4K only as HEVC.</summary>
     public string Codec { get; set; } = "auto";
+    /// <summary>This screen's Feature Presentation title (null: none picked yet).</summary>
+    public FeatureTitle? Feature { get; set; }
     public DateTime AddedUtc { get; set; } = DateTime.UtcNow;
+}
+
+/// <summary>
+/// A screen's Feature Presentation: one movie, or one season of a TV show (its season poster). Chosen from the titles
+/// the libraries list (Plex, Jellyfin, a Zidoo's poster wall), one entry per movie or show; the file used to find the
+/// poster is looked up once, when it's chosen.
+/// </summary>
+public sealed class FeatureTitle
+{
+    /// <summary>"plex", "jellyfin" or "zidoo": the library it was chosen from.</summary>
+    public string From { get; set; } = "";
+    /// <summary>Its id in that library (Plex ratingKey, Jellyfin's number for it, the Zidoo's entry id).</summary>
+    public int Key { get; set; }
+    /// <summary>The Zidoo it was chosen from (From "zidoo").</summary>
+    public string DeviceId { get; set; } = "";
+    /// <summary>"movie" or "show".</summary>
+    public string Kind { get; set; } = "movie";
+    public string Title { get; set; } = "";
+    public int Year { get; set; }
+    /// <summary>The season (shows; 0 = Specials).</summary>
+    public int Season { get; set; }
+    public string SeasonName { get; set; } = "";
+    /// <summary>One of its files: the Zidoos' path, and the server's own path (for the folder poster).</summary>
+    public string SourceUrl { get; set; } = "";
+    public string ServerFile { get; set; } = "";
+    /// <summary>The server's poster for it (the season's poster for a show), when it came from Plex or Jellyfin.</summary>
+    public string Thumb { get; set; } = "";
+    public DateTime ChosenUtc { get; set; } = DateTime.UtcNow;
+
+    /// <summary>The name on the card and in the round's titles: "Heat (1995)", "Ahsoka: Season 1".</summary>
+    public string Display => Kind == "show"
+        ? $"{Title}: {(SeasonName.Length > 0 ? SeasonName : Season == 0 ? "Specials" : "Season " + Season)}"
+        : Year > 0 ? $"{Title} ({Year})" : Title;
 }
 
 public sealed class LiveBackground

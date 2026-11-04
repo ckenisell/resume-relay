@@ -13,7 +13,8 @@ public static class LiveApi
     public record PairBody(string Code, string Name, List<string>? Players, string? Mount, string? Resolution);
     public record ScreenBody(string? Name, List<string>? Players, string? Mount, string? Resolution, string? Codec, List<string>? Sets);
     public record HelloBody(string DeviceKey, string? Platform, string? Model, string? Version);
-    public record SettingsBody(int StopWaitSeconds, int SlideSeconds, double AcclaimedMin, LiveSet NowPlaying, LiveSet ComingSoon, LiveSet RecentlyWatched, LiveSet Acclaimed, List<LiveFolder>? Folders);
+    public record SettingsBody(int StopWaitSeconds, int SlideSeconds, double AcclaimedMin, LiveSet NowPlaying, LiveSet ComingSoon, LiveSet RecentlyWatched, LiveSet Acclaimed, List<LiveFolder>? Folders, LiveSet? Feature = null);
+    public record FeatureBody(string Id, int Season);
     public record OrderBody(List<string> Ids);
     public record TitleBody(string Title);
 
@@ -33,7 +34,7 @@ public static class LiveApi
                     renderer.Ready, renderer.Status, renderer.Encoder, renderer.Queued, renderer.Working, renderer.LastError, renderer.Downloading,
                     CanDownload = OperatingSystem.IsWindows() && renderer.Ffmpeg == null,
                 },
-                Config = new { cfg.StopWaitSeconds, cfg.SlideSeconds, cfg.AcclaimedMin, cfg.NowPlaying, cfg.ComingSoon, cfg.RecentlyWatched, cfg.Acclaimed, cfg.Folders },
+                Config = new { cfg.StopWaitSeconds, cfg.SlideSeconds, cfg.AcclaimedMin, cfg.NowPlaying, cfg.ComingSoon, cfg.RecentlyWatched, cfg.Acclaimed, cfg.Feature, cfg.Folders },
                 PlexFolders = store.Plex().Mappings.Concat(store.Jellyfin().Mappings).Select(m => new LiveFolder { ZidooFolder = m.ZidooFolder, LocalFolder = m.PlexFolder }),
                 Screens = cfg.Screens.Select(s =>
                 {
@@ -42,6 +43,7 @@ public static class LiveApi
                     {
                         s.Id, s.Name, s.Platform, s.Model, s.AppVersion, s.Players, s.Mount, s.Resolution, s.Codec, VideoCodec = LiveService.CodecOf(s),
                         Sets = LiveService.SetKeys.Where(k => LiveService.Shows(s, cfg, k)),
+                        Feature = s.Feature is { } f ? new { f.Display, f.Kind, f.From, f.Title, f.Year, f.Season, f.ChosenUtc } : null,
                         AppSays = rt.AppSays, rt.AppSaysUtc, AppPlayingThis = rt.AppSays == "playing" && rt.AppPlaying == rt.Url && rt.Url.Length > 0,
                         Making = rt.Making is { } m ? new { m.Step, m.Slides, m.SlidesTotal, m.Dissolves, m.DissolvesTotal, m.Joining, m.ShowingOld, m.Fraction, m.SecondsLeft } : null,
                         Online = rt.LastSeenUtc is { } seen && DateTime.UtcNow - seen < TimeSpan.FromSeconds(20),
@@ -65,6 +67,7 @@ public static class LiveApi
                 c.SlideSeconds = Math.Clamp(b.SlideSeconds, 5, 120);
                 c.AcclaimedMin = Math.Clamp(Math.Round(b.AcclaimedMin * 2) / 2, 1, 10);   // in steps of 0.5 (the tab's list)
                 c.NowPlaying = b.NowPlaying; c.ComingSoon = b.ComingSoon; c.RecentlyWatched = b.RecentlyWatched; c.Acclaimed = b.Acclaimed;
+                if (b.Feature != null) c.Feature = b.Feature;
                 if (b.Folders != null) c.Folders = b.Folders.Where(f => f.ZidooFolder.Trim().Length > 0 && f.LocalFolder.Trim().Length > 0)
                     .Select(f => new LiveFolder { ZidooFolder = f.ZidooFolder.Trim(), LocalFolder = f.LocalFolder.Trim() }).ToList();
             });
@@ -174,7 +177,7 @@ public static class LiveApi
                 if (gone == null) return;
                 c.Backgrounds.Remove(gone);
                 // Sets that used it go back to their placeholder.
-                foreach (var (set, builtin) in new[] { (c.NowPlaying, "builtin-nowshowing"), (c.ComingSoon, "builtin-comingsoon"), (c.RecentlyWatched, "builtin-recent"), (c.Acclaimed, "builtin-acclaimed") })
+                foreach (var (set, builtin) in new[] { (c.NowPlaying, "builtin-nowshowing"), (c.ComingSoon, "builtin-comingsoon"), (c.RecentlyWatched, "builtin-recent"), (c.Acclaimed, "builtin-acclaimed"), (c.Feature, "builtin-feature") })
                     if (set.BackgroundId == id) set.BackgroundId = builtin;
             });
             if (gone == null) return Results.BadRequest(new { Error = "The placeholders can't be deleted." });
@@ -232,6 +235,32 @@ public static class LiveApi
         {
             live.Update(c => c.Coming = c.Coming.OrderBy(x => b.Ids.IndexOf(x.Id) is var i && i >= 0 ? i : int.MaxValue).ToList());
             return Results.Ok();
+        });
+
+        // ---- Feature Presentation: each screen's own title, chosen from the libraries' titles (one per movie or show)
+        app.MapGet("/api/live/feature/titles", async (bool? fresh, CancellationToken ct) =>
+        {
+            var (titles, note) = await svc.FeatureTitlesAsync(fresh == true, ct);
+            return Results.Ok(new { Note = note, Titles = titles.Select(t => new { t.Id, t.Kind, t.Title, t.Year, t.From }) });
+        });
+        app.MapGet("/api/live/feature/seasons", async (string id, CancellationToken ct) =>
+        {
+            var seasons = await svc.FeatureSeasonsAsync(id, ct);
+            return seasons == null ? Results.NotFound(new { Error = "The show's seasons couldn't be read. Is its library on?" })
+                : Results.Ok(seasons.Select(x => new { x.Season, x.Name }));
+        });
+        app.MapPut("/api/live/screens/{id}/feature", async (string id, FeatureBody b, CancellationToken ct) =>
+        {
+            string err = await svc.ChooseFeatureAsync(id, b.Id ?? "", b.Season, ct);
+            return err.Length > 0 ? Results.BadRequest(new { Error = err }) : Results.Ok();
+        });
+        app.MapDelete("/api/live/screens/{id}/feature", (string id) => { svc.ClearFeature(id); return Results.Ok(); });
+        app.MapGet("/api/live/screens/{id}/feature/poster", async (string id, CancellationToken ct) =>
+        {
+            var p = await svc.FeaturePosterAsync(id, ct);
+            if (p == null || !File.Exists(p.Path)) return Results.NotFound();
+            string ext = Path.GetExtension(p.Path).ToLowerInvariant();
+            return Results.File(p.Path, ImageTypes.FirstOrDefault(t => t.Value == ext).Key ?? "image/jpeg");
         });
 
         // ---- Highly Acclaimed

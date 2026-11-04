@@ -375,9 +375,10 @@ def main():
         threading.Thread(target=srv.serve_forever, daemon=True).start()
     threading.Thread(target=wol_listener, daemon=True).start()
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # run with -I, which leaves this folder off the path
-    import mock_plex, mock_jellyfin
+    import mock_plex, mock_jellyfin, mock_kaleidescape
     mock_plex.start(FILES, tiny_png(7))
     mock_jellyfin.start(FILES, tiny_png(9))
+    mock_kaleidescape.start(tiny_png(11))
     print("mock players, Plex and Jellyfin up", flush=True)
     while True:
         time.sleep(3600)

@@ -127,7 +127,8 @@ A TV, stick or tablet hung outside a room shows the poster of what that room is 
 own design ("NOW SHOWING"…), and a slideshow when nothing is: **Coming Soon** (posters you add), **Recently Watched**
 **Highly Acclaimed** (movies and series rated 8.0 or higher: Plex's ratings, or without Plex the Zidoo's, IMDb for
 movies and TMDB for series; 10 picked at random each round) and **Feature Presentation** (one movie, or one season of a
-TV show, that each screen chooses for itself, once per round). Set it all up on the **Live Poster** tab.
+TV show, that each screen chooses for itself, once per round). Set it all up on the **Live Poster** tab. A **Kaleidescape** can be followed too (Live Poster only: it plays its own
+copies of movies, so nothing is copied to or from it); its movie shows with the Kaleidescape's own cover.
 
 - **4K:** stick and TV apps draw their own pictures at 1080p but play video at 4K, so Resume Relay turns each picture
   into a short 4K video (with ffmpeg, on the computer's video hardware when it can) and the screen app plays it.

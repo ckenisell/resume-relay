@@ -33,9 +33,26 @@ public sealed class PosterFinder
 
     public void Forget() => _cache.Clear();
 
+    /// <summary>What a Kaleidescape title's SourceUrl starts with (its content handle follows): there's no file.</summary>
+    public const string KaleidescapePrefix = "kaleidescape://";
+
+    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(20) };
+
+    private static async Task<byte[]?> DownloadAsync(string url, CancellationToken ct)
+    {
+        try
+        {
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var u) || u.Scheme is not ("http" or "https")) return null;
+            var bytes = await Http.GetByteArrayAsync(u, ct);
+            return bytes.Length > 0 ? bytes : null;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch { return null; }
+    }
+
     public async Task<PosterResult?> FindAsync(PosterRequest r, CancellationToken ct = default)
     {
-        string key = $"{r.SourceUrl}|{r.PlexFile}|{r.SeriesOnly}|{r.Season}|{r.PlexKey}|{r.Server}";
+        string key = $"{r.SourceUrl}|{r.PlexFile}|{r.SeriesOnly}|{r.Season}|{r.PlexKey}|{r.Server}|{r.CoverUrl}";
         if (_cache.TryGetValue(key, out var hit) && DateTime.UtcNow - hit.At < TimeSpan.FromMinutes(4)
             && (hit.Result == null || File.Exists(hit.Result.Path)))
             return hit.Result;
@@ -50,6 +67,9 @@ public sealed class PosterFinder
     private async Task<PosterResult?> FindNowAsync(PosterRequest r, CancellationToken ct)
     {
         bool tv = r.IsEpisode || r.SeriesOnly;
+        // A Kaleidescape movie: its own cover, and nothing else (it plays its own copy, not a file on the NAS).
+        if (r.CoverUrl.Length > 0 || r.SourceUrl.StartsWith(KaleidescapePrefix, StringComparison.Ordinal))
+            return r.CoverUrl.Length > 0 && await DownloadAsync(r.CoverUrl, ct) is { } cover ? Save("kaleidescape|" + r.CoverUrl, cover, "Kaleidescape") : null;
         // 1. The NAS folder.
         if (LocalFile(r) is { } local)
         {

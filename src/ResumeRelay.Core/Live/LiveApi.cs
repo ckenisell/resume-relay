@@ -55,7 +55,8 @@ public static class LiveApi
                 Coming = cfg.Coming.Select(c => new { c.Id, c.Title, c.Width, c.Height }),
                 AcclaimedNote = svc.AcclaimedNote,
                 AcclaimedCount = svc.Acclaimed.Count,
-                Players = devices.Where(d => d.Enabled).Select(d => new { d.Id, d.Name, Kind = d.KindName }),
+                Players = devices.Where(d => d.Enabled).Select(d => new { d.Id, d.Name, Kind = d.KindName })
+                    .Concat(store.Kaleidescape().Players.Where(k => k.Enabled).Select(k => new { k.Id, k.Name, Kind = "kaleidescape" })),
             });
         });
 

@@ -144,7 +144,8 @@ public sealed record PosterRequest(
     string Title,
     int PlexKey = 0,         // the Plex (or Jellyfin) item (movie, episode or show), when known
     string PlexThumb = "",   // the server's poster path for it (movie poster, or the series poster for TV)
-    string Server = "");     // "jellyfin" when PlexKey/PlexThumb are Jellyfin's (else Plex's, or found from DeviceId)
+    string Server = "",      // "jellyfin" when PlexKey/PlexThumb are Jellyfin's (else Plex's, or found from DeviceId)
+    string CoverUrl = "");   // a Kaleidescape movie's own cover picture (its only poster: no folder, Plex or Zidoo)
 
 /// <summary>A poster found for a title: the cached file, where it came from, and its size.</summary>
 public sealed record PosterResult(string Path, string Source, int Width, int Height);

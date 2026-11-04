@@ -10,7 +10,8 @@ namespace ResumeRelay.Live;
 /// </summary>
 public sealed partial class LiveService
 {
-    /// <summary>One title to choose from. Id is "plex:123", "jellyfin:1000004" or "zidoo:{player}:5012".</summary>
+    /// <summary>One title to choose from. Id is "plex:123", "jellyfin:1000004", "zidoo:{player}:5012" or
+    /// "kaleidescape:{content handle}".</summary>
     public sealed record FeatureEntry(string Id, string From, int Key, string DeviceId, string Kind, string Title, int Year, string Thumb, string File);
     public sealed record FeatureSeason(int Season, string Name, int ZidooId);
 
@@ -85,6 +86,11 @@ public sealed partial class LiveService
                 if (n > 0) parts.Add($"{n:N0} from {zidoo.Name}");
             }
             else if (_store.Devices().Any(d => !d.IsServerUser && d.Enabled)) problems.Add("no Zidoo is on to read its library from");
+            // Kaleidescape: its library can't be listed over its control protocol, so it's the movies Resume Relay has
+            // seen it play. Last, so a movie a library above also has uses that library's (and folder's) poster.
+            var seen = _store.Kaleidescape().Seen;
+            int nk = seen.Count(t => Add(new FeatureEntry($"kaleidescape:{t.Handle}", "kaleidescape", 0, "", "movie", t.Title, t.Year, t.BestCover, "")));
+            if (nk > 0) parts.Add($"{nk:N0} seen on a Kaleidescape");
             _featureTitles = list.OrderBy(e => SortName(e.Title), StringComparer.OrdinalIgnoreCase).ThenBy(e => e.Year).ToList();
             _featureAt = DateTime.UtcNow;
             _featureNote = (list.Count == 0 ? "No titles found" : $"{list.Count:N0} title{(list.Count == 1 ? "" : "s")}{(parts.Count > 1 ? " (" + string.Join(", ", parts) + ")" : "")}")
@@ -176,6 +182,12 @@ public sealed partial class LiveService
             var d = _store.Device(e.DeviceId);
             f.SourceUrl = d == null ? "" : await ZidooRatings.FirstFileAsync(new ZidooClient(d.Ip, d.Port), e.Key, ct);
         }
+        else if (e.From == "kaleidescape")
+        {
+            // Its own cover is its poster (no file anywhere).
+            f.SourceUrl = PosterFinder.KaleidescapePrefix + e.Id["kaleidescape:".Length..];
+            f.Thumb = e.Thumb;
+        }
         else
         {
             f.ServerFile = e.File;
@@ -200,8 +212,10 @@ public sealed partial class LiveService
 
     /// <summary>What the poster finder is given for a Feature Presentation: a movie's poster, or the season's.</summary>
     public static PosterRequest FeatureRequest(FeatureTitle f) =>
-        new(f.SourceUrl, f.ServerFile, f.From == "zidoo" ? f.DeviceId : "", f.Kind == "show", f.Kind == "show" ? f.Season : 0, false, f.Display,
-            0, f.Thumb, f.From == "jellyfin" ? "jellyfin" : "");
+        f.From == "kaleidescape"
+            ? new(f.SourceUrl, "", "", false, 0, false, f.Display, CoverUrl: f.Thumb)
+            : new(f.SourceUrl, f.ServerFile, f.From == "zidoo" ? f.DeviceId : "", f.Kind == "show", f.Kind == "show" ? f.Season : 0, false, f.Display,
+                0, f.Thumb, f.From == "jellyfin" ? "jellyfin" : "");
 
     /// <summary>The poster a screen's Feature Presentation shows (for its card), once it's been found.</summary>
     public async Task<PosterResult?> FeaturePosterAsync(string screenId, CancellationToken ct = default)

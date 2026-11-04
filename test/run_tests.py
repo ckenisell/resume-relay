@@ -1141,6 +1141,60 @@ http("DELETE", RELAY + "/api/icon/jellyfin")
 http("POST", RELAY + "/api/jellyfin/signout")
 check("signing out of Jellyfin removes its users", not any(d["kind"] == "jellyfin" for d in http("GET", RELAY + "/api/state")["devices"]))
 
+# ---------------------------------------------------------------- 70. Kaleidescape (Live Poster only)
+KS = "http://127.0.0.9:8080"
+def kmock(path, **q):
+    return http("GET", f"{KS}/_test/{path}?" + urllib.parse.urlencode(q))
+st = http("GET", RELAY + "/api/state")
+ks = st.get("kaleidescapes") or []
+check("Scan network finds a Kaleidescape (port 10000) and names it from the player",
+      len(ks) == 1 and ks[0]["kind"] == "kaleidescape" and ks[0]["name"] == "Screening Room" and ks[0]["model"] == "Strato V" and ks[0]["serial"] == "A1B2C3", str(ks))
+KID = ks[0]["id"] if ks else ""
+check("...and keeps it out of the players Progress Reset, Watch Sync and copying use", all(d["id"] != KID for d in st["devices"]))
+added = http("POST", RELAY + "/api/devices", {"ip": "127.0.0.9"})
+check("Add by IP address recognises a Kaleidescape (and doesn't add it twice)",
+      added.get("kind") == "kaleidescape" and len(http("GET", RELAY + "/api/state")["kaleidescapes"]) == 1, str(added))
+check("Live Poster lists the Kaleidescape with its own badge", any(p["id"] == KID and p["kind"] == "kaleidescape" for p in live()["players"]))
+hk = http("POST", RELAY + "/api/screen/hello", {"deviceKey": "test-screen-k", "platform": "android", "model": "Test TV", "version": "1"})
+ksid = http("POST", RELAY + "/api/live/pair", {"code": hk["code"], "name": "Screening Hall", "players": [KID], "mount": "right", "resolution": "1080"})["id"]
+KTOK = http("POST", RELAY + "/api/screen/hello", {"deviceKey": "test-screen-k", "platform": "android", "model": "Test TV", "version": "1"})["token"]
+kmock("play", handle="26-0.0-S_c446c8e2", pos=600)
+kc = wait_for(lambda: (lambda k: k if k["playing"] and k["playing"]["title"] == "Dune: Part Two (2024)" else None)(http("GET", RELAY + "/api/state")["kaleidescapes"][0]), 20)
+check("the Kaleidescape's card shows what it's playing, where it is and its cover",
+      kc and kc["playing"]["positionMs"] == 600000 and kc["playing"]["durationMs"] == 9960000 and kc["playing"]["poster"].endswith("/covers/26-0.0-S_c446c8e2.png"), str(kc))
+kst = wait_for(lambda: (lambda x: x if x["mode"] == "playing" and x["title"] == "Dune: Part Two (2024)" else None)(http("GET", RELAY + f"/api/screen/state?token={KTOK}")), 240)
+check("a screen following the Kaleidescape shows its movie (Now Showing)", kst, str(http("GET", RELAY + f"/api/screen/state?token={KTOK}")))
+check("...with the Kaleidescape's own cover as the poster",
+      wait_for(lambda: screen_of(ksid)["posterSource"] == "Kaleidescape", 60), str(screen_of(ksid)))
+kmock("play", handle="26-0.0-S_c446c8e2", pos=650, paused=1)
+check("pausing on the Kaleidescape shows on its card", wait_for(lambda: http("GET", RELAY + "/api/state")["kaleidescapes"][0]["playing"]["paused"], 15))
+kmock("stop")
+check("a Kaleidescape stop is noted on the Activity tab (nothing copied)",
+      wait_for(lambda: any("Dune: Part Two (2024) was watched on Screening Room (Kaleidescape)" in a["message"] for a in http("GET", RELAY + "/api/activity?n=50&system=true")), 20))
+check("...and is in Recently Watched, as a Kaleidescape's", wait_for(lambda: any(r["title"] == "Dune: Part Two" and r["playerKind"] == "kaleidescape"
+      for r in http("GET", RELAY + "/api/live/recent")), 45), str(http("GET", RELAY + "/api/live/recent")))
+check("...and no copy job was made for it", not any("Dune" in (p.get("title") or "") for p in http("GET", RELAY + "/api/state")["pending"]))
+kft = http("GET", RELAY + "/api/live/feature/titles?fresh=true")
+kdune = next((t for t in kft["titles"] if t["id"] == "kaleidescape:26-0.0-S_c446c8e2"), None)
+check("Feature Presentation lists the movies seen on the Kaleidescape", kdune and kdune["title"] == "Dune: Part Two" and kdune["from"] == "kaleidescape", str(kft))
+http("PUT", RELAY + f"/api/live/screens/{ksid}/feature", {"id": "kaleidescape:26-0.0-S_c446c8e2", "season": 0})
+with urllib.request.urlopen(RELAY + f"/api/live/screens/{ksid}/feature/poster", timeout=60) as r:
+    check("...and one can be a screen's Feature Presentation, with the Kaleidescape's cover",
+          (screen_of(ksid)["feature"] or {}).get("display") == "Dune: Part Two (2024)" and r.headers.get("Content-Type", "").startswith("image/"), str(screen_of(ksid)["feature"]))
+req = urllib.request.Request(RELAY + "/api/icon/kaleidescape", data=b"\x89PNG\r\n\x1a\nfake", method="POST", headers={"Content-Type": "image/png"})
+urllib.request.urlopen(req, timeout=10).read()
+check("a Kaleidescape activity badge picture can be set", http("GET", RELAY + "/api/state")["icons"]["kaleidescape"] is True)
+http("DELETE", RELAY + "/api/icon/kaleidescape")
+with urllib.request.urlopen(RELAY + "/api/backup", timeout=20) as r:
+    kb = json.loads(r.read())
+check("the backup includes the Kaleidescape", any(k["id"] == KID for k in kb.get("kaleidescapes") or []), str(kb.get("kaleidescapes")))
+http("PATCH", RELAY + f"/api/kaleidescape/{KID}", {"name": "Theater K", "enabled": False})
+k2 = http("GET", RELAY + "/api/state")["kaleidescapes"][0]
+check("a Kaleidescape can be renamed and stop being followed", k2["name"] == "Theater K" and not k2["enabled"] and not k2["online"], str(k2))
+http("DELETE", RELAY + f"/api/live/screens/{ksid}")
+http("DELETE", RELAY + f"/api/kaleidescape/{KID}")
+check("...and removed", not http("GET", RELAY + "/api/state")["kaleidescapes"])
+
 # Without Plex, Highly Acclaimed uses the Zidoo's ratings: IMDb for movies, TMDB for series. (Plex is signed out last.)
 http("POST", RELAY + "/api/plex/signout")
 http("POST", RELAY + "/api/live/acclaimed/refresh")

@@ -25,6 +25,7 @@ public sealed class Store
     private Settings _settings;
     private PlexConfig _plex;
     private JellyfinConfig _jellyfin;
+    private KaleidescapeConfig _kaleidescape;
     private List<PendingCopy> _pending;
     private readonly LinkedList<ActivityEntry> _activity;
     private readonly LinkedList<StopEvent> _events;
@@ -45,6 +46,7 @@ public sealed class Store
         if (_plex.ClientId.Length == 0) { _plex.ClientId = "resume-relay-" + Guid.NewGuid().ToString("N"); Save("plex.json", _plex); }
         _jellyfin = Load<JellyfinConfig>("jellyfin.json") ?? new();
         if (_jellyfin.DeviceId.Length == 0) { _jellyfin.DeviceId = "resume-relay-" + Guid.NewGuid().ToString("N"); Save("jellyfin.json", _jellyfin); }
+        _kaleidescape = Load<KaleidescapeConfig>("kaleidescape.json") ?? new();
         _pending = Load<List<PendingCopy>>("pending.json") ?? new();
         _activity = new LinkedList<ActivityEntry>(Load<List<ActivityEntry>>("activity.json") ?? new());
         _events = new LinkedList<StopEvent>(Load<List<StopEvent>>("events.json") ?? new());
@@ -146,10 +148,15 @@ public sealed class Store
 
     /// <summary>Restore from a backup: players, names, settings and the Plex setup are replaced. Waiting copies for
     /// players that are no longer there are dropped. Activity is kept.</summary>
-    public void Restore(List<Device> devices, Settings settings, PlexConfig plex, JellyfinConfig? jellyfin)
+    public void Restore(List<Device> devices, Settings settings, PlexConfig plex, JellyfinConfig? jellyfin, List<KaleidescapePlayer>? kaleidescapes = null)
     {
         lock (_lock)
         {
+            if (kaleidescapes != null)
+            {
+                _kaleidescape.Players = kaleidescapes.Select(Clone).ToList();
+                Save("kaleidescape.json", _kaleidescape);
+            }
             _devices = devices.Select(Clone).ToList();
             _settings = Clone(settings);
             if (plex.ClientId.Length == 0) plex.ClientId = _plex.ClientId;
@@ -192,6 +199,20 @@ public sealed class Store
     public void SaveJellyfin(JellyfinConfig j)
     {
         lock (_lock) { _jellyfin = Clone(j); Save("jellyfin.json", _jellyfin); }
+    }
+
+    // ---------- kaleidescape (Live Poster only; never one of Devices()) ----------
+
+    public KaleidescapeConfig Kaleidescape()
+    {
+        lock (_lock) return Clone(_kaleidescape);
+    }
+
+    /// <summary>Changes the Kaleidescape players, seen titles or stops in one step.</summary>
+    public void UpdateKaleidescape(Action<KaleidescapeConfig> change)
+    {
+        lock (_lock) { change(_kaleidescape); Save("kaleidescape.json", _kaleidescape); }
+        Changed?.Invoke();
     }
 
     // ---------- settings ----------

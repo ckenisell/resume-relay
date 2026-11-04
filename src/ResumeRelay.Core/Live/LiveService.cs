@@ -30,6 +30,7 @@ public sealed partial class LiveService : BackgroundService
     private readonly RelayEngine _engine;
     private readonly PosterFinder _finder;
     private readonly Renderer _renderer;
+    private readonly KaleidescapeService _kaleidescape;
     private readonly ConcurrentDictionary<string, ScreenRuntime> _rt = new();
     private readonly ConcurrentDictionary<string, PairRequest> _pairs = new();
     private readonly ConcurrentDictionary<string, DateTime> _started = new();      // device|file → when it started playing
@@ -40,8 +41,9 @@ public sealed partial class LiveService : BackgroundService
     private readonly SemaphoreSlim _acclaimedGate = new(1, 1);
     private readonly int _salt = Random.Shared.Next();
 
-    public LiveService(Store store, LiveStore live, RelayEngine engine, PosterFinder finder, Renderer renderer)
+    public LiveService(Store store, LiveStore live, RelayEngine engine, PosterFinder finder, Renderer renderer, KaleidescapeService kaleidescape)
     {
+        _kaleidescape = kaleidescape;
         _store = store;
         _live = live;
         _engine = engine;
@@ -113,7 +115,7 @@ public sealed partial class LiveService : BackgroundService
         public int SecondsLeft;
     }
 
-    public sealed record NowItem(string DeviceId, string Player, string SourceUrl, string PlexFile, string Title, bool IsEpisode, int Season, int PlexKey, bool Paused);
+    public sealed record NowItem(string DeviceId, string Player, string SourceUrl, string PlexFile, string Title, bool IsEpisode, int Season, int PlexKey, bool Paused, string CoverUrl = "");
 
     public sealed record SlideItem(string Set, string Title, PosterRequest? Request, string? File)
     {
@@ -284,7 +286,7 @@ public sealed partial class LiveService : BackgroundService
         {
             rt.Making = null;
             var bg = Background(cfg, cfg.NowPlaying.BackgroundId);
-            var req = new PosterRequest(now.SourceUrl, now.PlexFile, now.DeviceId, now.IsEpisode, now.Season, false, now.Title, now.PlexKey);
+            var req = new PosterRequest(now.SourceUrl, now.PlexFile, now.DeviceId, now.IsEpisode, now.Season, false, now.Title, now.PlexKey, CoverUrl: now.CoverUrl);
             var poster = PosterTask(req);
             if (poster.IsCompleted)
             {
@@ -386,6 +388,15 @@ public sealed partial class LiveService : BackgroundService
     {
         var devices = _store.Devices().ToDictionary(d => d.Id);
         var playing = new List<NowItem>();
+        // Kaleidescapes: the movie and its own cover.
+        foreach (var k in _kaleidescape.Players().Where(k => k.Enabled && s.Players.Contains(k.Id)))
+        {
+            var l = _kaleidescape.LiveOf(k.Id);
+            if (l.Movie is not { } m || l.Status is not { Playing: true } st) continue;
+            string url = PosterFinder.KaleidescapePrefix + m.Handle;
+            _started.TryAdd(k.Id + "|" + url, DateTime.UtcNow);
+            playing.Add(new NowItem(k.Id, k.Name, url, "", KaleidescapeService.Display(m), false, 0, 0, st.Play == "paused", m.BestCover));
+        }
         foreach (var id in s.Players)
         {
             if (!devices.TryGetValue(id, out var d)) continue;
@@ -622,7 +633,12 @@ public sealed partial class LiveService : BackgroundService
                 new PosterRequest(e.SourceUrl, "", e.FromDeviceId, ep, season, false, title), null)
                 { TimeUtc = e.TimeUtc, Player = e.FromName, PlayerKind = _store.Device(e.FromDeviceId)?.KindName ?? "zidoo" });
         }
-        _recentAll = list;
+        // Kaleidescape stops (nothing copied, but they were watched): its own cover.
+        foreach (var k in _store.Kaleidescape().Stops)
+            list.Add(new SlideItem("recent:" + k.PlayerName, k.Title,
+                new PosterRequest(PosterFinder.KaleidescapePrefix + k.Handle, "", k.PlayerId, false, 0, false, k.Title, CoverUrl: k.Cover), null)
+                { TimeUtc = k.TimeUtc, Player = k.PlayerName, PlayerKind = "kaleidescape" });
+        _recentAll = list.OrderByDescending(i => i.TimeUtc).ToList();
     }
 
     /// <summary>

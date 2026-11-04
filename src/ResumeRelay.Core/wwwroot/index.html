@@ -326,7 +326,7 @@ a.btn { text-decoration: none; color: var(--text); display: inline-flex; align-i
 /* Settings: groups, each with a colored heading and a divider to the right edge, made of compact setting cards.
    The colors only say which group you're in: amber Plex (like the Plex badge), blue resume points, green watched
    marks, white for the app itself. Purple is kept free for Jellyfin. */
-:root { --sg-plex: var(--amber); --sg-jellyfin: #A985F2; --sg-resume: #6FA8F5; --sg-watched: var(--ok); --sg-app: var(--text); }
+:root { --sg-plex: var(--amber); --sg-jellyfin: #A985F2; --sg-kaleidescape: #7399bd; --sg-resume: #6FA8F5; --sg-watched: var(--ok); --sg-app: var(--text); }
 @media (prefers-color-scheme: light) { :root { --sg-resume: #2F6DB5; --sg-jellyfin: #7A4FD6; } }
 #settings { max-width: 1040px; }
 .set-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin-bottom: 18px; }
@@ -562,6 +562,14 @@ dialog.info { max-width: min(680px, 94vw); }
 .kb.zidoo svg { color: #5FA8E8; }
 .kb.plex svg { color: var(--amber); }
 .kb.jellyfin svg { color: var(--sg-jellyfin); }
+.kb.kaleidescape svg { color: var(--sg-kaleidescape); }
+/* A Kaleidescape card: Live Poster only (nothing is copied to or from it). */
+.card.kscape { border-top: 3px solid var(--sg-kaleidescape); }
+.card.kscape.playing { border-color: color-mix(in srgb, var(--sg-kaleidescape) 60%, var(--line)); border-top-color: var(--sg-kaleidescape); }
+.card.kscape .track i { background: var(--sg-kaleidescape); }
+/* A tab that can't be used yet (no players of the right kind). */
+.tab:disabled { opacity: .38; cursor: not-allowed; }
+.tab:disabled:hover { color: inherit; }
 /* The Jellyfin card is the Plex card in purple. */
 .plex-card.jf { border-top-color: var(--sg-jellyfin); margin-top: 16px; }
 .plex-card.jf .plex-code { color: var(--sg-jellyfin); }
@@ -1043,8 +1051,9 @@ const KIND_SVG = {
   zidoo: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="8" width="19" height="8" rx="2"/><path d="M6 12h4"/><circle cx="17.5" cy="12" r=".6"/><path d="M5.5 16v2M18.5 16v2"/></svg>`,
   plex: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3.5" width="16" height="7" rx="1.5"/><rect x="4" y="13.5" width="16" height="7" rx="1.5"/><path d="M7.5 7h.01M7.5 17h.01M11 7h5M11 17h5"/></svg>`,
   jellyfin: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M10.2 8.6v6.8l5.4-3.4z"/></svg>`,
+  kaleidescape: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="1.5"/><path d="M7 5v14M17 5v14M3 9h4M3 15h4M17 9h4M17 15h4"/><path d="M10.5 9.8v4.4l3.6-2.2z"/></svg>`,
 };
-const KIND_NAME = { zidoo: "Zidoo", plex: "Plex", jellyfin: "Jellyfin", imdb: "IMDb", tmdb: "TMDB" };
+const KIND_NAME = { zidoo: "Zidoo", plex: "Plex", jellyfin: "Jellyfin", kaleidescape: "Kaleidescape", imdb: "IMDb", tmdb: "TMDB" };
 // Plex and Jellyfin users are a media server's users, not boxes: no power button, no HT app.
 const isServerUser = d => d.kind === "plex" || d.kind === "jellyfin";
 // Where a rating comes from: the person's own small picture, or a tiny pill with the name.
@@ -1091,7 +1100,7 @@ function say(el, text, kind) { el.textContent = text; el.className = "msg" + (ki
 // ---------------- tabs ----------------
 const TABS = ["players", "activity", "progress", "watch", "live", "settings"];
 function showTab(name, focus) {
-  if (!TABS.includes(name)) name = "players";
+  if (!TABS.includes(name) || $("#tab-" + name).disabled) name = "players";
   for (const t of TABS) {
     const btn = $("#tab-" + t), on = t === name;
     btn.setAttribute("aria-selected", on); btn.tabIndex = on ? 0 : -1;
@@ -1107,12 +1116,26 @@ function showTab(name, focus) {
   if (name === "watch" && typeof loadWatch === "function" && state) loadWatch(true);
   if (name === "live" && typeof loadLive === "function") loadLive();
 }
-document.querySelector(".tabs").addEventListener("click", e => { const b = e.target.closest(".tab"); if (b) showTab(b.dataset.tab); });
+document.querySelector(".tabs").addEventListener("click", e => { const b = e.target.closest(".tab"); if (b && !b.disabled) showTab(b.dataset.tab); });
+// Progress Reset and Watch Sync need a Zidoo, Plex or Jellyfin player; Live Poster needs one of those or a
+// Kaleidescape (a Kaleidescape only works with Live Poster). Until then their tabs are greyed out.
+function gateTabs() {
+  const sync = (state?.devices || []).length > 0, live = sync || (state?.kaleidescapes || []).length > 0;
+  const why = { progress: sync, watch: sync, live };
+  for (const [t, ok] of Object.entries(why)) {
+    const b = $("#tab-" + t);
+    if (b.disabled === !ok) continue;
+    b.disabled = !ok;
+    b.title = ok ? "" : t === "live" ? "Add a Zidoo, Plex, Jellyfin or Kaleidescape player on the Players tab first" : "Add a Zidoo, Plex or Jellyfin player on the Players tab first";
+    if (!ok && b.getAttribute("aria-selected") === "true") showTab("players");
+  }
+}
 document.querySelector(".tabs").addEventListener("keydown", e => {
   const i = TABS.indexOf(document.activeElement?.dataset?.tab);
   if (i < 0) return;
-  if (e.key === "ArrowRight") showTab(TABS[(i + 1) % TABS.length], true);
-  if (e.key === "ArrowLeft") showTab(TABS[(i + TABS.length - 1) % TABS.length], true);
+  const usable = TABS.filter(t => !$("#tab-" + t).disabled), j = usable.indexOf(TABS[i]);
+  if (e.key === "ArrowRight") showTab(usable[(j + 1) % usable.length], true);
+  if (e.key === "ArrowLeft") showTab(usable[(j + usable.length - 1) % usable.length], true);
 });
 
 // ---------------- mode switch ----------------
@@ -1201,7 +1224,7 @@ function cardHtml(d) {
   const cls = ["card", p ? "playing" : "", (!d.online || !d.enabled) ? "dim" : ""].filter(Boolean).join(" ");
   const nameEl = editing === d.id ? "" : `<button class="name" data-rename title="Rename">${esc(d.name)}</button>`;
   return `<article class="${cls}" data-id="${esc(d.id)}" aria-label="${esc(d.name)}">
-    <div class="chead">${plex ? kindBadge(d.kind, true) : powerButton(d) + htButton(d)}${nameEl}
+    <div class="chead">${plex ? kindBadge(d.kind, true) : kindBadge("zidoo", true) + powerButton(d) + htButton(d)}${nameEl}
       <label class="switch" title="Copy bookmarks to and from this player"><input type="checkbox" data-enable ${d.enabled ? "checked" : ""}> Sync</label></div>
     <div class="cmeta">${meta}</div>
     ${htNote}${stage}${waiting}
@@ -1211,11 +1234,36 @@ function cardHtml(d) {
   </article>`;
 }
 
+// A Kaleidescape: Live Poster only. It plays its own copies of movies, so nothing is copied to or from it; its card
+// shows what it's playing, and a Live Poster screen can follow it.
+function kCardHtml(k) {
+  const p = k.enabled ? k.playing : null;
+  const status = !k.enabled ? "Not followed" : !k.online ? (k.lastSeenUtc ? `Not answering · last seen ${ago(k.lastSeenUtc)}` : "Not answering")
+    : p ? (p.paused ? "Paused" : "Playing") : k.standby ? "Standby" : "Idle";
+  const meta = [status, "Kaleidescape" + (k.model ? " " + k.model : ""), k.ip].filter(Boolean).map(esc).join(" · ");
+  const stage = p ? `<div class="stage">${poster(p.poster, p.title)}
+      <div class="grow"><div class="t">${esc(p.title)}</div>
+        <div class="push"><div class="track" role="progressbar" aria-label="Position" aria-valuemin="0" aria-valuemax="100" data-track><i></i></div>
+        <div class="times tnum"><span data-pos></span><span data-dur></span></div></div></div></div>` : "";
+  const cls = ["card", "kscape", p ? "playing" : "", (!k.online || !k.enabled) ? "dim" : ""].filter(Boolean).join(" ");
+  const nameEl = editing === k.id ? "" : `<button class="name" data-rename title="Rename">${esc(k.name)}</button>`;
+  return `<article class="${cls}" data-id="${esc(k.id)}" data-kind="kaleidescape" aria-label="${esc(k.name)}">
+    <div class="chead">${kindBadge("kaleidescape", true)}${nameEl}
+      <label class="switch" title="Show what this Kaleidescape plays on Live Poster"><input type="checkbox" data-enable ${k.enabled ? "checked" : ""}> Follow</label></div>
+    <div class="cmeta">${meta}</div>
+    ${stage}
+    <div class="cfoot"><span class="meta tnum">${esc(k.ip)}${k.serial ? " · serial " + esc(k.serial) : ""} · Live Poster only</span>
+      <button class="btn quiet danger" data-remove>Remove</button></div>
+  </article>`;
+}
+const allPlayers = () => [...(state?.devices || []), ...(state?.kaleidescapes || [])];
+
 function renderRooms(devices) {
   const grid = $("#rooms");
   if (editing) return; // don't re-render under the person typing a name
+  devices = [...devices, ...(state?.kaleidescapes || [])];
   if (!devices.length) {
-    grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><strong>No players yet</strong>Press “Scan network” to find the Zidoo players on this network, or add one by its IP address.</div>`;
+    grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><strong>No players yet</strong>Press “Scan network” to find the Zidoo and Kaleidescape players on this network, or add one by its IP address.</div>`;
     cardCache.clear();
     return;
   }
@@ -1224,7 +1272,7 @@ function renderRooms(devices) {
   for (const el of [...grid.children]) if (!ids.includes(el.dataset.id)) { cardCache.delete(el.dataset.id); el.remove(); }
   devices.forEach((d, i) => {
     let el = grid.querySelector(`[data-id="${CSS.escape(d.id)}"]`);
-    const html = cardHtml(d);
+    const html = d.kind === "kaleidescape" ? kCardHtml(d) : cardHtml(d);
     if (!el || cardCache.get(d.id) !== html) {
       const tmp = document.createElement("div"); tmp.innerHTML = html;
       const fresh = tmp.firstElementChild;
@@ -1254,11 +1302,17 @@ async function power(dev, on, launchHomeTheater = true) {
 
 $("#rooms").addEventListener("click", async e => {
   const card = e.target.closest(".card"); if (!card) return;
-  const id = card.dataset.id, dev = state.devices.find(d => d.id === id);
+  const id = card.dataset.id, dev = allPlayers().find(d => d.id === id);
   if (!dev) return;
   const t = e.target.closest("button, input");
   if (!t) return;
   if (t.matches("[data-rename]")) startRename(t, dev);
+  else if (dev.kind === "kaleidescape") {
+    if (t.matches("[data-remove]")) {
+      if (!confirm(`Remove ${dev.name}? Live Poster screens stop following it. Scan again to add it back.`)) return;
+      await api("DELETE", `/api/kaleidescape/${encodeURIComponent(id)}`); refresh();
+    }
+  }
   else if (t.matches("[data-power='on']")) power(dev, true);
   else if (t.matches("[data-power='off']")) {
     if (dev.playing && !confirm(`${dev.name} is playing ${dev.playing.title || "something"}. Turn it off anyway?`)) return;
@@ -1284,8 +1338,8 @@ $("#rooms").addEventListener("click", async e => {
 });
 $("#rooms").addEventListener("change", async e => {
   if (!e.target.matches("[data-enable]")) return;
-  const id = e.target.closest(".card").dataset.id;
-  await api("PATCH", `/api/devices/${encodeURIComponent(id)}`, { enabled: e.target.checked }); refresh();
+  const card = e.target.closest(".card"), id = card.dataset.id;
+  await api("PATCH", `/api/${card.dataset.kind === "kaleidescape" ? "kaleidescape" : "devices"}/${encodeURIComponent(id)}`, { enabled: e.target.checked }); refresh();
 });
 
 // Right-click on a switched-off player: turn it on without opening the Home Theater app.
@@ -1316,7 +1370,7 @@ function startRename(btn, dev) {
     if (done) return; done = true;
     const name = input.value.trim();
     editing = null; cardCache.delete(dev.id);
-    if (save && name && name !== dev.name) await api("PATCH", `/api/devices/${encodeURIComponent(dev.id)}`, { name });
+    if (save && name && name !== dev.name) await api("PATCH", `/api/${dev.kind === "kaleidescape" ? "kaleidescape" : "devices"}/${encodeURIComponent(dev.id)}`, { name });
     refresh();
   };
   input.addEventListener("keydown", e => { if (e.key === "Enter") finish(true); if (e.key === "Escape") finish(false); });
@@ -1325,7 +1379,7 @@ function startRename(btn, dev) {
 
 $("#scan").onclick = async () => {
   const b = $("#scan"); b.disabled = true; b.textContent = "Scanning…";
-  say($("#rooms-msg"), "Checking every address on this network for Zidoo players. This takes about 10 seconds.");
+  say($("#rooms-msg"), "Checking every address on this network for Zidoo and Kaleidescape players. This takes about 10 seconds.");
   try {
     const r = await api("POST", "/api/scan");
     const nets = r.subnets.map(s => s + ".x").join(", ");
@@ -1344,7 +1398,8 @@ $("#add-form").onsubmit = async e => {
   e.preventDefault();
   try {
     const d = await api("POST", "/api/devices", { ip: $("#add-ip").value.trim() });
-    say($("#rooms-msg"), `Added ${d.name}. Click its name to rename it.`, "ok");
+    say($("#rooms-msg"), d.kind === "kaleidescape" ? `Added ${d.name}, a Kaleidescape: for Live Poster only (it plays its own copies, so nothing is copied to or from it).`
+      : `Added ${d.name}. Click its name to rename it.`, "ok");
     $("#add-ip").value = ""; $("#add-form").classList.remove("open");
   } catch (err) { say($("#rooms-msg"), err.message, "err"); }
   refresh();
@@ -2450,7 +2505,7 @@ function renderIcons() {
   $("#rating-rows").innerHTML = ["imdb", "tmdb"].map(k => `<div class="icon-row"><span class="rb-cell">${ratingBadge(k)}</span>
     <label class="btn">Choose image…<input type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/x-icon,image/vnd.microsoft.icon,image/svg+xml" data-icon="${k}" hidden></label>
     ${state.icons[k] ? `<button class="btn quiet" data-icon-reset="${k}">Use the default</button>` : ""}</div>`).join("");
-  $("#icon-rows").innerHTML = ["zidoo", "plex", "jellyfin"].map(k => `<div class="icon-row">${kindBadge(k)}
+  $("#icon-rows").innerHTML = ["zidoo", "plex", "jellyfin", "kaleidescape"].map(k => `<div class="icon-row">${kindBadge(k)}
     <label class="btn">Choose image…<input type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/x-icon,image/vnd.microsoft.icon,image/svg+xml" data-icon="${k}" hidden></label>
     ${state.icons[k] ? `<button class="btn quiet" data-icon-reset="${k}">Use the default</button>` : ""}</div>`).join("");
 }
@@ -2571,6 +2626,8 @@ document.addEventListener("click", e => { if (!$("#bmc-card").hidden && !e.targe
 // ---------------- help tips ----------------
 const HELP = {
   players: ["Players", `<p>Each card is a Zidoo player (or a Plex or Jellyfin user). The <b>power</b> button turns a Zidoo on or off; the screen button opens its HT app. <b>Sync</b> off leaves that player out of copying.</p>
+    <p>A <b>Kaleidescape</b> card (blue-grey) is for Live Poster only: a Kaleidescape plays its own copies of movies, not your files, so nothing is copied to or from it, and it isn't on Progress Reset or Watch Sync. A Live Poster screen can follow it and show its movie's cover. <b>Follow</b> off stops Resume Relay asking it what it's playing.</p>
+    <p>Progress Reset and Watch Sync open once a Zidoo, Plex or Jellyfin player is added; Live Poster once any player is.</p>
     <p>The <b>Copying</b> switch at the top turns copying on or off for everything. Off is <b>watch-only</b>: Resume Relay shows on the Activity tab what it would copy, and writes nothing. New installs start in watch-only so you can check it first.</p>`],
   progress: ["Progress Reset", `<p>Reads every player and lists each file someone has started, with its position on every player. Use it to reset a file or a whole TV show everywhere, to drag one player's progress onto another, or to <b>Copy all</b> from one player to the others.</p>
     <p>Once your players are in sync, Resume Relay keeps them that way by itself; this tab is for setting up and fixing.</p>`],
@@ -2592,8 +2649,8 @@ const HELP = {
     <li>Titles Plex doesn't have or doesn't rate, and every title when Plex isn't set up: the <b>Zidoo's</b> rating, which is IMDb for movies and TMDB for series (the HT app keeps no IMDb rating for series).</li>
     <li>Last, titles only <b>Jellyfin</b> rates: Jellyfin's community rating. Jellyfin takes it from TMDB (or from IMDb when its OMDb plugin is installed) and doesn't say which, so it's shown as Jellyfin's.</li></ol>
     <p>Rotten Tomatoes ratings are never used (Jellyfin's "critic rating" is Rotten Tomatoes'). Each title's table row shows where its rating came from (Plex, a Zidoo or Jellyfin) and which rating it is.</p>`],
-  badges: ["Activity badges", `<p>Each Activity card shows whether the stop happened on a Zidoo, on Plex or on Jellyfin, and each player chip shows which kind it is. You can use your own small image for any of these badges; it's kept in Resume Relay's data folder on this computer.</p>`],
-  backup: ["Back up and restore", `<p>One file with your players, their names, these settings, the Plex and Jellyfin setups and your badge pictures. Use it to move Resume Relay to another computer or a NAS, or after reinstalling.</p>
+  badges: ["Activity badges", `<p>Each Activity card shows whether the stop happened on a Zidoo, on Plex or on Jellyfin, and each player chip shows which kind it is (Kaleidescape players too, on their cards and on Live Poster). You can use your own small image for any of these badges; it's kept in Resume Relay's data folder on this computer.</p>`],
+  backup: ["Back up and restore", `<p>One file with your players (Kaleidescapes included), their names, these settings, the Plex and Jellyfin setups and your badge pictures. Use it to move Resume Relay to another computer or a NAS, or after reinstalling.</p>
     <p><b>Back up settings</b> downloads one file. <b>Restore from a backup</b> replaces this Resume Relay's players, names, settings, Plex and Jellyfin setups and badge pictures with the ones in the file. The Activity tab is kept.</p>
     <p>The file includes your Plex and Jellyfin sign-ins, so keep it somewhere private.</p>`],
   updates: ["New versions", `<p>Once a day Resume Relay asks GitHub whether a newer version is out. Only the public list of versions is fetched; nothing about you or your players is sent. When there is one, a banner explains how to update.</p>
@@ -2603,7 +2660,7 @@ const HELP = {
   live: ["Live Poster", `<p>Each <b>screen</b> is a TV, stick or tablet running the Resume Relay app (or the web page at <code>/screen</code>). Tick the players it follows: when one of them plays something, the screen shows that title's poster; when none is, it shows the slideshow.</p>
     <p><b>Mounted:</b> TVs and sticks always send a landscape picture, so a TV hung upright is turned on its side. Tell Resume Relay which way (where the top of the TV is now), and press <b>Test picture</b>: the arrow should point up. A tablet held upright is "Upright".</p>
     <p><b>4K:</b> stick and TV apps draw their own pictures at 1080p but play video at 4K, so Resume Relay sends every picture as a short 4K video. Making one takes a few seconds (longer with a video background); each is made once and kept. Use 1080p for screens that can't play 4K video.</p>`],
-  slideshow: ["Slideshow", `<p><b>Coming Soon</b>: the posters you add here. <b>Recently Watched</b>: the last 10 titles stopped on the screen's players. <b>Highly Acclaimed</b>: movies and whole series rated at least the minimum (the IMDb rating when Plex has it), 10 per round so they don't crowd out the others. <b>Feature Presentation</b>: one title each screen chooses for itself (on its card), once per round. To show only that title, turn the other sets off on the screen's card.</p>
+  slideshow: ["Slideshow", `<p><b>Coming Soon</b>: the posters you add here. <b>Recently Watched</b>: the last 10 titles stopped on the screen's players (a Kaleidescape's too, after at least a minute of the movie). <b>Highly Acclaimed</b>: movies and whole series rated at least the minimum (the IMDb rating when Plex has it), 10 per round so they don't crowd out the others. <b>Feature Presentation</b>: one title each screen chooses for itself (on its card), once per round. Its list has a Kaleidescape's movies once Resume Relay has seen it play them (a Kaleidescape can't list its library). To show only that title, turn the other sets off on the screen's card.</p>
     <p>Each screen shows the sets ticked on its card (one screen can show Coming Soon while another shows Highly Acclaimed). They take turns, each with its own background, and the posters fade in and out.</p>`],
   backgrounds: ["Backgrounds", `<p>A background fills the whole screen around the poster. Design it at <b>2160×3840</b> (portrait) and keep the poster's place clear: the poster is <b>2000×3000</b>, centered across and set low: <b>80 px</b> at each side, <b>750 px</b> above it for "NOW SHOWING" and the like, and <b>90 px</b> below.</p>
     <p><b>In front of the poster:</b> a PNG or WebP with a see-through (transparent) window where the poster goes is placed <i>in front of</i> the poster, so the window's frame, shadows and glows fall on it. The built-in designs work this way. A background with no see-through parts (a JPG, an MP4, a solid PNG) goes behind the poster.</p>
@@ -3173,7 +3230,7 @@ async function refresh() {
     const [s, ev, sys] = await Promise.all([api("GET", "/api/state"), api("GET", "/api/events?n=300"), api("GET", "/api/activity?n=150&system=true")]);
     state = s; events = ev; systemRows = sys;
     for (const [id, t] of launching) if (Date.now() - t > 60000) launching.delete(id);
-    renderMode(s.settings); renderRooms(s.devices); renderPlex(); renderJellyfin(); renderFeed(); renderSettings(s.settings); renderIcons(); renderBadges();
+    gateTabs(); renderMode(s.settings); renderRooms(s.devices); renderPlex(); renderJellyfin(); renderFeed(); renderSettings(s.settings); renderIcons(); renderBadges();
     renderUpdate(); renderUpdateSettings(s.settings); renderHealth(); renderSetup(); renderCatchUp(); renderWatchedSync();
     if (!$("#progress").hidden || progress?.reading) await loadProgress(); else renderProgressControls();
     if (!$("#watch").hidden) await loadWatch(false); else renderWatchControls();

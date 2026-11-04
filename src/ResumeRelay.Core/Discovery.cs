@@ -86,17 +86,20 @@ public static class Discovery
         nets.Add($"{b[0]}.{b[1]}.{b[2]}");
     }
 
+    /// <summary>Every address of the local /24 networks (for other kinds of player, like a Kaleidescape on port 10000).</summary>
+    public static List<string> ScanHosts() => LocalSubnets().SelectMany(Hosts).Distinct().ToList();
+
     private static IEnumerable<string> Hosts(string prefix24) =>
         Enumerable.Range(1, 254).Select(i => $"{prefix24}.{i}");
 
-    private static async Task<bool> IsPortOpenAsync(string ip, CancellationToken ct)
+    public static async Task<bool> IsPortOpenAsync(string ip, CancellationToken ct, int port = ZidooPort)
     {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromMilliseconds(600));
         using var tcp = new TcpClient();
         try
         {
-            await tcp.ConnectAsync(IPAddress.Parse(ip), ZidooPort, cts.Token);
+            await tcp.ConnectAsync(IPAddress.Parse(ip), port, cts.Token);
             return true;
         }
         catch { return false; }

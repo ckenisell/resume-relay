@@ -39,6 +39,8 @@ sub init()
     m.net.control = "run"
     m.title.text = "Resume Relay Live Poster"
     m.top.setFocus(true)
+    ' Roku certification: the app says when its first screen is up and can be used (launch time is measured to here).
+    m.top.signalBeacon("AppLaunchComplete")
 end sub
 
 sub onPhase()

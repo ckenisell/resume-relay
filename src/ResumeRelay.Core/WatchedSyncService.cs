@@ -77,19 +77,29 @@ public sealed class WatchedSyncService : BackgroundService
         var conflicts = changed.SelectMany(c => c.Value).GroupBy(kv => kv.Key).Where(g => g.Select(x => x.Value).Distinct().Count() > 1).Select(g => g.Key).ToHashSet();
         int files = 0;
         var seen = new HashSet<string>(StringComparer.Ordinal);
+        // Copying off (watch-only): say what would be copied and write nothing, as stop copying does. (Before 0.8.0-beta.2
+        // this check wrote watched marks even in watch-only.)
+        bool watchOnly = _store.Settings().WatchOnly;
         foreach (var (id, diff) in changed)
         {
             var keys = diff.Keys.Where(k => !conflicts.Contains(k) && seen.Add(k)).ToList();
             if (keys.Count == 0) continue;
             var name = _store.Device(id)?.Name ?? id;
             int on = keys.Count(k => diff[k]), off = keys.Count - on;
+            if (watchOnly)
+            {
+                _store.Log(ActivityLevel.Info, $"[watch-only] Watched marks changed on {name}: {Describe(on, off)}. Would copy them to the other players (Copying is off).");
+                files += keys.Count;
+                continue;
+            }
             _store.Log(ActivityLevel.Info, $"Watched marks changed on {name}: {Describe(on, off)}. Copying to the other players.");
             if (_progress.SyncWatchedFrom(id, keys) is { } err) _store.Log(ActivityLevel.Warn, $"Copying watched marks from {name}: {err}");
             files += keys.Count;
         }
         if (conflicts.Count > 0)
             _store.Log(ActivityLevel.Warn, $"{conflicts.Count} file{(conflicts.Count == 1 ? " was" : "s were")} marked watched on one player and unwatched on another since the last check; left as they are.");
-        LastResult = files == 0 ? "No watched marks changed." : $"{files:N0} file{(files == 1 ? "" : "s")} changed on a player: copied to the others.";
+        LastResult = files == 0 ? "No watched marks changed."
+            : $"{files:N0} file{(files == 1 ? "" : "s")} changed on a player: {(watchOnly ? "not copied (Copying is off)" : "copied to the others")}.";
     }
 
     private static string Describe(int on, int off) =>

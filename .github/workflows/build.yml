@@ -126,7 +126,10 @@ jobs:
           CERT="$("$SIGNER" verify --print-certs "artifacts/ResumeRelay-Screen-$RR_VERSION-android.apk" 2>/dev/null | grep -E "certificate DN|SHA-256" | head -2 | tr '\n' ' ')"
           if [[ -n "$KS_B64" ]]; then echo "::notice::Signed with the project key: $CERT"; else echo "::warning::Signed with the debug key (no ANDROID_KEYSTORE_B64 secret): $CERT"; fi
           # The Roku app is a zip of its folder (installed from the Roku's developer page until it's in the Roku store).
-          (cd apps/roku && sed -i "s/^build_version=.*/build_version=${GITHUB_RUN_NUMBER}/" manifest && zip -qr "$GITHUB_WORKSPACE/artifacts/ResumeRelay-Screen-$RR_VERSION-roku.zip" manifest source components images)
+          # Major and minor come from the version (0.8.0-beta.2 → 0, 8); the build number counts up with every run, so
+          # each package is newer than the last (Roku compares major.minor.build).
+          RK_MAJOR=$(echo "$RR_VERSION" | cut -d. -f1); RK_MINOR=$(echo "$RR_VERSION" | cut -d. -f2)
+          (cd apps/roku && sed -i -e "s/^major_version=.*/major_version=${RK_MAJOR}/" -e "s/^minor_version=.*/minor_version=${RK_MINOR}/" -e "s/^build_version=.*/build_version=${GITHUB_RUN_NUMBER}/" manifest && zip -qr "$GITHUB_WORKSPACE/artifacts/ResumeRelay-Screen-$RR_VERSION-roku.zip" manifest source components images)
           ls -la artifacts
       - uses: actions/upload-artifact@v4
         with:

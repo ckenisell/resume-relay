@@ -13,3 +13,10 @@ services:
     volumes:
       # Players, names, settings and Activity are kept here, next to this file.
       - ./data:/data
+      # Optional (Live Poster): your movie and TV folders, read-only, so posters can come from them.
+      # Remove the # and put your media shared folder's path on the left (see the README, "Optional extras").
+      # - /volume1/Media:/media:ro
+    # Optional (Live Poster), Intel NAS with built-in graphics only: makes poster videos on the video hardware.
+    # Remove the # from both lines to use it. Leave them as they are on AMD and ARM models.
+    # devices:
+    #   - /dev/dri:/dev/dri

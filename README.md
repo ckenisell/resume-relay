@@ -190,6 +190,13 @@ services:
     volumes:
       # Players, names, settings and Activity are kept here, next to this file.
       - ./data:/data
+      # Optional (Live Poster): your movie and TV folders, read-only, so posters can come from them.
+      # Remove the # and put your media shared folder's path on the left (see "Optional extras" below).
+      # - /volume1/Media:/media:ro
+    # Optional (Live Poster), Intel NAS with built-in graphics only: makes poster videos on the video hardware.
+    # Remove the # from both lines to use it. Leave them as they are on AMD and ARM models.
+    # devices:
+    #   - /dev/dri:/dev/dri
 ```
 
 **Keep `network_mode: host`.** Without it the container sits on Docker's own private network inside
@@ -210,12 +217,44 @@ the NAS: talking to players by IP address still works, but **Scan network** find
    image and starts it.
 5. Open `http://<your-nas-address>:8090` in a browser and follow [First run](#first-run).
 
-If the DSM firewall is on (**Control Panel → Security → Firewall**), add a rule allowing TCP port
-8090, or the page won't open from other devices.
+If the DSM firewall is on (**Control Panel → Security → Firewall**), allow **TCP port 8090** (or the
+page won't open from other devices) and **UDP port 47090** (or Live Poster screen apps can't find
+Resume Relay by themselves).
+
+**Moving from another computer?** On the old one, open **Settings → App → Back up settings** first.
+Once the NAS copy is running, use **Restore from a backup** there, then quit or uninstall the old
+copy: run only one Resume Relay per home.
 
 **Updating:** in **Container Manager → Image**, `ghcr.io/ckenisell/resume-relay` shows **Update
 available** when a new version is out. Click it and choose **Update**. Your players and settings are
 kept in the **data** folder.
+
+### Optional extras for Live Poster (any NAS)
+
+The setup above runs everything. Two extras make Live Poster better on a NAS; both are the lines
+marked *Optional* in the docker-compose text. To add them later, edit the project's
+docker-compose.yml (Synology: **Container Manager → Project → resume-relay → YAML configurations**),
+then rebuild or redeploy the project.
+
+- **Posters from your movie folders.** Resume Relay looks for a poster next to each movie first
+  (`poster.jpg`, `<movie name>-poster.jpg`…). Inside the container it can only see the folders you
+  give it:
+  1. Find your media shared folder's path on the NAS. Synology: in **File Station**, right-click the
+     folder → **Properties**, and copy **Location** (for example `/volume1/Media`).
+  2. In the docker-compose text, remove the `#` in front of `- /volume1/Media:/media:ro` and put your
+     path on the left of the `:`. `:ro` means read-only: Resume Relay never changes your files.
+  3. In Resume Relay's **Live Poster** tab, open **Poster folders → + Add folder**: on the left, the
+     folder as your Zidoos see it (for example `smb://192.168.1.20/Media`), on the right `/media`.
+     Then **Save folders**.
+
+  Without this, posters come from Plex, Jellyfin or the Zidoo instead.
+- **Faster poster videos (Intel models only).** Live Poster turns each poster into a 4K video. A NAS
+  with an Intel processor that has built-in graphics (for example Synology DS220+, DS420+, DS720+,
+  DS920+; check **Control Panel → Info Center** for the processor) can do that on its video
+  hardware: remove the `#` from both `devices` lines. On AMD models (such as the DS923+, DS1522+,
+  DS1621+) and ARM models (most "j" and "value" models) leave them out, or the project won't start.
+  Without video hardware Live Poster still works, but making each poster video takes much longer.
+  There, set screens to **1080p** on their cards to make them about four times faster.
 
 ### uGreen (UGOS Pro)
 

@@ -95,9 +95,12 @@ The **Plex** card in **Settings** (the gear tab) sets it up:
 
 1. **Sign in with Plex.** Enter the code it shows at [plex.tv/link](https://plex.tv/link) on any device signed in to
    Plex. Your Plex server is found by itself.
-2. **Folders.** Plex and the Zidoos reach the same files by different paths (for example `/shares/Entertainment` on
-   the Plex server and `smb://10.0.0.56/Entertainment` on the Zidoos). Once a Zidoo has played something Plex also
-   has, the card fills these in for you. Press **Test** to check them.
+2. **Folders (optional).** Usually not needed. Plex and the Zidoos reach the same files by different paths (for
+   example `/shares/Entertainment/Movies/…` on the Plex server and `smb://10.0.0.56/Entertainment/Movies/…` on the
+   Zidoos), so Resume Relay matches them by the end of the path (`Arrival (2016)/Arrival (2016).mkv`). That works with no
+   Zidoos at all, too: Plex alone, or Plex and Jellyfin. **Compare two players** on the Watch Sync tab shows how two
+   players' files line up; if it lists files with the same name in a different folder, add a folder here (which Plex
+   folder is which Zidoo folder). Once a Zidoo has played something Plex also has, the card fills one in for you.
 3. **Add users.** The server's owner and any Plex Home users (with their PIN if they have one). Each becomes a player
    card on the Players tab.
 
@@ -114,7 +117,7 @@ The **Jellyfin** card in **Settings** sets it up (it starts folded away: open it
    under your profile → Quick Connect), or an **API key** (Jellyfin: Dashboard → API Keys). It has to be an
    administrator: only they can see what everyone is playing and copy everyone's progress. The users you add sign in
    to nothing.
-3. **Folders**, as on the Plex card. When Plex runs on the same computer, its folders are suggested.
+3. **Folders (optional)**, as on the Plex card: usually not needed. When Plex runs on the same computer, its folders are suggested.
 4. **Add users.** Each becomes a player card on the Players tab, in purple.
 
 Finishing a file in Jellyfin (it counts 90% as finished by default) marks it watched on the other players. Highly

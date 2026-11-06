@@ -11,6 +11,7 @@ Test hooks:
   /_test/ids                               item id of each file, by file name
   /_test/set?user=<id>&id=<item id>&pos=<ms>&played=0|1
   /_test/approve                           the Quick Connect code was approved by "chet"
+  /_test/root?to=/data/media               Jellyfin sees the share under another folder from now on
 """
 import json, re, socket, threading, time
 from datetime import datetime, timezone
@@ -20,6 +21,7 @@ from urllib.parse import urlparse, parse_qs
 IP, PORT = "127.0.0.8", 8096
 SERVER_ID, SERVER_NAME = "jfserver0000000000000000000000001", "CHETJF"
 ROOT = "/shares/Entertainment"
+CURRENT = {"root": ROOT}   # where Jellyfin sees the share now (/_test/root changes it)
 USERS = {"u-chet": ("chet", "pw", True, "tok-chet"), "u-wife": ("Wife", "pw2", False, "tok-wife")}
 API_KEY = "apikey-0123456789abcdef"
 TICKS = 10_000
@@ -161,8 +163,8 @@ class H(BaseHTTPRequestHandler):
                     return self.send(dict(error="admin only"), 403)
                 return self.send([dict(Id=k, Name=v[0], Policy=dict(IsAdministrator=v[2], IsDisabled=False)) for k, v in USERS.items()])
             if path == "/Library/VirtualFolders":
-                return self.send([dict(Name="Movies", CollectionType="movies", Locations=[ROOT + "/Movies"]),
-                                  dict(Name="Shows", CollectionType="tvshows", Locations=[ROOT + "/TV"])])
+                return self.send([dict(Name="Movies", CollectionType="movies", Locations=[CURRENT["root"] + "/Movies"]),
+                                  dict(Name="Shows", CollectionType="tvshows", Locations=[CURRENT["root"] + "/TV"])])
             if path == "/Sessions":
                 if not admin:
                     return self.send(dict(error="admin only"), 403)
@@ -268,6 +270,22 @@ class H(BaseHTTPRequestHandler):
                 return self.send({it["path"].rsplit("/", 1)[1]: k for k, it in ITEMS.items() if it["type"] != "Series"})
             if path == "/_test/set":
                 st(q["user"], q["id"]).update(pos=int(q.get("pos", 0)), played=q.get("played") == "1", count=int(q.get("played", "0")), last=int(time.time()))
+                return self.send({"ok": True})
+            if path == "/_test/extra":
+                # The same as mock_plex's: Dune (2021) on both servers only, and another show's S01E01.
+                r = CURRENT["root"]
+                ITEMS[gid(0x5001)] = dict(type="Movie", name="Dune", series="", seriesId="", seasonId="", season=0, episode=0, year=2021,
+                                          path=r + "/Movies/Dune (2021)/Dune (2021).mkv", ms=9300000)
+                ITEMS[gid(0x5002)] = dict(type="Movie", name="Other Show", series="", seriesId="", seasonId="", season=0, episode=0, year=2020,
+                                          path=r + "/TV/Other Show/Season 01/S01E01.mkv", ms=2400000)
+                return self.send({"ok": True})
+            if path == "/_test/root":
+                # Jellyfin seeing the share somewhere else (/data/media): for automatic matching with no folder mapping.
+                new = q.get("to", ROOT)
+                for it in list(ITEMS.values()) + [ONLY_HERE]:
+                    if it["path"].startswith(CURRENT["root"]):
+                        it["path"] = new + it["path"][len(CURRENT["root"]):]
+                CURRENT["root"] = new
                 return self.send({"ok": True})
             if path == "/_test/approve":
                 QUICK["approved"] = True

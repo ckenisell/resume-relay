@@ -212,6 +212,14 @@ class Server(Base):
             if path == "/_test/item":
                 key = int(q["key"])
                 return self.send(dict(st(q["user"], key), writes=[w for w in WRITES if w["user"] == q["user"] and w["key"] in (key, ITEMS[key]["showKey"])]))
+            if path == "/_test/extra":
+                # Files only the servers have (not the Zidoos): one both Plex and Jellyfin have, and an episode whose
+                # name alone could be any show's (Jellyfin has a different show's S01E01).
+                ITEMS[5001] = dict(type="movie", title="Dune", show="", season=0, episode=0, year=2021,
+                                   file=PLEX_ROOT + "/Movies/Dune (2021)/Dune (2021).mkv", duration=9300000, showKey=0)
+                ITEMS[5002] = dict(type="movie", title="Mystery Show", show="", season=0, episode=0, year=2020,
+                                   file=PLEX_ROOT + "/TV/Mystery Show/Season 01/S01E01.mkv", duration=2400000, showKey=0)
+                return self.send({"ok": True})
             if path == "/_test/keys":
                 return self.send({it["file"].rsplit("/", 1)[1]: k for k, it in ITEMS.items()})
             if path == "/_test/set":

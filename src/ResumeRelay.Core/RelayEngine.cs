@@ -463,6 +463,15 @@ public sealed partial class RelayEngine : BackgroundService
 
         var info = await GetTitleInfoAsync(source, last.SourceUrl, last.Path);
         var targets = _store.Devices().Where(d => d.Enabled && d.Id != source.Id).ToList();
+        // A server file no folder mapping covers, that wasn't found in the Zidoos' last read either, has only the
+        // server's own path: the other Plex and Jellyfin users can be matched to it (by the end of the path), the Zidoos can't.
+        var unmatchedZidoos = PathMatch.IsServerUrl(last.SourceUrl) ? targets.Where(t => !t.IsServerUser).ToList() : new List<Device>();
+        if (unmatchedZidoos.Count > 0)
+        {
+            targets = targets.Except(unmatchedZidoos).ToList();
+            _store.Log(ActivityLevel.Skip, $"{label} {how} on {source.Name}: not copied to {string.Join(", ", unmatchedZidoos.Select(z => z.Name))}. "
+                + $"Resume Relay couldn't find the same file on the Zidoos ({last.Path}). Read the players once on Progress Reset so it can match them, or add a folder on the {source.ServerLabel} card.");
+        }
         bool finished = !reset && NearEnd(position, last.DurationMs);
 
         var ev = new StopEvent
@@ -883,6 +892,12 @@ public sealed partial class RelayEngine : BackgroundService
         }
 
         if (target.IsServerUser) { await ProcessPlexAsync(job, target, ct); return; }
+        if (PathMatch.IsServerUrl(job.SourceUrl))
+        {
+            _store.LogCopy(ActivityLevel.Skip, $"Not copying {what}: only the server's own path is known for it, and Zidoos find files by their network path.");
+            Finish(job, TargetState.Skipped, "not matched to the Zidoos' files");
+            return;
+        }
         var api = new ZidooClient(target.Ip, target.Port);
         if (job.Kind == PendingCopy.SeriesKind) { await ProcessSeriesResetAsync(job, target, api, htNotReady, ct); return; }
 

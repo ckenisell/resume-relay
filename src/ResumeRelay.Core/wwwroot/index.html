@@ -633,6 +633,18 @@ table.pr th .kb.icon svg, table.pr th .kb.icon img, .pr-head .kb.icon svg, .pr-h
 .toast.err { border-left-color: var(--warn); }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 /* ---------- watch sync ---------- */
+.muted { color: var(--muted); }
+.ws-compare { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 10px 16px; margin-bottom: 14px; }
+.ws-compare summary { cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.ws-compare-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 12px 0 6px; }
+.ws-compare-row select { font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 6px 8px; max-width: 100%; }
+.ws-compare h4 { margin: 14px 0 4px; }
+.ws-compare ul { margin: 4px 0 0; padding-left: 20px; overflow-wrap: anywhere; }
+.cmp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin-top: 8px; }
+.cmp-n { background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px 10px; font-size: 13px; color: var(--muted); }
+.cmp-n b { display: block; font-size: 20px; color: var(--text); }
+.cmp-n.ok b { color: var(--ok); }
+.cmp-n.warn b { color: var(--warn, #E8B04A); }
 .ws-q { font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 6px 10px; width: 15em; max-width: 100%; }
 .wt { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--panel-2); color: var(--muted); border-radius: 999px; padding: 4px 12px; font-size: 12.5px; cursor: pointer; }
 .wt:hover { border-color: var(--muted); color: var(--text); }
@@ -809,6 +821,14 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
       <input id="ws-q" class="ws-q" type="search" placeholder="Search titles" aria-label="Search titles">
       <button class="btn" id="ws-read">Read players</button>
     </div>
+    <details class="ws-compare" id="ws-compare">
+      <summary>Compare two players<button class="help" data-help="compare" aria-label="About Compare">?</button></summary>
+      <div class="ws-compare-row">
+        <select id="cmp-a" aria-label="First player"></select><span aria-hidden="true">and</span><select id="cmp-b" aria-label="Second player"></select>
+        <button class="btn" id="cmp-go">Compare</button>
+      </div>
+      <div id="cmp-out"></div>
+    </details>
     <p class="msg" id="ws-msg" role="status"></p>
     <div id="ws-status" class="pr-status" aria-live="polite"></div>
     <div id="ws-list"></div>
@@ -1056,6 +1076,7 @@ const KIND_SVG = {
 const KIND_NAME = { zidoo: "Zidoo", plex: "Plex", jellyfin: "Jellyfin", kaleidescape: "Kaleidescape", imdb: "IMDb", tmdb: "TMDB" };
 // Plex and Jellyfin users are a media server's users, not boxes: no power button, no HT app.
 const isServerUser = d => d.kind === "plex" || d.kind === "jellyfin";
+const hasZidoo = () => (state?.devices || []).some(d => !isServerUser(d));
 // Where a rating comes from: the person's own small picture, or a tiny pill with the name.
 function ratingBadge(source) {
   const k = String(source || "").toLowerCase();
@@ -1952,6 +1973,7 @@ function wsTicked() {
   return Array.isArray(saved) ? all.filter(id => saved.includes(id)) : all;
 }
 function renderWatchControls() {
+  renderCompareChoices();
   const box = $("#ws-players"), devs = state?.devices || [];
   const sig = devs.map(d => d.id + d.name).join("|") + "#" + wsTicked().join("|");
   if (box.dataset.sig === sig) return;
@@ -1959,6 +1981,38 @@ function renderWatchControls() {
   const ticked = wsTicked();
   box.innerHTML = devs.map(d => `<label><input type="checkbox" value="${esc(d.id)}" ${ticked.includes(d.id) ? "checked" : ""}> ${esc(d.name)}</label>`).join("");
 }
+// Compare two players (Watch Sync): how their last reads line up.
+function renderCompareChoices() {
+  const devs = state?.devices || [], a = $("#cmp-a"), b = $("#cmp-b");
+  const sig = devs.map(d => d.id + d.name).join("|");
+  if (a.dataset.sig === sig) return;
+  a.dataset.sig = sig;
+  const keepA = a.value, keepB = b.value;
+  const opts = devs.map(d => `<option value="${esc(d.id)}">${esc(d.name)}</option>`).join("");
+  a.innerHTML = opts; b.innerHTML = opts;
+  if (devs.some(d => d.id === keepA)) a.value = keepA;
+  if (devs.some(d => d.id === keepB)) b.value = keepB; else if (devs.length > 1) b.value = devs[1].id;
+}
+$("#cmp-go").onclick = async () => {
+  const out = $("#cmp-out"), a = $("#cmp-a").value, b = $("#cmp-b").value;
+  if (!a || !b || a === b) { out.innerHTML = `<p class="msg err">Choose two different players.</p>`; return; }
+  out.innerHTML = `<p class="muted">Comparing…</p>`;
+  try {
+    const r = await api("GET", `/api/progress/compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`);
+    if (r.error) { out.innerHTML = `<p class="msg err">${esc(r.error)}</p>`; return; }
+    const n = x => x.toLocaleString();
+    const list = (rows, path) => rows.length ? `<ul>${rows.map(x => `<li>${esc(x.file)}${path && x.path ? ` <small class="muted">${esc(x.path)}</small>` : ""}</li>`).join("")}</ul>` : "";
+    out.innerHTML = `<div class="cmp-grid">
+        <div class="cmp-n ok"><b class="tnum">${n(r.matched)}</b>on both</div>
+        <div class="cmp-n"><b class="tnum">${n(r.onlyA)}</b>only on ${esc(r.a)}</div>
+        <div class="cmp-n"><b class="tnum">${n(r.onlyB)}</b>only on ${esc(r.b)}</div>
+        <div class="cmp-n ${r.sameName ? "warn" : ""}"><b class="tnum">${n(r.sameName)}</b>same file name, different folder</div></div>
+      ${r.sameName ? `<h4>Same file name, different folder</h4><p class="muted">Probably the same files, in folders arranged differently. A folder on the Plex or Jellyfin card (Settings) matches them.</p>
+        <ul>${r.sameNameExamples.map(x => `<li>${esc(x.file)}<br><small class="muted">${esc(r.a)}: ${esc(x.a)}<br>${esc(r.b)}: ${esc(x.b)}</small></li>`).join("")}</ul>` : ""}
+      ${r.onlyAExamples.length ? `<h4>For example, only on ${esc(r.a)}</h4>${list(r.onlyAExamples, true)}` : ""}
+      ${r.onlyBExamples.length ? `<h4>For example, only on ${esc(r.b)}</h4>${list(r.onlyBExamples, true)}` : ""}`;
+  } catch (err) { out.innerHTML = `<p class="msg err">${esc(err.message)}</p>`; }
+};
 $("#ws-players").addEventListener("change", () => {
   store.set("rr.watchPlayers", JSON.stringify([...$("#ws-players").querySelectorAll("input:checked")].map(i => i.value)));
   $("#ws-players").dataset.sig = ""; wsPage = 1; loadWatch(true);
@@ -2153,20 +2207,20 @@ function renderPlex(force = false) {
     if (plexUi.unsaved) suggestedNote = `<p><b>Not saved yet.</b> These were suggested from a file your Zidoos have played that Plex also has. Check them, then press <b>Save folders</b>.</p>`;
     if (!maps.length && plexUi.suggested) {
       const libs = (plexUi.folders || []).flatMap(f => f.locations).filter(Boolean);
-      suggestedNote = `<p>${libs.length ? `Plex's library folders are <b>${libs.map(esc).join("</b>, <b>")}</b>. ` : ""}Play anything on a Zidoo for a few seconds and stop it, then reload this page: Resume Relay then fills these in for you from that file.</p>`;
+      suggestedNote = `<p>${libs.length ? `Plex's library folders are <b>${libs.map(esc).join("</b>, <b>")}</b>. ` : ""}${hasZidoo() ? "If you want them, play anything on a Zidoo for a few seconds and stop it, then reload this page: Resume Relay then fills these in for you from that file." : ""}</p>`;
     }
     if (!maps.length) maps = [{ plexFolder: "", zidooFolder: "" }];
     const t = plexUi.test;
-    const test = !t ? "" : t.error ? `<div class="plex-test err">${esc(t.error)}</div>` : `<div class="plex-test ${t.mapped === t.total && (!t.asked || t.found === t.asked) ? "ok" : "err"}">
-        ${t.mapped.toLocaleString()} of ${t.total.toLocaleString()} Plex files are inside these folders.
+    const test = !t ? "" : t.error ? `<div class="plex-test err">${esc(t.error)}</div>` : `<div class="plex-test ${!t.asked || t.found === t.asked ? "ok" : "err"}">
+        ${t.mapped.toLocaleString()} of ${t.total.toLocaleString()} Plex files are inside these folders${t.mapped < t.total ? "; the others are matched automatically, by the end of their path" : ""}.
         ${t.player ? (t.asked ? ` ${t.found} of ${t.asked} sample files were found on ${esc(t.player)} by the mapped path.` : "") : " Turn a Zidoo on to check the paths against it."}
-        ${t.outside.length ? `<ul>${t.outside.map(o => `<li>Not covered: ${esc(o)}</li>`).join("")}</ul>` : ""}
+        ${t.outside.length ? `<ul>${t.outside.map(o => `<li>Outside the folders (matched automatically): ${esc(o)}</li>`).join("")}</ul>` : ""}
         ${t.samples.filter(x => !x.found).length ? `<ul>${t.samples.filter(x => !x.found).map(x => `<li>Not found on ${esc(t.player)}: ${esc(x.zidoo)}</li>`).join("")}</ul>` : ""}</div>`;
     const users = plexUi.users;
     body = `<p>Signed in as <b>${esc(p.username)}</b> · server <b>${esc(p.server.name)}</b> <span class="tnum">(${esc(p.server.url)})</span>
         <button class="btn quiet" data-plex="change">Change server</button></p>
-      <h4>Folders<button class="help" data-help="plexfolders" aria-label="About the folders">?</button></h4>
-      <p>Plex and the Zidoos reach the same files by different paths. Each line says which Plex folder is which Zidoo folder; files are then matched by the rest of their path.</p>
+      <h4>Folders <small class="muted">optional</small><button class="help" data-help="plexfolders" aria-label="About the folders">?</button></h4>
+      <p>Usually not needed: Resume Relay finds the same file on Plex, Jellyfin and the Zidoos by the end of its path, wherever each one keeps it. Add a line only if <b>Compare</b> on the Watch Sync tab shows files it couldn't match: each line says which Plex folder is which Zidoo folder.</p>
       ${suggestedNote}
       <div id="plex-maps">${maps.map((m, i) => `<div class="plex-row" data-i="${i}">
           <input data-map="plexFolder" value="${esc(m.plexFolder)}" placeholder="Plex folder, e.g. /shares/Entertainment" aria-label="Plex folder">
@@ -2356,20 +2410,20 @@ function renderJellyfin(force = false) {
     if (jfUi.unsaved) note = `<p><b>Not saved yet.</b> These were suggested from the Plex card's folders or a file your Zidoos have played that Jellyfin also has. Check them, then press <b>Save folders</b>.</p>`;
     if (!maps.length && jfUi.suggested) {
       const libs = (jfUi.folders || []).flatMap(f => f.locations).filter(Boolean);
-      note = `<p>${libs.length ? `Jellyfin's library folders are <b>${libs.map(esc).join("</b>, <b>")}</b>. ` : ""}Play anything on a Zidoo for a few seconds and stop it, then reload this page: Resume Relay then fills these in for you from that file.</p>`;
+      note = `<p>${libs.length ? `Jellyfin's library folders are <b>${libs.map(esc).join("</b>, <b>")}</b>. ` : ""}${hasZidoo() ? "If you want them, play anything on a Zidoo for a few seconds and stop it, then reload this page: Resume Relay then fills these in for you from that file." : ""}</p>`;
     }
     if (!maps.length) maps = [{ plexFolder: "", zidooFolder: "" }];
     const t = jfUi.test;
-    const test = !t ? "" : t.error ? `<div class="plex-test err">${esc(t.error)}</div>` : `<div class="plex-test ${t.mapped === t.total && (!t.asked || t.found === t.asked) ? "ok" : "err"}">
-        ${t.mapped.toLocaleString()} of ${t.total.toLocaleString()} Jellyfin files are inside these folders.
+    const test = !t ? "" : t.error ? `<div class="plex-test err">${esc(t.error)}</div>` : `<div class="plex-test ${!t.asked || t.found === t.asked ? "ok" : "err"}">
+        ${t.mapped.toLocaleString()} of ${t.total.toLocaleString()} Jellyfin files are inside these folders${t.mapped < t.total ? "; the others are matched automatically, by the end of their path" : ""}.
         ${t.player ? (t.asked ? ` ${t.found} of ${t.asked} sample files were found on ${esc(t.player)} by the mapped path.` : "") : " Turn a Zidoo on to check the paths against it."}
-        ${t.outside.length ? `<ul>${t.outside.map(o => `<li>Not covered: ${esc(o)}</li>`).join("")}</ul>` : ""}
+        ${t.outside.length ? `<ul>${t.outside.map(o => `<li>Outside the folders (matched automatically): ${esc(o)}</li>`).join("")}</ul>` : ""}
         ${t.samples.filter(x => !x.found).length ? `<ul>${t.samples.filter(x => !x.found).map(x => `<li>Not found on ${esc(t.player)}: ${esc(x.zidoo)}</li>`).join("")}</ul>` : ""}</div>`;
     const users = jfUi.users;
     body = `<p>${j.apiKey ? "Connected with an API key" : `Signed in as <b>${esc(j.userName)}</b>`} · server <b>${esc(j.server.name)}</b> <span class="tnum">(${esc(j.server.url)})</span>
         <button class="btn quiet" data-jf="change">Change server</button></p>
-      <h4>Folders<button class="help" data-help="jffolders" aria-label="About the folders">?</button></h4>
-      <p>Jellyfin and the Zidoos reach the same files by different paths. Each line says which Jellyfin folder is which Zidoo folder; files are then matched by the rest of their path.</p>
+      <h4>Folders <small class="muted">optional</small><button class="help" data-help="jffolders" aria-label="About the folders">?</button></h4>
+      <p>Usually not needed: Resume Relay finds the same file on Jellyfin, Plex and the Zidoos by the end of its path, wherever each one keeps it. Add a line only if <b>Compare</b> on the Watch Sync tab shows files it couldn't match: each line says which Jellyfin folder is which Zidoo folder.</p>
       ${note}
       <div id="jf-maps">${maps.map((m, i) => `<div class="plex-row" data-i="${i}">
           <input data-map="plexFolder" value="${esc(m.plexFolder)}" placeholder="Jellyfin folder, e.g. /shares/Entertainment" aria-label="Jellyfin folder">
@@ -2655,7 +2709,8 @@ const HELP = {
     <p>The file includes your Plex and Jellyfin sign-ins, so keep it somewhere private.</p>`],
   updates: ["New versions", `<p>Once a day Resume Relay asks GitHub whether a newer version is out. Only the public list of versions is fetched; nothing about you or your players is sent. When there is one, a banner explains how to update.</p>
     <p><b>Include beta versions</b> also offers test versions (always on while you're running a beta).</p>`],
-  plexfolders: ["Folders", `<p>Plex and the Zidoos reach the same files by different paths: for example Plex sees <code>/shares/Entertainment/Movies/…</code> where the Zidoos see <code>smb://10.0.0.56/Entertainment/Movies/…</code>. Each line says which Plex folder is which Zidoo folder; files are then matched by the rest of their path.</p>
+  plexfolders: ["Folders", `<p>Plex, Jellyfin and the Zidoos reach the same files by different paths: for example Plex sees <code>/shares/Entertainment/Movies/Arrival (2016)/Arrival (2016).mkv</code> where the Zidoos see <code>smb://10.0.0.56/Entertainment/Movies/Arrival (2016)/Arrival (2016).mkv</code>. Resume Relay matches them by the end of the path (here <code>Arrival (2016)/Arrival (2016).mkv</code>), so you usually don't need any folders, even with no Zidoos at all.</p>
+    <p>It won't match files by names that could be anything, like <code>Season 01/S01E01.mkv</code> alone; it then uses the show's folder too. If <b>Compare</b> on the Watch Sync tab shows files on one side only that are really on both (usually because the folders are arranged differently), add a line here: which Plex folder is which Zidoo folder. Files inside these folders are matched by the rest of their path instead.</p>
     <p><b>Test</b> counts how many Plex files the folders cover and checks a few of them on a Zidoo.</p>`],
   live: ["Live Poster", `<p>Each <b>screen</b> is a TV, stick or tablet running the Resume Relay app (or the web page at <code>/screen</code>). Tick the players it follows: when one of them plays something, the screen shows that title's poster; when none is, it shows the slideshow.</p>
     <p><b>Mounted:</b> TVs and sticks always send a landscape picture, so a TV hung upright is turned on its side. Tell Resume Relay which way (where the top of the TV is now), and press <b>Test picture</b>: the arrow should point up. A tablet held upright is "Upright".</p>
@@ -2691,7 +2746,9 @@ const HELP = {
     <li><b>Quick Connect:</b> Resume Relay shows a 6-character code; approve it in a Jellyfin app or web page where you're signed in as an administrator (your profile → Quick Connect). Quick Connect has to be on (Dashboard → General).</li>
     <li><b>API key:</b> make one in Jellyfin under Dashboard → API Keys and paste it here.</li></ul>
     <p>Jellyfin 10.9 or newer works best.</p>`],
-  jffolders: ["Folders", `<p>Jellyfin and the Zidoos reach the same files by different paths: for example Jellyfin sees <code>/shares/Entertainment/Movies/…</code> where the Zidoos see <code>smb://10.0.0.56/Entertainment/Movies/…</code>. Each line says which Jellyfin folder is which Zidoo folder; files are then matched by the rest of their path. When Plex runs on the same computer, its folders usually work here too.</p>`],
+  compare: ["Compare two players", `<p>Shows how the last read of two players lines up (press <b>Read players</b> first, with both ticked): how many files both have, and which ones only one has. Any two work: a Zidoo and Plex, Plex and Jellyfin, two Zidoos.</p>
+    <p><b>Same file name, different folder</b> lists files both have that weren't matched, because their folders are arranged differently. A folder on the Plex or Jellyfin card fixes those. Files that really are only on one side are fine: Watch Sync shows them on that player only.</p>`],
+  jffolders: ["Folders", `<p>Jellyfin and the Zidoos reach the same files by different paths: for example Jellyfin sees <code>/shares/Entertainment/Movies/…</code> where the Zidoos see <code>smb://10.0.0.56/Entertainment/Movies/…</code>. Resume Relay matches them by the end of the path, so you usually don't need any folders, even with no Zidoos at all. If <b>Compare</b> on the Watch Sync tab shows files on one side only that are really on both, add a line here: which Jellyfin folder is which Zidoo folder. When Plex runs on the same computer, its folders usually work here too.</p>`],
   jfusers: ["Jellyfin users", `<p>Each Jellyfin user you add becomes a player: their resume points and watched marks sync with the Zidoos (and Plex) in both directions. Users need no password: the administrator's sign-in covers them.</p>`],
   plexusers: ["Plex users", `<p>Each Plex user you add becomes a player: their resume points and watched marks sync with the Zidoos in both directions. Users with a PIN need it once, to add them.</p>`],
 };

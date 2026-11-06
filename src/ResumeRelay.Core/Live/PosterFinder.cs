@@ -95,6 +95,8 @@ public sealed class PosterFinder
     public string? LocalPathOf(string sourceUrl)
     {
         if (sourceUrl.Length == 0) return null;
+        // A Plex or Jellyfin file known only by the server's own path: there when Resume Relay runs on the server's computer.
+        if (PathMatch.IsServerUrl(sourceUrl)) { string own = PathMatch.ServerPath(sourceUrl); return SafeExists(own) ? own : null; }
         string url = sourceUrl.Replace('\\', '/');
         try { url = Uri.UnescapeDataString(url); } catch { }
         var cfg = _live.Get();
@@ -202,7 +204,7 @@ public sealed class PosterFinder
 
     private async Task<PosterResult?> ZidooPosterAsync(PosterRequest r, bool tv, CancellationToken ct)
     {
-        if (r.SourceUrl.Length == 0) return null;
+        if (r.SourceUrl.Length == 0 || PathMatch.IsServerUrl(r.SourceUrl)) return null;
         var zidoos = _store.Devices().Where(d => !d.IsServerUser && d.Enabled && _engine.LiveOf(d.Id).Online)
             .OrderByDescending(d => d.Id == r.DeviceId).ToList();
         foreach (var d in zidoos.Take(2))

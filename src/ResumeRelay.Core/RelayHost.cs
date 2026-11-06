@@ -89,6 +89,9 @@ public static class RelayHost
         var catchUp = app.Services.GetRequiredService<CatchUpService>();
         MapApi(app, store, app.Services.GetRequiredService<RelayEngine>(), options.Host, updates, catchUp);
         MapProgressApi(app, app.Services.GetRequiredService<ProgressService>(), app.Lifetime.ApplicationStopping);
+        // Automatic matching for live copying: a Plex or Jellyfin file no folder mapping covers is found on the Zidoos
+        // through their last read on Progress Reset.
+        app.Services.GetRequiredService<RelayEngine>().FindZidooUrl = app.Services.GetRequiredService<ProgressService>().ZidooUrlForServerPathAsync;
         PlexApi.Map(app, store, app.Services.GetRequiredService<RelayEngine>());
         JellyfinApi.Map(app, store, app.Services.GetRequiredService<RelayEngine>());
         MapIcons(app, store);
@@ -441,12 +444,7 @@ public static class RelayHost
             if (progress.ClockAhead(d.Id))
                 Add("clock:" + d.Id, $"{d.Name}'s clock seems to be ahead: it recorded watch times in the future. Check its date, time and time zone settings, or Catch Up may pick the wrong player.");
         }
-        if (store.Plex().Ready && engine.PlexUnmapped() is { Count: > 0 } um)
-            Add("plex-unmapped", $"{um.Count:N0} Plex file{(um.Count == 1 ? " is" : "s are")} outside the folders on the Plex card (Settings), so {(um.Count == 1 ? "it" : "they")} can't sync" +
-                (um.Folders.Count > 0 ? $", for example in {um.Folders[0]}." : "."));
-        if (store.Jellyfin().Ready && engine.JellyfinUnmapped() is { Count: > 0 } jm)
-            Add("jellyfin-unmapped", $"{jm.Count:N0} Jellyfin file{(jm.Count == 1 ? " is" : "s are")} outside the folders on the Jellyfin card (Settings), so {(jm.Count == 1 ? "it" : "they")} can't sync" +
-                (jm.Folders.Count > 0 ? $", for example in {jm.Folders[0]}." : "."));
+        // (Plex and Jellyfin files outside the cards' folders are no longer a problem: they're matched automatically.)
         return notes.DistinctBy(n => n.Key).ToList();
     }
 
@@ -540,6 +538,8 @@ public static class RelayHost
         });
         // e.g. /api/progress/diagnostics?q=mario : what each player's library listing held, for troubleshooting.
         app.MapGet("/api/progress/diagnostics", (string? q) => Results.Text(progress.DiagnosticsText(q ?? ""), "text/plain; charset=utf-8"));
+        // The Compare panel: how two players' last reads line up (matched, only on one, same file name in another folder).
+        app.MapGet("/api/progress/compare", (string a, string b) => Results.Ok(progress.Compare(a ?? "", b ?? "")));
         app.MapPost("/api/progress/read", (ProgressReadRequest req) =>
             progress.StartRead(req.DeviceIds ?? new List<string>(), stopping) is { } err ? Results.BadRequest(new { Error = err }) : Results.Ok());
         app.MapPost("/api/progress/reset", async (ProgressKeyRequest req) =>

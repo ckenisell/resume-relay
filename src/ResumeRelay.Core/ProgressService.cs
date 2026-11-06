@@ -10,6 +10,9 @@ public sealed class ProgressFile
     /// <summary>The file's share-relative path, lower-case ("/movies/arrival (2016)/arrival (2016).mkv").</summary>
     public string Key { get; set; } = "";
     public string Uri { get; set; } = "";
+    /// <summary>For a Plex or Jellyfin file no folder mapping covers: the server's own path. Such a file is matched to
+    /// the same file on the other players by the end of its path (PathMatch); its key starts with "~" until it is.</summary>
+    public string ServerPath { get; set; } = "";
     public string FileName { get; set; } = "";
     public bool IsEpisode { get; set; }
     /// <summary>Movie title, or the series name for an episode.</summary>
@@ -111,7 +114,7 @@ public sealed class ProgressService
         foreach (var d in devices) _status[d.Id] = $"Waiting to read {d.Name}…";
         var task = Task.Run(async () =>
         {
-            try { await Task.WhenAll(devices.Select(d => ReadDeviceAsync(d, stopping))); }
+            try { await Task.WhenAll(devices.Select(d => ReadDeviceAsync(d, stopping))); MatchAllAutomatically(); }
             finally { foreach (var k in _status.Keys.Where(k => k != "bulk").ToList()) _status.TryRemove(k, out _); Interlocked.Exchange(ref _reading, 0); }
         }, stopping);
         return (null, task);
@@ -420,6 +423,7 @@ public sealed class ProgressService
         {
             lock (_lock)
             {
+                if (result.ReadUtc != null) MatchAutomatically(d.Id, result, files);
                 foreach (var f in files.Values) _files[f.Key] = f;
                 if (result.ReadUtc != null && _devices.TryGetValue(d.Id, out var previous)) NoteChangedMarks(previous, result);
                 if (result.ReadUtc != null || !_devices.ContainsKey(d.Id)) _devices[d.Id] = result;
@@ -443,13 +447,16 @@ public sealed class ProgressService
             foreach (var f in it.Files)
             {
                 var rel = PlexPaths.Rel(f, mappings);
-                if (rel == null) { unmapped++; continue; }
-                var m = EpisodeTag.Match(Path.GetFileName(rel));
+                if (rel == null) unmapped++;
+                string name = Path.GetFileName((rel ?? f).Replace('\\', '/'));
+                var m = EpisodeTag.Match(name);
                 var file = new ProgressFile
                 {
-                    Key = PlexPaths.Key(rel),
-                    Uri = rel,
-                    FileName = Path.GetFileName(rel),
+                    // No folder mapping covers it: a key of its own for now, matched to the other players' files when the read ends.
+                    Key = rel != null ? PlexPaths.Key(rel) : AutoPrefix + string.Join("/", PathMatch.Parts(f)),
+                    Uri = rel ?? "",
+                    ServerPath = rel == null ? f : "",
+                    FileName = name,
                     IsEpisode = it.IsEpisode,
                     Title = it.IsEpisode ? it.Show : it.Title,
                     Year = it.Year,
@@ -469,8 +476,138 @@ public sealed class ProgressService
                 };
             }
         result.Titles = items.Count;
-        result.Diagnostics.Add($"{server}: {items.Count:N0} movies and episodes, {result.Cells.Count:N0} files" + (unmapped > 0 ? $"; {unmapped:N0} file(s) outside the {server} card's folder mapping were left out" : ""));
+        result.Diagnostics.Add($"{server}: {items.Count:N0} movies and episodes, {result.Cells.Count:N0} files" + (unmapped > 0 ? $"; {unmapped:N0} file(s) no folder on the {server} card covers, matched automatically by the end of their path" : ""));
         result.ReadUtc = DateTime.UtcNow;
+    }
+
+    // ---------- automatic matching: server files no folder mapping covers ----------
+
+    /// <summary>The start of the key of a server file no folder mapping covers and that hasn't been matched to another
+    /// player's file yet (the rest is its own path, lower-case).</summary>
+    public const string AutoPrefix = "~";
+
+    /// <summary>
+    /// Matches a player's "~" files to the same files on the other players read, by the end of their path: first to
+    /// files known by their network path (the Zidoos', and servers' with a folder mapping), then to the other servers'
+    /// own "~" files (Plex and Jellyfin with no Zidoos). A matched file takes the other file's key, so it lines up with it
+    /// on Progress Reset and Watch Sync. Returns the keys moved (old → new). Call under _lock.
+    /// </summary>
+    private Dictionary<string, string> MatchAutomatically(string deviceId, ProgressDevice result, IDictionary<string, ProgressFile> files)
+    {
+        var moved = new Dictionary<string, string>(StringComparer.Ordinal);
+        var auto = result.Cells.Keys.Where(k => k.StartsWith(AutoPrefix, StringComparison.Ordinal)).ToList();
+        if (auto.Count == 0) return moved;
+        var known = new PathMatch.Index<string>();
+        var loose = new PathMatch.Index<string>();
+        foreach (var od in _devices.Values)
+        {
+            if (od.DeviceId == deviceId) continue;
+            foreach (var k in od.Cells.Keys)
+            {
+                if (!_files.TryGetValue(k, out var f)) continue;
+                if (k.StartsWith(AutoPrefix, StringComparison.Ordinal)) { if (f.ServerPath.Length > 0) loose.Add(f.ServerPath, k); }
+                else if (f.Uri.Length > 0) known.Add(f.Uri, k);
+            }
+        }
+        if (known.Count == 0 && loose.Count == 0) return moved;
+        foreach (var k in auto)
+        {
+            if (!files.TryGetValue(k, out var f) || f.ServerPath.Length == 0) continue;
+            string? to = known.TryFind(f.ServerPath, out var a) ? a : loose.TryFind(f.ServerPath, out var b) ? b : null;
+            if (to == null || to == k || result.Cells.ContainsKey(to)) continue;
+            result.Cells[to] = result.Cells[k];
+            result.Cells.Remove(k);
+            files.Remove(k);
+            if (!_files.ContainsKey(to) && !files.ContainsKey(to))
+                files[to] = new ProgressFile
+                {
+                    Key = to, Uri = f.Uri, ServerPath = f.ServerPath, FileName = f.FileName, IsEpisode = f.IsEpisode, Title = f.Title,
+                    Year = f.Year, Season = f.Season, Episode = f.Episode, EpisodeName = f.EpisodeName,
+                };
+            moved[k] = to;
+        }
+        if (moved.Count > 0) result.Diagnostics.Add($"Matched automatically to the other players' files by the end of their path: {moved.Count:N0} file(s)");
+        return moved;
+    }
+
+    /// <summary>After a read of several players: matches each player's "~" files again, now that every player in the
+    /// read is in (one that finished early was matched only to what was read before).</summary>
+    private void MatchAllAutomatically()
+    {
+        lock (_lock)
+        {
+            foreach (var dev in _devices.Values.ToList())
+            {
+                var mine = dev.Cells.Keys.Where(k => k.StartsWith(AutoPrefix, StringComparison.Ordinal) && _files.ContainsKey(k))
+                    .ToDictionary(k => k, k => _files[k], StringComparer.Ordinal);
+                if (mine.Count == 0) continue;
+                var moved = MatchAutomatically(dev.DeviceId, dev, mine);
+                foreach (var (k, f) in mine) _files[k] = f;
+                if (moved.Count > 0 && _markChanges.TryGetValue(dev.DeviceId, out var marks))
+                    foreach (var (from, to) in moved)
+                        if (marks.Remove(from, out bool w)) marks[to] = w;
+            }
+        }
+        Changed();
+    }
+
+    private (long Version, PathMatch.Index<string> Index)? _zidooIndex;
+
+    /// <summary>The Zidoos' network path for a server's file no folder mapping covers: the same file, by the end of its
+    /// path, in the Zidoos' last read (for copying a Plex or Jellyfin stop to the Zidoos). Null when not found.</summary>
+    public async Task<string?> ZidooUrlForServerPathAsync(string serverPath)
+    {
+        string? key = null;
+        lock (_lock)
+        {
+            if (_zidooIndex is not { } zi || zi.Version != Version)
+            {
+                var idx = new PathMatch.Index<string>();
+                foreach (var dev in _devices.Values.Where(x => _store.Device(x.DeviceId) is { IsServerUser: false }))
+                    foreach (var k in dev.Cells.Keys)
+                        if (_files.TryGetValue(k, out var f) && f.Uri.Length > 0) idx.Add(f.Uri, k);
+                _zidooIndex = zi = (Version, idx);
+            }
+            if (zi.Index.TryFind(serverPath, out var k2)) key = k2;
+        }
+        if (key == null) return null;
+        string? url = await UrlForAsync(key);
+        return url != null && !PathMatch.IsServerUrl(url) ? url : null;
+    }
+
+    /// <summary>
+    /// The Compare panel: how two players' last reads line up. Matched files, files only one of them has, and of those,
+    /// the ones with the same file name on both (probably the same file in a different folder: a folder on the Plex or
+    /// Jellyfin card fixes those).
+    /// </summary>
+    public object Compare(string aId, string bId)
+    {
+        lock (_lock)
+        {
+            if (!_devices.TryGetValue(aId, out var a) || a.ReadUtc == null) return new { Error = "Read that player first (Read players)." };
+            if (!_devices.TryGetValue(bId, out var b) || b.ReadUtc == null) return new { Error = "Read that player first (Read players)." };
+            string PathOf(string k) => _files.TryGetValue(k, out var f) ? (f.ServerPath.Length > 0 ? f.ServerPath : f.Uri) : k;
+            string NameOf(string k) => _files.TryGetValue(k, out var f) ? f.FileName : k;
+            string ShowOf(string k) => _files.TryGetValue(k, out var f) ? f.Display : k;
+            var aKeys = a.Cells.Where(c => c.Value.FileId > 0).Select(c => c.Key).ToHashSet(StringComparer.Ordinal);
+            var bKeys = b.Cells.Where(c => c.Value.FileId > 0).Select(c => c.Key).ToHashSet(StringComparer.Ordinal);
+            var both = aKeys.Where(bKeys.Contains).ToList();
+            var onlyA = aKeys.Where(k => !bKeys.Contains(k)).ToList();
+            var onlyB = bKeys.Where(k => !aKeys.Contains(k)).ToList();
+            var bByName = onlyB.GroupBy(k => NameOf(k).ToLowerInvariant()).ToDictionary(g => g.Key, g => g.ToList());
+            var sameName = onlyA.Where(k => bByName.ContainsKey(NameOf(k).ToLowerInvariant()))
+                .Select(k => new { File = NameOf(k), A = PathOf(k), B = PathOf(bByName[NameOf(k).ToLowerInvariant()][0]) }).ToList();
+            var sameNameA = sameName.Select(x => x.File.ToLowerInvariant()).ToHashSet();
+            return new
+            {
+                A = a.Name, B = b.Name,
+                Matched = both.Count, OnlyA = onlyA.Count, OnlyB = onlyB.Count, SameName = sameName.Count,
+                MatchedExamples = both.Take(5).Select(k => new { File = ShowOf(k) }).ToList(),
+                OnlyAExamples = onlyA.Where(k => !sameNameA.Contains(NameOf(k).ToLowerInvariant())).OrderBy(ShowOf).Take(8).Select(k => new { File = ShowOf(k), Path = PathOf(k) }).ToList(),
+                OnlyBExamples = onlyB.Where(k => !sameNameA.Contains(NameOf(k).ToLowerInvariant())).OrderBy(ShowOf).Take(8).Select(k => new { File = ShowOf(k), Path = PathOf(k) }).ToList(),
+                SameNameExamples = sameName.Take(8).ToList(),
+            };
+        }
     }
 
     /// <summary>Reads one movie or season. Public for the TV show reset, which reads a series' seasons the same way.</summary>

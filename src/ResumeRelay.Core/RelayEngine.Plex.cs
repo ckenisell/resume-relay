@@ -23,6 +23,8 @@ public sealed partial class RelayEngine
         public DateTime BuiltUtc;
         public Dictionary<string, PlexItem> ByKey = new(StringComparer.Ordinal);   // in-share path (lower-case) → item
         public Dictionary<int, PlexItem> ByRating = new();
+        /// <summary>Every file by the end of its path (automatic matching, for files no folder mapping covers).</summary>
+        public PathMatch.Index<PlexItem> ByTail = new();
         public List<PlexItem> Items = new();
         /// <summary>Plex files no folder mapping covers (they can't be matched to the Zidoos).</summary>
         public int Unmapped;
@@ -85,6 +87,7 @@ public sealed partial class RelayEngine
                 idx.ByRating[it.Key] = it;
                 foreach (var f in it.Files)
                 {
+                    idx.ByTail.Add(f, it);
                     if (PlexPaths.ToSourceUrl(f, mappings) == null)
                     {
                         idx.Unmapped++;
@@ -105,16 +108,14 @@ public sealed partial class RelayEngine
     /// (item, true) found; (null, true) Plex doesn't have it; (null, false) the server didn't answer.</summary>
     private async Task<(PlexItem? Item, bool Answered)> FindPlexItemAsync(Device d, string sourceUrl, CancellationToken ct)
     {
-        string? rel = PlexPaths.RelOfUrl(sourceUrl);
-        if (rel == null) return (null, true);
-        string key = PlexPaths.Key(rel);
         var idx = await PlexIndexAsync(d, PlexIndexMaxAge, ct);
         if (idx == null) return (null, false);
-        if (!idx.ByKey.TryGetValue(key, out var hit) && DateTime.UtcNow - idx.BuiltUtc > PlexIndexMinAge)
+        var hit = FindInIndex(idx, sourceUrl);
+        if (hit == null && DateTime.UtcNow - idx.BuiltUtc > PlexIndexMinAge)
         {
             idx = await PlexIndexAsync(d, TimeSpan.Zero, ct); // a file added since the last listing
             if (idx == null) return (null, false);
-            idx.ByKey.TryGetValue(key, out hit);
+            hit = FindInIndex(idx, sourceUrl);
         }
         if (hit == null) return (null, true);
         // The listing can be minutes old: read the item itself for the current state.
@@ -122,13 +123,24 @@ public sealed partial class RelayEngine
         return (fresh ?? hit, fresh != null);
     }
 
-    /// <summary>The Zidoos' path for a file of a Plex user's library, by its ratingKey (null when unmapped).</summary>
+    /// <summary>A file in a server's listing, by the Zidoos' path (through the folder mapping), or automatically by the
+    /// end of its path: for an smb:// path no folder mapping covers, and for another server's file (a server: address).</summary>
+    private static PlexItem? FindInIndex(PlexIndex idx, string sourceUrl)
+    {
+        if (!PathMatch.IsServerUrl(sourceUrl) && PlexPaths.RelOfUrl(sourceUrl) is { } rel && idx.ByKey.TryGetValue(PlexPaths.Key(rel), out var hit)) return hit;
+        return idx.ByTail.TryFind(sourceUrl, out var auto) ? auto : null;
+    }
+
+    /// <summary>The address the copy queue uses for a file of a Plex or Jellyfin user's library, by its ratingKey: the
+    /// Zidoos' path through the folder mapping, or else the server's own path (a server: address, matched on the
+    /// other servers by the end of the path). Null when the listing doesn't have it.</summary>
     public async Task<string?> PlexSourceUrlAsync(Device d, int ratingKey, CancellationToken ct = default)
     {
         var idx = await PlexIndexAsync(d, PlexIndexMaxAge, ct);
         var item = idx?.ByRating.GetValueOrDefault(ratingKey);
+        if (item == null || item.Files.Count == 0) return null;
         var mappings = MappingsFor(d);
-        return item?.Files.Select(f => PlexPaths.ToSourceUrl(f, mappings)).FirstOrDefault(u => u != null);
+        return item.Files.Select(f => PlexPaths.ToSourceUrl(f, mappings)).FirstOrDefault(u => u != null) ?? PathMatch.ServerUrl(item.Files[0]);
     }
 
     /// <summary>Live Poster: a file's Plex item by the Zidoos' path, from the cached listing of any Plex user (null when
@@ -139,10 +151,9 @@ public sealed partial class RelayEngine
     /// <summary>The same for a Plex or Jellyfin user's server (from that user's cached listing).</summary>
     public async Task<PlexItem?> ServerItemForUrlAsync(Device? d, string sourceUrl, CancellationToken ct = default)
     {
-        string? rel = PlexPaths.RelOfUrl(sourceUrl);
-        if (rel == null || d == null) return null;
+        if (d == null || sourceUrl.Length == 0) return null;
         var idx = await PlexIndexAsync(d, PlexIndexMaxAge, ct);
-        return idx != null && idx.ByKey.TryGetValue(PlexPaths.Key(rel), out var hit) ? hit : null;
+        return idx == null ? null : FindInIndex(idx, sourceUrl);
     }
 
     /// <summary>A client for the Plex server with the owner's token (null when Plex isn't set up).</summary>
@@ -233,7 +244,7 @@ public sealed partial class RelayEngine
             var np = new NowPlaying
             {
                 Path = file,
-                SourceUrl = PlexPaths.ToSourceUrl(file, mappings) ?? "",
+                SourceUrl = sameFile && prev!.SourceUrl.Length > 0 ? prev.SourceUrl : await SourceUrlForServerFileAsync(file, mappings),
                 Title = s.Item.IsEpisode ? s.Item.Show : s.Item.Title,
                 Subtitle = sameFile ? prev!.Subtitle : PlexSubtitle(s.Item),
                 PositionMs = s.Item.ViewOffsetMs,
@@ -251,6 +262,26 @@ public sealed partial class RelayEngine
             live.Playing = null;
             if (prev != null) OnStopped(d, prev, now, "stopped", canAskPlayer: true);
         }
+    }
+
+    /// <summary>Progress Reset's last read, to find the Zidoos' path for a server file no folder mapping covers
+    /// (automatic matching by the end of the path). Set by the host; null: not available.</summary>
+    public Func<string, Task<string?>>? FindZidooUrl { get; set; }
+    private readonly ConcurrentDictionary<string, (string Url, DateTime At)> _autoUrls = new(StringComparer.Ordinal);
+
+    /// <summary>The address a server file is copied by: the Zidoos' path through the folder mapping; else the Zidoos' path
+    /// found automatically (the same file, by the end of its path, in the Zidoos' last read on Progress Reset); else the
+    /// server's own path (a server: address, which other Plex and Jellyfin users are matched to the same way).</summary>
+    private async Task<string> SourceUrlForServerFileAsync(string file, List<PlexMapping> mappings)
+    {
+        if (PlexPaths.ToSourceUrl(file, mappings) is { } mapped) return mapped;
+        if (_autoUrls.TryGetValue(file, out var c) && DateTime.UtcNow - c.At < TimeSpan.FromMinutes(1)) return c.Url;
+        string url = "";
+        try { if (FindZidooUrl != null) url = await FindZidooUrl(file) ?? ""; } catch { }
+        if (url.Length == 0) url = PathMatch.ServerUrl(file);
+        if (_autoUrls.Count > 200) _autoUrls.Clear();
+        _autoUrls[file] = (url, DateTime.UtcNow);
+        return url;
     }
 
     private static string PlexSubtitle(PlexItem it) =>
@@ -328,7 +359,7 @@ public sealed partial class RelayEngine
         if (item == null)
         {
             if (!answered) { Retry(job, what, $"the {server} server didn't answer"); return; }
-            _store.LogCopy(ActivityLevel.Skip, $"Not copying {what}: {server} doesn't have that file (or the {server} card's folder mapping doesn't cover it).");
+            _store.LogCopy(ActivityLevel.Skip, $"Not copying {what}: {server} doesn't have that file (it wasn't found there by its path or the end of its path).");
             Finish(job, TargetState.Skipped, "not in its library");
             return;
         }

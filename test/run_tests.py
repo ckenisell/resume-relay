@@ -1160,6 +1160,58 @@ req = urllib.request.Request(RELAY + "/api/icon/jellyfin", data=b"\x89PNG\r\n\x1
 urllib.request.urlopen(req, timeout=10).read()
 check("a Jellyfin activity badge picture can be set", http("GET", RELAY + "/api/state")["icons"]["jellyfin"] is True)
 http("DELETE", RELAY + "/api/icon/jellyfin")
+# Automatic matching: no folder mappings at all, and Jellyfin seeing the share under another folder than Plex does.
+settings(watchedSync=False)   # no other read of the players in between
+def read_only(ids):
+    """Reads these players (once any other read has ended) and waits for it."""
+    wait_for(lambda: not http("GET", RELAY + "/api/progress")["reading"], 300)
+    try:
+        http("POST", RELAY + "/api/progress/read", {"deviceIds": ids})
+    except urllib.error.HTTPError as e:
+        print("read refused:", e.read().decode())
+    time.sleep(1)
+    wait_for(lambda: not http("GET", RELAY + "/api/progress")["reading"], 300)
+plex_maps = http("GET", RELAY + "/api/state")["plex"]["mappings"]
+http("POST", RELAY + "/api/plex/mapping", {"mappings": []})
+http("POST", RELAY + "/api/jellyfin/mapping", {"mappings": []})
+jfmock("root", to="/data/media")
+plexmock("extra"); jfmock("extra")
+read_only([PO, JC])
+ws = http("GET", RELAY + f"/api/watched?show=all&players={PO},{JC}&pageSize=500")
+rows = {f["fileName"]: f for f in ws["files"]}
+on_both = lambda name: name in rows and PO in rows[name]["cells"] and JC in rows[name]["cells"]
+check("no folders: Plex's and Jellyfin's files are matched by the end of their path, also to the Zidoos' (Arrival, an episode)",
+      on_both("Arrival (2016).mkv") and on_both("Andor - S01E04.mkv") and rows["Arrival (2016).mkv"]["key"] == "/movies/arrival (2016)/arrival (2016).mkv",
+      str({k: (v["key"], list(v["cells"])) for k, v in rows.items()}))
+check("...and a file only Plex and Jellyfin have (no Zidoo) lines up on both", on_both("Dune (2021).mkv"), str(rows.get("Dune (2021).mkv")))
+eps = [f for f in ws["files"] if f["fileName"] == "S01E01.mkv"]
+check("...but two shows' \"Season 01/S01E01.mkv\" are never matched to each other",
+      len(eps) == 2 and all(len(f["cells"]) == 1 for f in eps), str(eps))
+cmp = http("GET", RELAY + f"/api/progress/compare?a={PO}&b={JC}")
+check("Compare: how two players line up (matched, only on one, same file name in another folder)",
+      cmp["matched"] >= 5 and cmp["sameName"] == 1 and cmp["sameNameExamples"][0]["file"] == "S01E01.mkv"
+      and "/TV/Other Show/" in cmp["sameNameExamples"][0]["b"], str(cmp))
+dune_key = rows["Dune (2021).mkv"]["key"]
+J_DUNE, P_DUNE = jfmock("ids")["Dune (2021).mkv"], plexmock("keys")["Dune (2021).mkv"]
+jfmock("set", user="u-chet", id=J_DUNE, pos=4321000, played=0)
+read_only([PO, JC])
+r = http("POST", RELAY + "/api/progress/batch", {"from": JC, "to": [PO], "keys": [dune_key], "includeNotStarted": False, "dryRun": False})
+check("Copy all from Jellyfin to Plex works with no Zidoos and no folders (the copy finds Plex's file by the end of its path)",
+      r["files"] == 1 and wait_for(lambda: plexitem("1001", P_DUNE)["viewOffset"] == 4321000, 30), str((r, plexitem("1001", P_DUNE))))
+jfmock("play", user="u-chet", id=J_DUNE, pos=5000000)
+time.sleep(4)
+jfmock("stop", user="u-chet", final=5010000)
+check("a Jellyfin stop of a file only the servers have is copied to Plex (no folders)",
+      wait_for(lambda: plexitem("1001", P_DUNE)["viewOffset"] == 5010000, 30), str(plexitem("1001", P_DUNE)))
+check("...and the Zidoos are left out, with the reason on the Activity tab",
+      wait_for(lambda: any("Dune" in m and "couldn't find the same file on the Zidoos" in m for m in activity(80)), 15), str(activity(15)))
+jfmock("play", user="u-wife", id=J_ARR, pos=3000000)
+time.sleep(4)
+jfmock("stop", user="u-wife", final=3010000)
+check("a Jellyfin stop with no folders is still copied to the Zidoos (found through their last read)",
+      wait_for(lambda: bookmark(LR, ARRIVAL)["playPoint"] == 3010000, 30), str(bookmark(LR, ARRIVAL)))
+http("POST", RELAY + "/api/plex/mapping", {"mappings": plex_maps})   # as before, for the tests after these
+
 http("POST", RELAY + "/api/jellyfin/signout")
 check("signing out of Jellyfin removes its users", not any(d["kind"] == "jellyfin" for d in http("GET", RELAY + "/api/state")["devices"]))
 

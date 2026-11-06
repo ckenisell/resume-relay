@@ -188,7 +188,8 @@ services:
       # The page opens at http://<nas-address>:8090. Change it if 8090 is already used on the NAS.
       - RESUMERELAY_PORT=8090
     volumes:
-      # Players, names, settings and Activity are kept here, next to this file.
+      # Players, names, settings and Activity are kept here, in a "data" folder next to this file.
+      # Synology and some other NAS: create the "data" folder first, or the project won't start.
       - ./data:/data
       # Optional (Live Poster): your movie and TV folders, read-only, so posters can come from them.
       # Remove the # and put your media shared folder's path on the left (see "Optional extras" below).
@@ -208,7 +209,8 @@ the NAS: talking to players by IP address still works, but **Scan network** find
 1. Open **Package Center**, search for **Container Manager** and install it. If it isn't listed,
    your model doesn't support Docker.
 2. Open **File Station**. In the **docker** shared folder (Container Manager creates it), create a
-   folder named **resume-relay**.
+   folder named **resume-relay**, and inside it a folder named **data**. Container Manager won't
+   create the **data** folder for you: without it, the project stops with "Bind mount failed".
 3. Open **Container Manager → Project → Create**.
    - **Project name:** `resume-relay`
    - **Path:** choose the **docker/resume-relay** folder you just made
@@ -261,7 +263,8 @@ then rebuild or redeploy the project.
 1. Open **App Center**, install **Docker**, and open it.
 2. Go to **Project → Create**.
    - **Project name:** `resume-relay`
-   - **Storage path:** choose or create a folder for it, for example **docker/resume-relay**
+   - **Storage path:** choose or create a folder for it, for example **docker/resume-relay**, and
+     create a folder named **data** inside it (Docker may not create it for you)
    - **Compose configuration:** paste the text above
 3. Click **Deploy**. Docker downloads the image and starts it.
 4. Open `http://<your-nas-address>:8090` in a browser and follow [First run](#first-run).
@@ -274,6 +277,13 @@ folder. Menu names can differ slightly between UGOS versions.
 
 Use the same docker-compose text, for example as a Portainer **Stack**, a QNAP Container Station
 **Application**, or from a terminal in an empty folder:
+
+**The folder on the NAS must be mapped to the container path `/data`, exactly.** Resume Relay saves
+everything there. If your NAS's setup screen maps your folder to another path (Unraid templates often
+suggest `/config`), Docker quietly keeps the data inside the container instead, your folder stays
+empty, and your players and settings are lost the next time the container is updated or its settings
+are changed. Check after adding a player: files such as `devices.json` should appear in your folder.
+(The page's footer also says where data is saved, as the container sees it: `/data`.)
 
 ```
 docker compose up -d                          # start

@@ -11,7 +11,8 @@ services:
       # The page opens at http://<nas-address>:8090. Change it if 8090 is already used on the NAS.
       - RESUMERELAY_PORT=8090
     volumes:
-      # Players, names, settings and Activity are kept here, next to this file.
+      # Players, names, settings and Activity are kept here, in a "data" folder next to this file.
+      # Synology and some other NAS: create the "data" folder first, or the project won't start.
       - ./data:/data
       # Optional (Live Poster): your movie and TV folders, read-only, so posters can come from them.
       # Remove the # and put your media shared folder's path on the left (see the README, "Optional extras").

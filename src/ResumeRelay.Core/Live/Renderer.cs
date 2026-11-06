@@ -74,10 +74,44 @@ public sealed class Renderer
         EncoderH264 = EncoderHevc = "";
         foreach (var enc in h264) if (await TestEncoderAsync(enc, ct)) { EncoderH264 = enc; break; }
         foreach (var enc in hevc) if (await TestEncoderAsync(enc, ct)) { EncoderHevc = enc; break; }
-        string Kind(string e) => e.StartsWith("lib") ? "software" : "hardware";
         Status = Encoder.Length == 0 ? "ffmpeg is installed, but none of its H.264 or HEVC encoders work."
-            : $"Ready: HEVC {(EncoderHevc.Length > 0 ? $"{Kind(EncoderHevc)} ({EncoderHevc})" : "not available")}, H.264 {(EncoderH264.Length > 0 ? $"{Kind(EncoderH264)} ({EncoderH264})" : "not available")}.";
+            : $"Ready. HEVC: {Describe(EncoderHevc)}. H.264: {Describe(EncoderH264)}." + SoftwareHint();
         await EnsureBuiltInBackgroundsAsync(ct);
+    }
+
+    /// <summary>An encoder in words: what does the work (Intel Quick Sync, NVIDIA, AMD or the processor alone).</summary>
+    private static string Describe(string enc) =>
+        enc.Length == 0 ? "not available"
+        : enc.StartsWith("lib") ? $"software, slower ({enc})"
+        : enc.EndsWith("_qsv") ? $"Intel Quick Sync ({enc})"
+        : enc.EndsWith("_vaapi") ? (IntelGpu() ? $"Intel Quick Sync ({enc})" : $"video hardware ({enc})")
+        : enc.EndsWith("_nvenc") ? $"NVIDIA video hardware ({enc})"
+        : enc.EndsWith("_amf") ? $"AMD video hardware ({enc})"
+        : $"video hardware ({enc})";
+
+    /// <summary>True when the Linux video device is Intel's (PCI vendor 0x8086), whose VA-API encoding is Quick Sync.</summary>
+    private static bool IntelGpu()
+    {
+        try
+        {
+            string node = Path.GetFileName(RenderNode);
+            string vendor = Path.Combine("/sys/class/drm", node, "device", "vendor");
+            return File.Exists(vendor) && File.ReadAllText(vendor).Trim().Equals("0x8086", StringComparison.OrdinalIgnoreCase);
+        }
+        catch { return false; }
+    }
+
+    /// <summary>When both encoders are software, says why and what would help.</summary>
+    private string SoftwareHint()
+    {
+        bool soft(string e) => e.Length == 0 || e.StartsWith("lib");
+        if (!soft(EncoderHevc) || !soft(EncoderH264)) return "";
+        if (OperatingSystem.IsWindows()) return " No video hardware was found, so slides take longer to make.";
+        if (!Directory.Exists("/dev/dri"))
+            return File.Exists("/.dockerenv") || Environment.GetEnvironmentVariable("RESUMERELAY_DOCKER") == "1"
+                ? " No video hardware was found, so slides take longer to make. On a NAS with Intel graphics, pass /dev/dri to the container (see the README); other NAS models can't use it."
+                : " No video hardware was found, so slides take longer to make.";
+        return " The video hardware is there but its driver didn't work, so slides take longer to make.";
     }
 
     private string? FindFfmpeg()

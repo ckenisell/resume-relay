@@ -590,7 +590,7 @@ public sealed class ProgressService
                 Version,
                 Reading,
                 Status = _status.Values.OrderBy(s => s).ToList(),
-                Devices = _devices.Values.Select(d => new { d.DeviceId, d.Name, d.ReadUtc, d.Error, d.Titles, Unread = d.Unread.Count }),
+                Devices = _devices.Values.Select(d => new { d.DeviceId, d.Name, d.ReadUtc, d.Error, d.Titles, Unread = d.Unread.Count }).ToList(),  // built now, under the lock (not later, while the reply is written)
                 Jobs = Jobs(),
                 Files = shown.Select(f => new
                 {
@@ -647,7 +647,7 @@ public sealed class ProgressService
                 Version,
                 Reading,
                 Status = _status.Values.OrderBy(s => s).ToList(),
-                Devices = _devices.Values.Select(d => new { d.DeviceId, d.Name, d.ReadUtc, d.Error, d.Titles, Unread = d.Unread.Count }),
+                Devices = _devices.Values.Select(d => new { d.DeviceId, d.Name, d.ReadUtc, d.Error, d.Titles, Unread = d.Unread.Count }).ToList(),  // built now, under the lock (not later, while the reply is written)
                 Jobs = Jobs(),
                 Total = rows.Count,
                 Page = page,

@@ -829,7 +829,7 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
       <div class="lp-pair lp-fold" id="lp-sec-pair">
         <h4>Add a screen<button class="lp-tog" data-lp-fold="pair" aria-controls="lp-body-pair" aria-expanded="true" aria-label="Hide Add a screen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14l-7 9z"/></svg></button></h4>
         <div class="lp-fold-body" id="lp-body-pair">
-        <p>Install the <b>Resume Relay</b> app on the TV, stick or tablet (or open <b id="lp-screen-url"></b> in its web browser), and enter the code it shows here.</p>
+        <p>Install the <b>Resume Relay</b> app on the TV, stick or tablet (or open <a id="lp-screen-url" target="_blank" rel="noopener"></a> in its web browser), and enter the code it shows here.</p>
         <div class="lp-waiting" id="lp-waiting"></div>
         <div class="lp-row">
           <input class="code" id="lp-code" inputmode="numeric" maxlength="4" placeholder="0000" aria-label="Code shown on the screen">
@@ -2921,7 +2921,7 @@ function lpNowHtml(s) {
 }
 function renderLive() {
   const L = live, r = L.renderer;
-  $("#lp-screen-url").textContent = location.origin + "/screen";
+  { const a = $("#lp-screen-url"); a.textContent = a.href = location.origin + "/screen"; }
   // Status: the video maker.
   $("#lp-status").className = "lp-status" + (r.ready ? "" : " warn");
   setHtml($("#lp-status"), r.ready

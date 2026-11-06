@@ -254,8 +254,11 @@ class Tv(Base):
                 dict(name="Some Player", clientIdentifier="player1", provides="client,player", connections=[]),
                 dict(name="CHETPLEX", clientIdentifier=MACHINE, provides="server", owned=uid == "1001",
                      accessToken=ACCOUNTS[uid][1], connections=[
-                         dict(uri="https://10-9-9-9.abc.plex.direct:32400", local=False, relay=True),
-                         dict(uri=f"http://{SERVER_IP}:{PORT}", local=True, relay=False),
+                         dict(uri="https://10-9-9-9.abc.plex.direct:32400", local=False, relay=True, address="10.9.9.9", port=443),
+                         # As plex.tv lists a home address: an https *.plex.direct name. This one can't be looked up
+                         # (like a router with DNS rebinding protection), so the plain IP must be tried next.
+                         dict(uri="https://127-0-0-6.abc.rr-test.invalid:32400", local=True, relay=False, protocol="https",
+                              address=SERVER_IP, port=PORT),
                      ]),
             ])
         if path == "/api/v2/home/users":

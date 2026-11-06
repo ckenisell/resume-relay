@@ -111,20 +111,30 @@ public static class PlexApi
             var servers = await new PlexTv(c.ClientId).ServersAsync(c.AccountToken, ct);
             var s = servers?.FirstOrDefault(x => x.ClientId == req.ClientId);
             if (s == null) return Results.BadRequest(new { Error = "That server isn't on this Plex account any more." });
-            var order = s.Connections.OrderBy(x => x.Relay).ThenByDescending(x => x.Local).ThenBy(x => x.Uri.StartsWith("https") ? 1 : 0).ToList();
-            foreach (var conn in order)
+            var tried = new List<string>();
+            foreach (string uri in CandidateUris(s.Connections))
             {
-                string? id = await new PlexClient(conn.Uri, s.AccessToken, c.ClientId).IdentityAsync(TimeSpan.FromSeconds(4), ct);
-                if (id == null || id != s.ClientId) continue;
+                var (id, why) = await new PlexClient(uri, s.AccessToken, c.ClientId).ProbeAsync(TimeSpan.FromSeconds(4), ct);
+                if (id == null || id != s.ClientId) { tried.Add($"{uri}: {(id == null ? why : "a different Plex server answered")}"); continue; }
                 bool changed = c.ServerId != s.ClientId;
-                c.ServerId = s.ClientId; c.ServerName = s.Name; c.ServerUrl = conn.Uri; c.ServerToken = s.AccessToken;
+                c.ServerId = s.ClientId; c.ServerName = s.Name; c.ServerUrl = uri; c.ServerToken = s.AccessToken;
                 store.SavePlex(c);
                 if (changed) foreach (var d in store.Devices().Where(d => d.IsPlex)) store.RemoveDevice(d.Id);
                 engine.ForgetPlexIndex();
-                store.Log(ActivityLevel.Info, $"Using the Plex server {s.Name} at {conn.Uri}.");
-                return Results.Ok(new { s.Name, Url = conn.Uri });
+                store.Log(ActivityLevel.Info, $"Using the Plex server {s.Name} at {uri}.");
+                return Results.Ok(new { s.Name, Url = uri });
             }
-            return Results.BadRequest(new { Error = $"None of {s.Name}'s addresses answered from this computer. Is the Plex server running?" });
+            store.Log(ActivityLevel.Warn, $"Couldn't reach the Plex server {s.Name}. Tried: " + string.Join("; ", tried));
+            string hint = tried.Any(t => t.StartsWith("http://") && t.EndsWith("error 401"))
+                ? "\nThe plain address answered but refused Resume Relay: in Plex, open Settings → Network and set Secure connections to Preferred."
+                : tried.Count == 0 ? "" : "\nIs the Plex server running, and on the same network as this computer?";
+            return Results.BadRequest(new
+            {
+                Error = tried.Count == 0
+                    ? $"plex.tv didn't list any addresses for {s.Name}. Is the Plex server running?"
+                    : $"None of {s.Name}'s addresses answered from this computer:\n" + string.Join("\n", tried.Select(t => "• " + t)) + hint,
+                Tried = tried,
+            });
         });
 
         // 3. Folder mapping, and a suggestion made from a file a Zidoo has played that Plex also has.
@@ -260,5 +270,26 @@ public static class PlexApi
             if (isNew) store.Log(ActivityLevel.Info, $"Added the Plex user {u.Title} ({c.ServerName}). Their resume points and watched marks now sync with the Zidoos.");
             return Results.Ok(new { Id = dev.Id, Name = store.Device(dev.Id)?.Name });
         });
+    }
+
+    /// <summary>The addresses to try, in order: home addresses first, then remote ones, Plex's relay last. Each home
+    /// address is tried as plex.tv lists it (usually an https *.plex.direct name) and then as the plain IP it stands for,
+    /// because many routers and DNS filters refuse to look up names that point at a home address ("DNS rebinding
+    /// protection"), and a plain IP needs no lookup. Plex accepts plain http at home unless Secure connections is
+    /// set to Required.</summary>
+    internal static List<string> CandidateUris(IEnumerable<PlexConnection> connections)
+    {
+        var list = new List<string>();
+        foreach (var x in connections.OrderBy(x => x.Relay).ThenByDescending(x => x.Local).ThenBy(x => x.Uri.StartsWith("https") ? 1 : 0))
+        {
+            if (x.Uri.Length > 0 && !list.Contains(x.Uri)) list.Add(x.Uri);
+            if (x.Local && !x.Relay && x.Address.Length > 0 && x.Port > 0 && System.Net.IPAddress.TryParse(x.Address, out var ip))
+            {
+                string host = ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 ? $"[{ip}]" : ip.ToString();
+                string plain = $"http://{host}:{x.Port}";
+                if (!list.Contains(plain)) list.Add(plain);
+            }
+        }
+        return list;
     }
 }

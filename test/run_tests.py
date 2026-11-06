@@ -443,7 +443,7 @@ check("signed in once the code is entered", wait_for(lambda: http("GET", RELAY +
 servers = http("GET", RELAY + "/api/plex/servers")
 check("only servers are listed (not players)", [x["name"] for x in servers] == ["CHETPLEX"], str(servers))
 srv = http("POST", RELAY + "/api/plex/server", {"clientId": servers[0]["clientId"]})
-check("server reached on its local address, not the relay", srv["url"] == PLEX, str(srv))
+check("server reached on its plain local IP when its plex.direct name can't be looked up, not the relay", srv["url"] == PLEX, str(srv))
 sug = http("GET", RELAY + "/api/plex/suggest")
 check("folder mapping suggested from a file a Zidoo played", sug["suggested"] and sug["suggested"][0] == {"plexFolder": "/shares/Entertainment", "zidooFolder": SHARE}, str(sug))
 http("POST", RELAY + "/api/plex/mapping", {"mappings": sug["suggested"][:1]})

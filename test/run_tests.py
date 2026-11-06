@@ -814,6 +814,16 @@ wait_for(lambda: (lambda w: w if w["lastRunUtc"] != done and not w["status"] els
 check("a mark set on one player in the Watch Sync tab isn't copied to the others",
       r and r[0]["ok"] and not bookmark(HT, E04).get("watched") and bookmark(LR, E04).get("watched") and bookmark(BR, E04).get("watched"),
       str(([bookmark(ip, E04) for ip in (LR, BR, HT)], wsync())))
+# With Copying off (watch-only), the check says what it would copy and writes nothing (it used to write anyway).
+settings(watchOnly=True)
+mock(LR, "setlwt", url=E04, lwt=-1, pp=0, watched=0)   # marked unwatched in the HT app
+done = wsync()["lastRunUtc"]
+http("POST", RELAY + "/api/watchedsync/check")
+wait_for(lambda: (lambda w: w if w["lastRunUtc"] != done and not w["status"] else None)(wsync()), 240)
+check("with Copying off, a changed watched mark is only logged ('would copy'), not copied",
+      log_has("[watch-only] Watched marks changed on Living Room") and bookmark(BR, E04).get("watched") and "not copied" in wsync()["lastResult"],
+      str(([bookmark(ip, E04) for ip in (LR, BR, HT)], wsync())))
+settings(watchOnly=False)
 settings(watchedSync=False)
 
 # ---------------------------------------------------------------- 49. Live Poster

@@ -219,9 +219,29 @@ the NAS: talking to players by IP address still works, but **Scan network** find
    image and starts it.
 5. Open `http://<your-nas-address>:8090` in a browser and follow [First run](#first-run).
 
-If the DSM firewall is on (**Control Panel → Security → Firewall**), allow **TCP port 8090** (or the
-page won't open from other devices) and **UDP port 47090** (or Live Poster screen apps can't find
-Resume Relay by themselves).
+**If the DSM firewall is on**, open two ports for Resume Relay: **TCP 8090** (or the page won't open
+from other devices) and **UDP 47090** (or Live Poster screen apps can't find Resume Relay by
+themselves). If it's off, skip this. To check, and to add the rules:
+
+1. Open **Control Panel → Security → Firewall**. If **Enable firewall** isn't ticked, you're done.
+2. Next to the firewall profile in use, click **Edit Rules**, then **Create**.
+3. **Ports:** choose **Custom**, then click **Custom** (or **Select**) beside it:
+   - **Type:** Destination port
+   - **Protocol:** TCP
+   - **Ports:** `8090` (or the port you chose with `RESUMERELAY_PORT`)
+
+   Click **OK**.
+4. **Source IP:** choose **Specific IP**, click **Select**, choose **Subnet**, and enter your home
+   network, for example IP address `192.168.1.0` with subnet mask `255.255.255.0`. Use the first three
+   numbers of your NAS's own address followed by `.0`: a NAS at `10.0.0.56` means `10.0.0.0`.
+   (**All** works too, but lets in anyone who can reach the NAS, including from the internet if a
+   port is forwarded.)
+5. **Action:** Allow. Click **OK**.
+6. Click **Create** again and make the same rule with **Protocol: UDP** and **Ports:** `47090`.
+7. The rules are checked from the top down, so make sure both new rules sit **above** any rule that
+   denies access (drag them up if needed). Click **OK**, then **Apply**.
+
+Menu names can differ slightly between DSM versions.
 
 **Moving from another computer?** On the old one, open **Settings → App → Back up settings** first.
 Once the NAS copy is running, use **Restore from a backup** there, then quit or uninstall the old

@@ -171,6 +171,49 @@ public sealed class PlexClient : IMediaServer
     private static IEnumerable<JsonElement> Arr(JsonElement e, string name) =>
         e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var a) && a.ValueKind == JsonValueKind.Array ? a.EnumerateArray() : Enumerable.Empty<JsonElement>();
 
+    /// <summary>The server's machine id, or why it couldn't be reached, in words for the page.</summary>
+    public async Task<(string? Id, string Error)> ProbeAsync(TimeSpan timeout, CancellationToken ct = default)
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(timeout);
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get, _base + "/identity");
+            req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            if (_token.Length > 0) req.Headers.Add("X-Plex-Token", _token);
+            req.Headers.Add("X-Plex-Client-Identifier", _clientId);
+            req.Headers.Add("X-Plex-Product", "Resume Relay");
+            using var resp = await Http.SendAsync(req, cts.Token);
+            if (!resp.IsSuccessStatusCode) return (null, $"answered with error {(int)resp.StatusCode}");
+            using var d = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(cts.Token));
+            string id = J.Str(Container(d), "machineIdentifier");
+            return id.Length > 0 ? (id, "") : (null, "answered, but not like a Plex server");
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (OperationCanceledException) { return (null, $"no answer within {timeout.TotalSeconds:0} seconds"); }
+        catch (Exception ex) { return (null, Why(ex)); }
+    }
+
+    private static string Why(Exception ex)
+    {
+        for (var e = ex; e != null; e = e.InnerException)
+        {
+            if (e is System.Net.Sockets.SocketException se)
+                return se.SocketErrorCode switch
+                {
+                    System.Net.Sockets.SocketError.HostNotFound or System.Net.Sockets.SocketError.NoData or System.Net.Sockets.SocketError.TryAgain
+                        => "its name couldn't be looked up (DNS)",
+                    System.Net.Sockets.SocketError.ConnectionRefused => "refused the connection",
+                    System.Net.Sockets.SocketError.TimedOut => "no answer",
+                    System.Net.Sockets.SocketError.NetworkUnreachable or System.Net.Sockets.SocketError.HostUnreachable => "can't be reached from here",
+                    _ => se.Message,
+                };
+            if (e is System.Security.Authentication.AuthenticationException) return "the secure (https) connection failed";
+            if (e is JsonException) return "answered, but not like a Plex server";
+        }
+        return ex.Message;
+    }
+
     /// <summary>The server's machine id, or null when it doesn't answer.</summary>
     public async Task<string?> IdentityAsync(TimeSpan timeout, CancellationToken ct = default)
     {
@@ -410,7 +453,9 @@ public sealed class PlexClient : IMediaServer
 }
 
 public sealed record PlexAccount(string Id, string Uuid, string Username, string Title);
-public sealed record PlexConnection(string Uri, bool Local, bool Relay);
+/// <summary>One address plex.tv lists for a server. Uri is usually an https *.plex.direct name; Address and Port are the
+/// plain IP and port it stands for.</summary>
+public sealed record PlexConnection(string Uri, bool Local, bool Relay, string Address = "", int Port = 0);
 public sealed record PlexResource(string Name, string ClientId, string AccessToken, bool Owned, List<PlexConnection> Connections);
 public sealed record PlexHomeUser(string Id, string Uuid, string Title, bool Admin, bool Protected);
 
@@ -508,7 +553,7 @@ public sealed class PlexTv
                 .Where(r => J.Str(r, "provides").Split(',').Contains("server"))
                 .Select(r => new PlexResource(J.Str(r, "name"), J.Str(r, "clientIdentifier"), J.Str(r, "accessToken"), J.Bool(r, "owned"),
                     (r.TryGetProperty("connections", out var cs) && cs.ValueKind == JsonValueKind.Array ? cs.EnumerateArray() : Enumerable.Empty<JsonElement>())
-                        .Select(c => new PlexConnection(J.Str(c, "uri"), J.Bool(c, "local"), J.Bool(c, "relay"))).ToList()))
+                        .Select(c => new PlexConnection(J.Str(c, "uri"), J.Bool(c, "local"), J.Bool(c, "relay"), J.Str(c, "address"), J.Int(c, "port"))).ToList()))
                 .ToList();
         }
     }

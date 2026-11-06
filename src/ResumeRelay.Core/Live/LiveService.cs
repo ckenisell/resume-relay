@@ -303,9 +303,19 @@ public sealed partial class LiveService : BackgroundService
                     return;
                 }
             }
-            // While the poster is found and made: the background alone (made once).
+            // While the poster is found and its Now Showing video made, the slideshow that's up stays up (it replays if
+            // it ends first; no new slideshow work meanwhile, so the Now Showing video is made as fast as it can be).
+            // The screen switches only once that video is ready. With no slideshow to show (none made yet, or every set
+            // off): the background alone (made once), as before.
+            rt.PosterSource = poster.IsCompleted ? "making Now Showing…" : "finding the poster…";
+            if (rt.IdleUrl.Length > 0 && File.Exists(Path.Combine(_live.RenderDir, rt.IdleUrl)))
+            {
+                rt.AdvanceAfterEnd = false;
+                Show(rt, "idle", rt.IdleUrl, loop: false, $"Slideshow, until Now Showing is ready: {now.Title}");
+                return;
+            }
             var plain = _renderer.HoldAsync(bg, null, s.Mount, s.Resolution, CodecOf(s), priority: 0);
-            if (plain.IsCompletedSuccessfully && plain.Result != null) { rt.PosterSource = "finding the poster…"; Show(rt, "playing", plain.Result, loop: true, now.Title); }
+            if (plain.IsCompletedSuccessfully && plain.Result != null) Show(rt, "playing", plain.Result, loop: true, now.Title);
             return;
         }
 

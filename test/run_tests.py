@@ -1002,6 +1002,18 @@ sc = wait_for(lambda: (lambda x: x if x["roundTitles"] and set(x["roundTitles"])
 check("each screen shows only the sets ticked on its card", sc and screen_of(sid)["sets"] == ["coming"], str(screen_of(sid)))
 check("...and its card doesn't say it's off while it's on", "off" not in screen_of(sid)["note"], str(screen_of(sid)))
 
+# While a new title's Now Showing video is being made, the slideshow stays up; the screen switches only when it's ready.
+seen = []
+def _until_playing():
+    x = state_of(); seen.append((x["mode"], x["title"]))
+    return x if x["mode"] == "playing" and x["title"].startswith("Arrival") else None
+mock(LR, "play", url=ARRIVAL, pos=60000)
+st = wait_for(_until_playing, 240)
+check("while a Now Showing video is made, the slideshow stays up (not an empty background), then the screen switches",
+      st and all(m == "idle" for m, t in seen[:-1]), str(seen[:6]))
+mock(LR, "stop")
+wait_for(lambda: state_of()["mode"] == "idle", 180)
+
 # Feature Presentation: one title per screen, chosen from the libraries' titles (one per movie or show, never files).
 ft = http("GET", RELAY + "/api/live/feature/titles")
 fnames = [(t["kind"], t["title"]) for t in ft["titles"]]

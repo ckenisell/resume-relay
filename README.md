@@ -247,9 +247,15 @@ Menu names can differ slightly between DSM versions.
 Once the NAS copy is running, use **Restore from a backup** there, then quit or uninstall the old
 copy: run only one Resume Relay per home.
 
-**Updating:** in **Container Manager → Image**, `ghcr.io/ckenisell/resume-relay` shows **Update
-available** when a new version is out. Click it and choose **Update**. Your players and settings are
-kept in the **data** folder.
+**Updating:** Container Manager doesn't notice new versions of images from GitHub's registry (its
+**Update available** label only appears for some registries), so update by hand. Your players and
+settings are kept in the **data** folder throughout:
+
+1. **Container Manager → Project**, select **resume-relay**, then **Action → Stop**.
+2. **Action → Clean**. This removes the container, not your **data** folder.
+3. **Container Manager → Image**, select `ghcr.io/ckenisell/resume-relay`, and click **Delete**.
+4. Back in **Project**, select **resume-relay** and click **Build**. Container Manager downloads the
+   newest version and starts it. The page's footer shows the version number.
 
 ### Optional extras for Live Poster (any NAS)
 

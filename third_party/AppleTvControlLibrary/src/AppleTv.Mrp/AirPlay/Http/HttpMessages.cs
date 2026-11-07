@@ -1,0 +1,356 @@
+// Copyright (c) 2026 Neil Colvin. Licensed under the MIT License.
+// See LICENSE file in the repository root for full license text.
+
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Text;
+using System.Text.RegularExpressions;
+
+namespace AppleTvControlLibrary.Mrp.AirPlay.Http;
+
+/// <summary>
+/// A generic HTTP response message, as used by the RTSP-over-HTTP control connection of an
+/// AirPlay 2 session.
+/// </summary>
+/// <remarks>Initializes a new instance of the <see cref="HttpResponse"/> class.</remarks>
+/// <param name="protocol">The protocol name in the start line.</param>
+/// <param name="version">The protocol version in the start line.</param>
+/// <param name="code">The response status code.</param>
+/// <param name="message">The response reason phrase.</param>
+/// <param name="headers">The message headers.</param>
+/// <param name="body">The message body bytes.</param>
+// pyatv/support/http.py (HttpResponse) — line 79-87 as of pyatv 0.18.0
+public sealed class HttpResponse (string protocol, string version, int code, string message, IReadOnlyDictionary<string, string> headers, byte[] body)
+	{
+
+	/// <summary>Gets the protocol name (e.g. "HTTP" or "RTSP").</summary>
+	/// <value>The protocol name (e.g. "HTTP" or "RTSP").</value>
+	public string Protocol { get; } = protocol;
+
+	/// <summary>Gets the protocol version (e.g. "1.1" or "1.0").</summary>
+	/// <value>The protocol version (e.g. "1.1" or "1.0").</value>
+	public string Version { get; } = version;
+
+	/// <summary>Gets the numeric status code.</summary>
+	/// <value>The numeric status code.</value>
+	public int Code { get; } = code;
+
+	/// <summary>Gets the status message.</summary>
+	/// <value>The status message.</value>
+	public string Message { get; } = message;
+
+	/// <summary>Gets the response headers, keyed case-insensitively.</summary>
+	/// <value>The response headers, keyed case-insensitively.</value>
+	public IReadOnlyDictionary<string, string> Headers { get; } = headers;
+
+	/// <summary>Gets the response body.</summary>
+	/// <value>The response body.</value>
+	public byte[] Body { get; } = body;
+	}
+
+/// <summary>
+/// A generic HTTP request message, as used by the RTSP-over-HTTP control connection of an
+/// AirPlay 2 session.
+/// </summary>
+/// <remarks>Initializes a new instance of the <see cref="HttpRequest"/> class.</remarks>
+/// <param name="method">The request method.</param>
+/// <param name="path">The request target path.</param>
+/// <param name="protocol">The protocol name in the start line.</param>
+/// <param name="version">The protocol version in the start line.</param>
+/// <param name="headers">The message headers.</param>
+/// <param name="body">The message body bytes.</param>
+// pyatv/support/http.py (HttpRequest) — line 90-97 as of pyatv 0.18.0
+public sealed class HttpRequest (string method, string path, string protocol, string version, IReadOnlyDictionary<string, string> headers, byte[] body)
+	{
+
+	/// <summary>Gets the request method (e.g. "GET", "SETUP").</summary>
+	/// <value>The request method (e.g. "GET", "SETUP").</value>
+	public string Method { get; } = method;
+
+	/// <summary>Gets the request path/URI.</summary>
+	/// <value>The request path/URI.</value>
+	public string Path { get; } = path;
+
+	/// <summary>Gets the protocol name (e.g. "HTTP" or "RTSP").</summary>
+	/// <value>The protocol name (e.g. "HTTP" or "RTSP").</value>
+	public string Protocol { get; } = protocol;
+
+	/// <summary>Gets the protocol version (e.g. "1.1" or "1.0").</summary>
+	/// <value>The protocol version (e.g. "1.1" or "1.0").</value>
+	public string Version { get; } = version;
+
+	/// <summary>Gets the request headers, keyed case-insensitively.</summary>
+	/// <value>The request headers, keyed case-insensitively.</value>
+	public IReadOnlyDictionary<string, string> Headers { get; } = headers;
+
+	/// <summary>Gets the request body.</summary>
+	/// <value>The request body.</value>
+	public byte[] Body { get; } = body;
+	}
+
+/// <summary>
+/// Formatting and parsing of the generic HTTP/RTSP request and response messages used by the
+/// AirPlay control connection.
+/// </summary>
+// pyatv/support/http.py — line 1-236 as of pyatv 0.18.0
+public static class HttpMessages
+	{
+	// pyatv/support/http.py (USER_AGENT) — line 29 as of pyatv 0.18.0; this port uses the
+	// caller-supplied user agent explicitly rather than deriving it from a library version.
+	private const string DEFAULT_USER_AGENT = "AppleTvControlLibrary";
+
+	private static readonly Regex _responseFirstLine = new (@"^([^/]+)/([0-9.]+) ([0-9]+) (.*)$", RegexOptions.Compiled);
+	private static readonly Regex _requestFirstLine = new (@"^([A-Z_]+) ([^ ]+) ([^/]+)/([0-9.]+)$", RegexOptions.Compiled);
+
+	/// <summary>Encode an outgoing HTTP/RTSP request message.</summary>
+	/// <param name="method">The request method.</param>
+	/// <param name="uri">The request URI/path.</param>
+	/// <param name="protocol">The protocol/version string, e.g. "HTTP/1.1" or "RTSP/1.0".</param>
+	/// <param name="userAgent">The value of the User-Agent header.</param>
+	/// <param name="contentType">An optional Content-Type header value.</param>
+	/// <param name="headers">Additional headers to include.</param>
+	/// <param name="body">An optional request body.</param>
+	/// <returns>The encoded request bytes.</returns>
+	// pyatv/support/http.py (_format_message) — line 47-70 as of pyatv 0.18.0
+	public static byte[] FormatMessage (
+		string method,
+		string uri,
+		string protocol = "HTTP/1.1",
+		string userAgent = DEFAULT_USER_AGENT,
+		string? contentType = null,
+		IReadOnlyDictionary<string, string>? headers = null,
+		byte[]? body = null)
+		{
+		headers ??= new Dictionary<string, string> (StringComparer.OrdinalIgnoreCase);
+
+		var msg = new StringBuilder ();
+		_ = msg.Append (method).Append (' ').Append (uri).Append (' ').Append (protocol);
+
+		if (!ContainsHeader (headers, "User-Agent"))
+			{
+			_ = msg.Append ("\r\nUser-Agent: ").Append (userAgent);
+			}
+
+		if (contentType is not null)
+			{
+			_ = msg.Append ("\r\nContent-Type: ").Append (contentType);
+			}
+
+		if (body is { Length: > 0 })
+			{
+			_ = msg.Append ("\r\nContent-Length: ").Append (body.Length);
+			}
+
+		foreach (KeyValuePair<string, string> header in headers)
+			{
+			_ = msg.Append ('\r').Append ('\n').Append (header.Key).Append (": ").Append (header.Value);
+			}
+
+		_ = msg.Append ("\r\n\r\n");
+
+		string headerText = msg.ToString ();
+		int headerByteCount = Encoding.UTF8.GetByteCount (headerText);
+		int bodyLength = body?.Length ?? 0;
+		var result = new byte[headerByteCount + bodyLength];
+		_ = Encoding.UTF8.GetBytes (headerText, 0, headerText.Length, result, 0);
+		if (bodyLength > 0)
+			{
+			body.AsSpan ().CopyTo (result.AsSpan (headerByteCount));
+			}
+
+		return result;
+		}
+
+	/// <summary>Encode a <see cref="HttpRequest"/> back into its wire representation.</summary>
+	/// <param name="request">The request to encode.</param>
+	/// <returns>The encoded request bytes.</returns>
+	// pyatv/support/http.py (format_request) — line 176-183 as of pyatv 0.18.0
+	public static byte[] FormatRequest (HttpRequest request) =>
+		FormatMessage (
+			request.Method,
+			request.Path,
+			protocol: $"{request.Protocol}/{request.Version}",
+			headers: request.Headers,
+			body: request.Body);
+
+	/// <summary>Encode a <see cref="HttpResponse"/> into its wire representation.</summary>
+	/// <param name="response">The response to encode.</param>
+	/// <param name="serverName">The value used for the Server header when not already present.</param>
+	/// <returns>The encoded response bytes.</returns>
+	// pyatv/support/http.py (format_response) — line 138-160 as of pyatv 0.18.0
+	public static byte[] FormatResponse (HttpResponse response, string serverName = DEFAULT_USER_AGENT)
+		{
+		var msg = new StringBuilder ();
+		_ = msg.Append (response.Protocol).Append ('/').Append (response.Version).Append (' ')
+			.Append (response.Code).Append (' ').Append (response.Message).Append ("\r\n");
+
+		if (!ContainsHeader (response.Headers, "Server"))
+			{
+			_ = msg.Append ("Server: ").Append (serverName).Append ("\r\n");
+			}
+
+		foreach (KeyValuePair<string, string> header in response.Headers)
+			{
+			_ = msg.Append (header.Key).Append (": ").Append (header.Value).Append ("\r\n");
+			}
+
+		byte[] body = response.Body;
+		if (body.Length > 0)
+			{
+			_ = msg.Append ("Content-Length: ").Append (body.Length).Append ("\r\n");
+			}
+
+		string headerText = msg.ToString ();
+		int headerByteCount = Encoding.UTF8.GetByteCount (headerText);
+		var result = new byte[headerByteCount + 2 + body.Length];
+		_ = Encoding.UTF8.GetBytes (headerText, 0, headerText.Length, result, 0);
+		result[headerByteCount] = (byte)'\r';
+		result[headerByteCount + 1] = (byte)'\n';
+		body.AsSpan ().CopyTo (result.AsSpan (headerByteCount + 2));
+		return result;
+		}
+
+	/// <summary>Parse a buffer that may contain a complete HTTP/RTSP response.</summary>
+	/// <param name="data">The buffer to parse.</param>
+	/// <param name="response">The parsed response, if a complete one was found.</param>
+	/// <param name="rest">The unconsumed remainder of <paramref name="data"/>.</param>
+	/// <returns><see langword="true"/> if a complete response was parsed.</returns>
+	// pyatv/support/http.py (parse_response) — line 163-174 as of pyatv 0.18.0
+	public static bool TryParseResponse (byte[] data, out HttpResponse? response, out byte[] rest)
+		{
+		if (!TryParseHttpMessage (data, out string? firstLine, out Dictionary<string, string>? headers, out byte[]? body, out rest))
+			{
+			response = null;
+			return false;
+			}
+
+		Match match = _responseFirstLine.Match (firstLine!);
+		if (!match.Success)
+			{
+			throw new ArgumentException ($"bad first line: {firstLine}");
+			}
+
+		response = new HttpResponse (
+			match.Groups[1].Value,
+			match.Groups[2].Value,
+			int.Parse (match.Groups[3].Value, CultureInfo.InvariantCulture),
+			match.Groups[4].Value,
+			headers!,
+			body!);
+		return true;
+		}
+
+	/// <summary>Parse a buffer that may contain a complete HTTP/RTSP request.</summary>
+	/// <param name="data">The buffer to parse.</param>
+	/// <param name="request">The parsed request, if a complete one was found.</param>
+	/// <param name="rest">The unconsumed remainder of <paramref name="data"/>.</param>
+	/// <returns><see langword="true"/> if a complete request was parsed.</returns>
+	// pyatv/support/http.py (parse_request) — line 186-204 as of pyatv 0.18.0
+	public static bool TryParseRequest (byte[] data, out HttpRequest? request, out byte[] rest)
+		{
+		if (!TryParseHttpMessage (data, out string? firstLine, out Dictionary<string, string>? headers, out byte[]? body, out rest))
+			{
+			request = null;
+			return false;
+			}
+
+		Match match = _requestFirstLine.Match (firstLine!);
+		if (!match.Success)
+			{
+			throw new ArgumentException ($"bad first line: {firstLine}");
+			}
+
+		request = new HttpRequest (
+			match.Groups[1].Value,
+			match.Groups[2].Value,
+			match.Groups[3].Value,
+			match.Groups[4].Value,
+			headers!,
+			body!);
+		return true;
+		}
+
+	// pyatv/support/http.py (_parse_http_message) — line 104-128 as of pyatv 0.18.0
+	private static bool TryParseHttpMessage (byte[] message, out string? firstLine, out Dictionary<string, string>? headers, out byte[]? body, out byte[] rest)
+		{
+		firstLine = null;
+		headers = null;
+		body = null;
+		rest = message;
+
+		int separator = IndexOfCrLfCrLf (message);
+		if (separator < 0)
+			{
+			return false;
+			}
+
+		string headerStr = Encoding.UTF8.GetString (message, 0, separator);
+		byte[] afterHeaders = Slice (message, separator + 4, message.Length - (separator + 4));
+
+		var msgHeaders = new Dictionary<string, string> (StringComparer.OrdinalIgnoreCase);
+		ReadOnlySpan<char> headerSpan = headerStr.AsSpan ();
+		ReadOnlySpan<char> firstLineSpan = default;
+		bool isFirstLine = true;
+		while (headerSpan.Length > 0)
+			{
+			int lineBreak = headerSpan.IndexOf ("\r\n", StringComparison.Ordinal);
+			ReadOnlySpan<char> line = lineBreak < 0 ? headerSpan : headerSpan[..lineBreak];
+			headerSpan = lineBreak < 0 ? default : headerSpan[(lineBreak + 2)..];
+
+			if (isFirstLine)
+				{
+				firstLineSpan = line;
+				isFirstLine = false;
+				}
+			else if (line.Length > 0)
+				{
+				int colon = line.IndexOf (": ", StringComparison.Ordinal);
+				if (colon >= 0)
+					{
+					msgHeaders[line[..colon].ToString ()] = line[(colon + 2)..].ToString ();
+					}
+				}
+
+			if (lineBreak < 0)
+				{
+				break;
+				}
+			}
+
+		int contentLength = 0;
+		if (msgHeaders.TryGetValue ("Content-Length", out string? lengthText)
+			&& !int.TryParse (lengthText, NumberStyles.Integer, CultureInfo.InvariantCulture, out contentLength))
+			{
+			contentLength = 0;
+			}
+
+		if (afterHeaders.Length < contentLength)
+			{
+			return false;
+			}
+
+		firstLine = firstLineSpan.ToString ();
+		headers = msgHeaders;
+		body = Slice (afterHeaders, 0, contentLength);
+		rest = Slice (afterHeaders, contentLength, afterHeaders.Length - contentLength);
+		return true;
+		}
+
+	private static bool ContainsHeader (IReadOnlyDictionary<string, string> headers, string name)
+		{
+		foreach (string key in headers.Keys)
+			{
+			if (string.Equals (key, name, StringComparison.OrdinalIgnoreCase))
+				{
+				return true;
+				}
+			}
+
+		return false;
+		}
+
+	private static int IndexOfCrLfCrLf (byte[] data) => data.AsSpan ().IndexOf ("\r\n\r\n"u8);
+
+	private static byte[] Slice (byte[] data, int start, int length) => length <= 0 ? [] : data.AsSpan (start, length).ToArray ();
+	}

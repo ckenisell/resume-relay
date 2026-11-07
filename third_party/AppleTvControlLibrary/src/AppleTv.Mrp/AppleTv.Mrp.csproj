@@ -1,0 +1,111 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<OutputType>Library</OutputType>
+		<RootNamespace>AppleTvControlLibrary.Mrp</RootNamespace>
+		<AssemblyName>AppleTvControlLibrary.Mrp</AssemblyName>
+		<GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+		<TargetFrameworks>net8.0</TargetFrameworks>
+		<IsPackable>true</IsPackable>
+		<PackageId>AppleTvControlLibrary.Mrp</PackageId>
+		<Version>2.2.7</Version>
+		<Authors>Neil Colvin</Authors>
+		<Company>Neil Colvin</Company>
+		<PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+		<PackageLicenseExpression>MIT</PackageLicenseExpression>
+		<PackageTags>appletv;mrp;api;library</PackageTags>
+		<RepositoryUrl>https://github.com/oznetmaster/AppleTvControlLibrary</RepositoryUrl>
+		<PackageProjectUrl>https://github.com/oznetmaster/AppleTvControlLibrary</PackageProjectUrl>
+		<RepositoryType>git</RepositoryType>
+		<PackageReadmeFile>README.md</PackageReadmeFile>
+		<Description>MRP (Media Remote Protocol) client library for .NET Framework 4.7.2 and .NET 10. Complements AppleTvControlLibrary's Companion Link support.</Description>
+		<LangVersion>latest</LangVersion>
+		<Nullable>enable</Nullable>
+		<AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+		<GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType>
+		<AnalysisLevel>latest-recommended</AnalysisLevel>
+		<EnableNETAnalyzers>true</EnableNETAnalyzers>
+		<EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+		<CodeAnalysisTreatWarningsAsErrors>false</CodeAnalysisTreatWarningsAsErrors>
+		<GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
+		<!-- Generated protobuf code is not analyzer/style clean; exclude it from style enforcement. -->
+		<NoWarn>$(NoWarn);</NoWarn>
+	</PropertyGroup>
+	<PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+		<DebugType>portable</DebugType>
+		<DebugSymbols>true</DebugSymbols>
+		<GenerateDocumentationFile>false</GenerateDocumentationFile>
+		<TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+		<CodeAnalysisTreatWarningsAsErrors>true</CodeAnalysisTreatWarningsAsErrors>
+	</PropertyGroup>
+	<PropertyGroup Condition="'$(Configuration)' == 'Release'">
+		<DebugType>none</DebugType>
+		<DebugSymbols>false</DebugSymbols>
+		<GenerateDocumentationFile>true</GenerateDocumentationFile>
+		<Deterministic>false</Deterministic>
+	</PropertyGroup>
+	<ItemGroup Condition="'$(TargetFramework)' == 'net472'">
+		<Reference Include="System.Configuration" />
+		<Reference Include="System.Data.DataSetExtensions" />
+		<Reference Include="Microsoft.CSharp" />
+		<Reference Include="System.Net.Http" />
+	</ItemGroup>
+	<ItemGroup>
+		<PackageReference Include="Google.Protobuf" Version="3.36.2" />
+		<PackageReference Include="Grpc.Tools" Version="2.84.0">
+			<PrivateAssets>all</PrivateAssets>
+			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+		</PackageReference>
+	</ItemGroup>
+	<ItemGroup Condition="'$(TargetFramework)' == 'net472'">
+		<PackageReference Include="IsExternalInit" Version="1.0.3">
+			<PrivateAssets>all</PrivateAssets>
+			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+		</PackageReference>
+		<PackageReference Include="Hafner.Compatibility.MetaPackage" Version="1.9.0" />
+		<PackageReference Include="System.Memory" Version="4.6.3" />
+		<PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Version="10.0.12" />
+		<PackageReference Include="Microsoft.Bcl.Memory" Version="10.0.12" />
+	</ItemGroup>
+	<ItemGroup>
+		<PackageReference Include="plist-cil" Version="2.2.0" />
+	</ItemGroup>
+	<ItemGroup>
+		<ProjectReference Include="..\AppleTv.Hap\AppleTv.Hap.csproj">
+			<PrivateAssets>all</PrivateAssets>
+		</ProjectReference>
+	</ItemGroup>
+	<!-- PrivateAssets=all on the AppleTv.Hap ProjectReference above suppresses ALL of its transitive
+		  dependencies (it never gets its own nuspec since IsPackable=false), so BouncyCastle.Cryptography
+		  (required at runtime by AppleTv.Hap's SrpAuthHandler) must be declared explicitly here or it
+		  will never be restored/copied for consumers of this package. -->
+	<ItemGroup>
+		<PackageReference Include="BouncyCastle.Cryptography" Version="2.7.0" />
+	</ItemGroup>
+	<!-- AppleTv.Hap is IsPackable=false (it has no NuGet package of its own), so bundle its
+		  compiled assembly into this package's lib folder instead of letting NuGet emit a
+		  phantom "AppleTv.Hap" package dependency that can never be resolved. -->
+	<PropertyGroup>
+		<TargetsForTfmSpecificBuildOutput>$(TargetsForTfmSpecificBuildOutput);IncludeHapAssemblyInPackage</TargetsForTfmSpecificBuildOutput>
+	</PropertyGroup>
+	<Target Name="IncludeHapAssemblyInPackage">
+		<ItemGroup>
+			<BuildOutputInPackage Include="$(OutputPath)AppleTv.Hap.dll" TargetPath="AppleTv.Hap.dll" />
+		</ItemGroup>
+	</Target>
+	<ItemGroup>
+		<Protobuf Include="Protobuf\**\*.proto" ProtoRoot="Protobuf" CompileOutputType="Messages" />
+	</ItemGroup>
+	<ItemGroup>
+		<None Include="..\..\README.md" Pack="true" PackagePath="" Condition="Exists('..\..\README.md')" />
+		<None Include="..\..\LICENSE" Pack="true" PackagePath="" Condition="Exists('..\..\LICENSE')" />
+		<None Include="..\..\ATTRIBUTIONS.md" Pack="true" PackagePath="" Condition="Exists('..\..\ATTRIBUTIONS.md')" />
+		<None Include="..\..\THIRD-PARTY-NOTICES.txt" Pack="true" PackagePath="" Condition="Exists('..\..\THIRD-PARTY-NOTICES.txt')" />
+	</ItemGroup>
+
+  <!-- Shared strict XML documentation policy: all configurations and target frameworks. -->
+  <PropertyGroup>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <WarningsAsErrors>$(WarningsAsErrors);CS1591;CS1570;CS1571;CS1572;CS1573;CS1574;CS1580;CS1581;CS1584;CS1587;CS1658;CS1710;CS1711;CS1712</WarningsAsErrors>
+  </PropertyGroup>
+</Project>

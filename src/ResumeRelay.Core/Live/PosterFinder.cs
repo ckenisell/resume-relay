@@ -24,12 +24,24 @@ public sealed class PosterFinder
     private readonly RelayEngine _engine;
     private readonly ConcurrentDictionary<string, (PosterResult? Result, DateTime At)> _cache = new();
 
-    public PosterFinder(Store store, LiveStore live, RelayEngine engine)
+    public PosterFinder(Store store, LiveStore live, RelayEngine engine, AppleTvService appleTv)
     {
         _store = store;
         _live = live;
         _engine = engine;
+        _appleTv = appleTv;
     }
+
+    private readonly AppleTvService _appleTv;
+    private readonly Tmdb _tmdb = new();
+
+    /// <summary>A title known only by its name (an app on an Apple TV): "tmdb:" + kind ("tv", "movie" or "any") + "|" +
+    /// the title (escaped) + "|" + year. Its poster comes from TMDB; the CoverUrl ("appletv:" + id) is the app's own
+    /// artwork, used when TMDB has none.</summary>
+    public const string TmdbPrefix = "tmdb:";
+    public const string AppleTvArtPrefix = "appletv:";
+
+    public static string TmdbUrl(string kind, string title, int year) => $"{TmdbPrefix}{kind}|{Uri.EscapeDataString(title)}|{year}";
 
     public void Forget() => _cache.Clear();
 
@@ -67,6 +79,18 @@ public sealed class PosterFinder
     private async Task<PosterResult?> FindNowAsync(PosterRequest r, CancellationToken ct)
     {
         bool tv = r.IsEpisode || r.SeriesOnly;
+        // A title an Apple TV app is playing: TMDB's best poster (the season's for an episode), else the app's artwork.
+        if (r.SourceUrl.StartsWith(TmdbPrefix, StringComparison.Ordinal))
+        {
+            var parts = r.SourceUrl[TmdbPrefix.Length..].Split('|');
+            string kind = parts.Length > 0 ? parts[0] : "any", title = parts.Length > 1 ? Uri.UnescapeDataString(parts[1]) : r.Title;
+            int year = parts.Length > 2 && int.TryParse(parts[2], out var y) ? y : 0;
+            if (await _tmdb.PosterAsync(title, kind, year, tv && !r.SeriesOnly ? r.Season : 0, "en", ct) is { } t)
+                return Save("tmdb|" + r.SourceUrl + "|" + r.Season, t.Bytes, t.Label);
+            if (r.CoverUrl.StartsWith(AppleTvArtPrefix, StringComparison.Ordinal) && await _appleTv.ArtworkAsync(r.CoverUrl[AppleTvArtPrefix.Length..], ct) is { Length: > 0 } art)
+                return Save("appletv|" + r.SourceUrl + "|" + r.Season, art, "the app's own artwork (TMDB has no poster for it)");
+            return null;
+        }
         // A Kaleidescape movie: its own cover, and nothing else (it plays its own copy, not a file on the NAS).
         if (r.CoverUrl.Length > 0 || r.SourceUrl.StartsWith(KaleidescapePrefix, StringComparison.Ordinal))
             return r.CoverUrl.Length > 0 && await DownloadAsync(r.CoverUrl, ct) is { } cover ? Save("kaleidescape|" + r.CoverUrl, cover, "Kaleidescape") : null;

@@ -56,7 +56,8 @@ public static class LiveApi
                 AcclaimedNote = svc.AcclaimedNote,
                 AcclaimedCount = svc.Acclaimed.Count,
                 Players = devices.Where(d => d.Enabled).Select(d => new { d.Id, d.Name, Kind = d.KindName })
-                    .Concat(store.Kaleidescape().Players.Where(k => k.Enabled).Select(k => new { k.Id, k.Name, Kind = "kaleidescape" })),
+                    .Concat(store.Kaleidescape().Players.Where(k => k.Enabled).Select(k => new { k.Id, k.Name, Kind = "kaleidescape" }))
+                    .Concat(store.AppleTv().Devices.Where(a => a.Enabled && a.Credentials.Length > 0).Select(a => new { a.Id, a.Name, Kind = "appletv" })),
             });
         });
 

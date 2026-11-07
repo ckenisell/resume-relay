@@ -1,0 +1,93 @@
+// Copyright (c) 2026 Neil Colvin. Licensed under the MIT License.
+// See LICENSE file in the repository root for full license text.
+
+namespace AppleTvControlLibrary.Discovery.Dns;
+
+/// <summary>Represents a DNS resource record.</summary>
+/// <remarks>Initializes a new instance of the <see cref="DnsResource"/> class.</remarks>
+/// <param name="qname">The DNS record name.</param>
+/// <param name="qtype">The DNS record type.</param>
+/// <param name="qclass">The DNS record class.</param>
+/// <param name="ttl">The record time-to-live in seconds.</param>
+/// <param name="rdLength">The length of the resource data in bytes.</param>
+/// <param name="rd">The decoded resource data.</param>
+// pyatv/support/dns.py (DnsResource) — line 332-358 as of pyatv 0.18.0
+public sealed class DnsResource (string qname, QueryType qtype, ushort qclass, uint ttl, ushort rdLength, object rd)
+	{
+
+	/// <summary>Gets the record name.</summary>
+	/// <value>The record name.</value>
+	public string QName
+		{
+		get;
+		} = qname;
+
+	/// <summary>Gets the record type.</summary>
+	/// <value>The record type.</value>
+	public QueryType QType
+		{
+		get;
+		} = qtype;
+
+	/// <summary>Gets the record class.</summary>
+	/// <value>The record class.</value>
+	public ushort QClass
+		{
+		get;
+		} = qclass;
+
+	/// <summary>Gets the record time-to-live.</summary>
+	/// <value>The record time-to-live.</value>
+	public uint Ttl
+		{
+		get;
+		} = ttl;
+
+	/// <summary>Gets the RDATA byte length as read from the wire.</summary>
+	/// <value>The RDATA byte length as read from the wire.</value>
+	public ushort RdLength
+		{
+		get;
+		} = rdLength;
+
+	/// <summary>
+	/// Gets the parsed RDATA. The runtime type depends on <see cref="QType"/>: a
+	/// <see cref="string"/> for A/PTR, a <see cref="System.Collections.Generic.Dictionary{TKey,TValue}"/>
+	/// of <see cref="string"/> to <see cref="byte"/>[] for TXT, a <see cref="SrvRecord"/> for
+	/// SRV, or raw <see cref="byte"/>[] otherwise.
+	/// </summary>
+	/// <value>
+	/// The parsed RDATA. The runtime type depends on <see cref="QType"/>: a
+	/// <see cref="string"/> for A/PTR, a <see cref="System.Collections.Generic.Dictionary{TKey,TValue}"/>
+	/// of <see cref="string"/> to <see cref="byte"/>[] for TXT, a <see cref="SrvRecord"/> for
+	/// SRV, or raw <see cref="byte"/>[] otherwise.
+	/// </value>
+	public object Rd
+		{
+		get;
+		} = rd;
+
+	/// <summary>Creates a <see cref="DnsResource"/> from data in a data stream.</summary>
+	/// <param name="buffer">The buffer to read from.</param>
+	/// <returns>The parsed resource record.</returns>
+	// pyatv/support/dns.py (unpack_read) — line 342-358 as of pyatv 0.18.0
+	public static DnsResource UnpackRead (DnsBufferReader buffer)
+		{
+		string qname = DnsWireFormat.ParseDomainName (buffer);
+		ushort rawQType = buffer.ReadUInt16BE ();
+		ushort qclass = buffer.ReadUInt16BE ();
+		uint ttl = buffer.ReadUInt32BE ();
+		ushort rdLength = buffer.ReadUInt16BE ();
+
+		object rd;
+		if (System.Enum.IsDefined (typeof (QueryType), (int)rawQType))
+			{
+			QueryType qtype = (QueryType)rawQType;
+			rd = DnsWireFormat.ParseRData (qtype, buffer, rdLength);
+			return new DnsResource (qname, qtype, qclass, ttl, rdLength, rd);
+			}
+
+		rd = buffer.ReadBytes (rdLength);
+		return new DnsResource (qname, (QueryType)rawQType, qclass, ttl, rdLength, rd);
+		}
+	}

@@ -326,7 +326,7 @@ a.btn { text-decoration: none; color: var(--text); display: inline-flex; align-i
 /* Settings: groups, each with a colored heading and a divider to the right edge, made of compact setting cards.
    The colors only say which group you're in: amber Plex (like the Plex badge), blue resume points, green watched
    marks, white for the app itself. Purple is kept free for Jellyfin. */
-:root { --sg-plex: var(--amber); --sg-jellyfin: #A985F2; --sg-kaleidescape: #7399bd; --sg-resume: #6FA8F5; --sg-watched: var(--ok); --sg-app: var(--text); }
+:root { --sg-plex: var(--amber); --sg-jellyfin: #A985F2; --sg-kaleidescape: #7399bd; --sg-appletv: #A1A1A6; --sg-resume: #6FA8F5; --sg-watched: var(--ok); --sg-app: var(--text); }
 @media (prefers-color-scheme: light) { :root { --sg-resume: #2F6DB5; --sg-jellyfin: #7A4FD6; } }
 #settings { max-width: 1040px; }
 .set-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin-bottom: 18px; }
@@ -570,6 +570,13 @@ dialog.info { max-width: min(680px, 94vw); }
 .card.kscape { border-top: 3px solid var(--sg-kaleidescape); }
 .card.kscape.playing { border-color: color-mix(in srgb, var(--sg-kaleidescape) 60%, var(--line)); border-top-color: var(--sg-kaleidescape); }
 .card.kscape .track i { background: var(--sg-kaleidescape); }
+.kb.appletv svg { color: var(--sg-appletv); }
+.card.atv { border-top: 3px solid var(--sg-appletv); }
+.card.atv.playing { border-color: color-mix(in srgb, var(--sg-appletv) 60%, var(--line)); border-top-color: var(--sg-appletv); }
+.card.atv .track i { background: var(--sg-appletv); }
+.card.atv .pair { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0 4px; }
+.card.atv .pair input { width: 6.5em; font: inherit; letter-spacing: .2em; text-align: center; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 6px 8px; }
+.card.atv .app { color: var(--muted); font-size: 13px; }
 /* A tab that can't be used yet (no players of the right kind). */
 .tab:disabled { opacity: .38; cursor: not-allowed; }
 .tab:disabled:hover { color: inherit; }
@@ -994,6 +1001,12 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
           <div class="row"><span class="st-d">News, help and ideas from other Resume Relay users.</span></div>
           <div class="row"><a class="btn" id="set-discord" href="https://discord.gg/wqxfxFBDpd" target="_blank" rel="noopener">Join our Discord</a></div>
         </div>
+        <div class="st stack">
+          <div class="row"><span class="st-l st-t">About</span></div>
+          <div class="row"><span class="st-d">Resume Relay is free and open source (MIT license): <a href="https://github.com/ckenisell/resume-relay" target="_blank" rel="noopener">github.com/ckenisell/resume-relay</a>.</span></div>
+          <div class="row"><span class="st-d">This product uses the TMDB API but is not endorsed or certified by TMDB.</span></div>
+          <div class="row"><span class="st-d">Apple TV support uses AppleTvControlLibrary (MIT, by Neil Colvin), a port of pyatv. Apple TV is a trademark of Apple Inc.; Resume Relay isn't affiliated with or endorsed by Apple, Plex, Jellyfin, Zidoo or Kaleidescape.</span></div>
+        </div>
         <div class="sg-col">
           <div class="st" id="autostart-row" hidden>
             <input type="checkbox" class="tg" id="autostart">
@@ -1075,8 +1088,9 @@ const KIND_SVG = {
   plex: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3.5" width="16" height="7" rx="1.5"/><rect x="4" y="13.5" width="16" height="7" rx="1.5"/><path d="M7.5 7h.01M7.5 17h.01M11 7h5M11 17h5"/></svg>`,
   jellyfin: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M10.2 8.6v6.8l5.4-3.4z"/></svg>`,
   kaleidescape: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="1.5"/><path d="M7 5v14M17 5v14M3 9h4M3 15h4M17 9h4M17 15h4"/><path d="M10.5 9.8v4.4l3.6-2.2z"/></svg>`,
+  appletv: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="1.8"/><path d="M9 20h6M12 16v4"/><rect x="9.5" y="8" width="5" height="4" rx="1"/></svg>`,
 };
-const KIND_NAME = { zidoo: "Zidoo", plex: "Plex", jellyfin: "Jellyfin", kaleidescape: "Kaleidescape", imdb: "IMDb", tmdb: "TMDB" };
+const KIND_NAME = { zidoo: "Zidoo", plex: "Plex", jellyfin: "Jellyfin", kaleidescape: "Kaleidescape", appletv: "Apple TV", imdb: "IMDb", tmdb: "TMDB" };
 // Plex and Jellyfin users are a media server's users, not boxes: no power button, no HT app.
 const isServerUser = d => d.kind === "plex" || d.kind === "jellyfin";
 const hasZidoo = () => (state?.devices || []).some(d => !isServerUser(d));
@@ -1147,7 +1161,7 @@ document.querySelector(".tabs").addEventListener("click", e => { const b = e.tar
 // Progress Reset and Watch Sync need a Zidoo, Plex or Jellyfin player; Live Poster needs one of those or a
 // Kaleidescape (a Kaleidescape only works with Live Poster). Until then their tabs are greyed out.
 function gateTabs() {
-  const sync = (state?.devices || []).length > 0, live = sync || (state?.kaleidescapes || []).length > 0;
+  const sync = (state?.devices || []).length > 0, live = sync || (state?.kaleidescapes || []).length > 0 || (state?.appleTvs || []).length > 0;
   const why = { progress: sync, watch: sync, live };
   for (const [t, ok] of Object.entries(why)) {
     const b = $("#tab-" + t);
@@ -1283,14 +1297,39 @@ function kCardHtml(k) {
       <button class="btn quiet danger" data-remove>Remove</button></div>
   </article>`;
 }
-const allPlayers = () => [...(state?.devices || []), ...(state?.kaleidescapes || [])];
+// An Apple TV (Live Poster only): pair it once (the TV shows a PIN), then it says what's playing and in which app.
+const atvPairing = new Set();   // Apple TVs showing a PIN right now (pairing started from this page)
+function aCardHtml(a) {
+  const p = a.enabled ? a.playing : null;
+  const status = !a.paired ? "Not paired" : !a.enabled ? "Not followed" : !a.online ? (a.problem ? "Not connected" : "Connecting…") : p ? (p.paused ? "Paused" : "Playing") : "Idle";
+  const meta = [status, "Apple TV" + (a.model ? " " + a.model : ""), a.ip].filter(Boolean).map(esc).join(" · ");
+  const stage = p ? `<div class="stage"><div class="grow"><div class="t">${esc(p.title)}</div><div class="app">${esc(p.app || "")}${p.fromPlex ? " · through Plex" : ""}</div>
+        <div class="push"><div class="track" role="progressbar" aria-label="Position" aria-valuemin="0" aria-valuemax="100" data-track><i></i></div>
+        <div class="times tnum"><span data-pos></span><span data-dur></span></div></div></div></div>` : "";
+  const pair = a.paired ? (a.problem && a.enabled ? `<div class="note">${esc(a.problem)}</div>` : "")
+    : atvPairing.has(a.id)
+      ? `<div class="pair"><span>Type the PIN the TV shows:</span><input data-atv-pin inputmode="numeric" maxlength="4" aria-label="PIN" autocomplete="off"><button class="btn" data-atv-pin-go>Pair</button><button class="btn quiet" data-atv-pair>New PIN</button></div>`
+      : `<div class="pair"><span>Pair it once so Resume Relay can see what it plays.</span><button class="btn" data-atv-pair>Pair</button></div>`;
+  const cls = ["card", "atv", p ? "playing" : "", (!a.online || !a.enabled) ? "dim" : ""].filter(Boolean).join(" ");
+  const nameEl = editing === a.id ? "" : `<button class="name" data-rename title="Rename">${esc(a.name)}</button>`;
+  return `<article class="${cls}" data-id="${esc(a.id)}" data-kind="appletv" aria-label="${esc(a.name)}">
+    <div class="chead">${kindBadge("appletv", true)}${nameEl}
+      <label class="switch" title="Show what this Apple TV plays on Live Poster"><input type="checkbox" data-enable ${a.enabled ? "checked" : ""}> Follow</label></div>
+    <div class="cmeta">${meta}</div>
+    ${stage}${pair}
+    <div class="cfoot"><span class="meta tnum">${esc(a.ip)} · Live Poster only</span>
+      ${a.paired ? `<button class="btn quiet" data-atv-unpair>Unpair</button>` : ""}<button class="btn quiet danger" data-remove>Remove</button></div>
+  </article>`;
+}
+const allPlayers = () => [...(state?.devices || []), ...(state?.kaleidescapes || []), ...(state?.appleTvs || [])];
+const apiKind = k => k === "kaleidescape" ? "kaleidescape" : k === "appletv" ? "appletv" : "devices";
 
 function renderRooms(devices) {
   const grid = $("#rooms");
   if (editing) return; // don't re-render under the person typing a name
-  devices = [...devices, ...(state?.kaleidescapes || [])];
+  devices = [...devices, ...(state?.kaleidescapes || []), ...(state?.appleTvs || [])];
   if (!devices.length) {
-    grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><strong>No players yet</strong>Press “Scan network” to find the Zidoo and Kaleidescape players on this network, or add one by its IP address.</div>`;
+    grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><strong>No players yet</strong>Press “Scan network” to find the Zidoo, Kaleidescape and Apple TV players on this network, or add one by its IP address.</div>`;
     cardCache.clear();
     return;
   }
@@ -1299,7 +1338,7 @@ function renderRooms(devices) {
   for (const el of [...grid.children]) if (!ids.includes(el.dataset.id)) { cardCache.delete(el.dataset.id); el.remove(); }
   devices.forEach((d, i) => {
     let el = grid.querySelector(`[data-id="${CSS.escape(d.id)}"]`);
-    const html = d.kind === "kaleidescape" ? kCardHtml(d) : cardHtml(d);
+    const html = d.kind === "kaleidescape" ? kCardHtml(d) : d.kind === "appletv" ? aCardHtml(d) : cardHtml(d);
     if (!el || cardCache.get(d.id) !== html) {
       const tmp = document.createElement("div"); tmp.innerHTML = html;
       const fresh = tmp.firstElementChild;
@@ -1334,6 +1373,26 @@ $("#rooms").addEventListener("click", async e => {
   const t = e.target.closest("button, input");
   if (!t) return;
   if (t.matches("[data-rename]")) startRename(t, dev);
+  else if (dev.kind === "appletv") {
+    if (t.matches("[data-remove]")) {
+      if (!confirm(`Remove ${dev.name}? Live Poster screens stop following it. Scan again to add it back (and pair it again).`)) return;
+      atvPairing.delete(id); await api("DELETE", `/api/appletv/${encodeURIComponent(id)}`); refresh();
+    } else if (t.matches("[data-atv-pair]")) {
+      t.disabled = true;
+      try { await api("POST", `/api/appletv/${encodeURIComponent(id)}/pair`); atvPairing.add(id); say($("#rooms-msg"), `${dev.name} is showing a PIN. Type it on its card.`, "ok"); }
+      catch (err) { say($("#rooms-msg"), err.message, "err"); }
+      cardCache.delete(id); refresh().then(() => card.isConnected && $(`[data-id="${CSS.escape(id)}"] [data-atv-pin]`)?.focus());
+    } else if (t.matches("[data-atv-pin-go]")) {
+      const pin = card.querySelector("[data-atv-pin]").value.trim();
+      t.disabled = true;
+      try { await api("POST", `/api/appletv/${encodeURIComponent(id)}/pin`, { pin }); atvPairing.delete(id); say($("#rooms-msg"), `Paired with ${dev.name}. Live Poster screens can follow it now.`, "ok"); }
+      catch (err) { say($("#rooms-msg"), err.message, "err"); t.disabled = false; }
+      cardCache.delete(id); refresh();
+    } else if (t.matches("[data-atv-unpair]")) {
+      if (!confirm(`Unpair ${dev.name}? Resume Relay stops seeing what it plays until it's paired again.`)) return;
+      await api("DELETE", `/api/appletv/${encodeURIComponent(id)}/pairing`); refresh();
+    }
+  }
   else if (dev.kind === "kaleidescape") {
     if (t.matches("[data-remove]")) {
       if (!confirm(`Remove ${dev.name}? Live Poster screens stop following it. Scan again to add it back.`)) return;
@@ -1366,7 +1425,7 @@ $("#rooms").addEventListener("click", async e => {
 $("#rooms").addEventListener("change", async e => {
   if (!e.target.matches("[data-enable]")) return;
   const card = e.target.closest(".card"), id = card.dataset.id;
-  await api("PATCH", `/api/${card.dataset.kind === "kaleidescape" ? "kaleidescape" : "devices"}/${encodeURIComponent(id)}`, { enabled: e.target.checked }); refresh();
+  await api("PATCH", `/api/${apiKind(card.dataset.kind)}/${encodeURIComponent(id)}`, { enabled: e.target.checked }); refresh();
 });
 
 // Right-click on a switched-off player: turn it on without opening the Home Theater app.
@@ -1397,7 +1456,7 @@ function startRename(btn, dev) {
     if (done) return; done = true;
     const name = input.value.trim();
     editing = null; cardCache.delete(dev.id);
-    if (save && name && name !== dev.name) await api("PATCH", `/api/${dev.kind === "kaleidescape" ? "kaleidescape" : "devices"}/${encodeURIComponent(dev.id)}`, { name });
+    if (save && name && name !== dev.name) await api("PATCH", `/api/${apiKind(dev.kind)}/${encodeURIComponent(dev.id)}`, { name });
     refresh();
   };
   input.addEventListener("keydown", e => { if (e.key === "Enter") finish(true); if (e.key === "Escape") finish(false); });
@@ -2567,7 +2626,7 @@ function renderIcons() {
   $("#rating-rows").innerHTML = ["imdb", "tmdb"].map(k => `<div class="icon-row">${ratingPill(k)}
     <label class="btn">Choose image…<input type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/x-icon,image/vnd.microsoft.icon,image/svg+xml" data-icon="${k}" hidden></label>
     ${state.icons[k] ? `<button class="btn quiet" data-icon-reset="${k}">Use the default</button>` : ""}</div>`).join("");
-  $("#icon-rows").innerHTML = ["zidoo", "plex", "jellyfin", "kaleidescape"].map(k => `<div class="icon-row">${kindBadge(k)}
+  $("#icon-rows").innerHTML = ["zidoo", "plex", "jellyfin", "kaleidescape", "appletv"].map(k => `<div class="icon-row">${kindBadge(k)}
     <label class="btn">Choose image…<input type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/x-icon,image/vnd.microsoft.icon,image/svg+xml" data-icon="${k}" hidden></label>
     ${state.icons[k] ? `<button class="btn quiet" data-icon-reset="${k}">Use the default</button>` : ""}</div>`).join("");
 }

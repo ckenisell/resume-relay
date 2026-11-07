@@ -131,7 +131,20 @@ own design ("NOW SHOWING"…), and a slideshow when nothing is: **Coming Soon** 
 **Highly Acclaimed** (movies and series rated 8.0 or higher: Plex's ratings, or without Plex the Zidoo's, IMDb for
 movies and TMDB for series; 10 picked at random each round) and **Feature Presentation** (one movie, or one season of a
 TV show, that each screen chooses for itself, once per round). Set it all up on the **Live Poster** tab. A **Kaleidescape** can be followed too (Live Poster only: it plays its own
-copies of movies, so nothing is copied to or from it); its movie shows with the Kaleidescape's own cover.
+copies of movies, so nothing is copied to or from it); its movie shows with the Kaleidescape's own cover. So can an
+**Apple TV** (Live Poster only too):
+
+- **Scan network** finds it. On its card on the Players tab, press **Pair**, and type the PIN the TV shows (once).
+  If no PIN appears, on the Apple TV open Settings → AirPlay and HomeKit, and set **Allow Access** to include this
+  network.
+- **The Plex app:** Resume Relay asks your Plex server what that Apple TV is playing, and uses Plex's poster (or your
+  folder's). Plex only needs to be signed in on the Plex card; the Plex user doesn't need to be added.
+- **Any other app** (Netflix, Disney+, the Apple TV app…): the title the app tells the Apple TV, with a poster from TMDB:
+  in the title's language, the biggest first (2000×3000), the season's poster for an episode. Apps differ in how much
+  they say; one that says nothing shows nothing.
+- It uses the Apple TV's own remote protocol (as the iPhone's Remote does), through
+  [AppleTvControlLibrary](https://github.com/oznetmaster/AppleTvControlLibrary) (MIT), a port of
+  [pyatv](https://github.com/postlund/pyatv). Apple doesn't publish it, so a tvOS update could change it.
 
 - **4K:** stick and TV apps draw their own pictures at 1080p but play video at 4K, so Resume Relay turns each picture
   into a short 4K video (with ffmpeg, on the computer's video hardware when it can) and the screen app plays it.

@@ -78,6 +78,8 @@ public static class RelayHost
         builder.Services.AddHostedService(sp => sp.GetRequiredService<WatchedSyncService>());
         builder.Services.AddSingleton<KaleidescapeService>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<KaleidescapeService>());
+        builder.Services.AddSingleton<AppleTvService>();
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<AppleTvService>());
         builder.Services.AddSingleton<Live.LiveStore>();
         builder.Services.AddSingleton<Live.PosterFinder>();
         builder.Services.AddSingleton<Live.Renderer>();
@@ -103,12 +105,13 @@ public static class RelayHost
     private static void MapApi(WebApplication app, Store store, RelayEngine engine, IHostIntegration host, UpdateService updates, CatchUpService catchUp)
     {
         var kaleidescape = app.Services.GetRequiredService<KaleidescapeService>();
+        var appleTv = app.Services.GetRequiredService<AppleTvService>();
         // Back up: players, names, settings, the Plex and Jellyfin setups (with their sign-ins) and badge pictures, as one file.
         app.MapGet("/api/backup", () =>
         {
             var icons = IconKinds.Select(k => (k, f: IconFile(store, k))).Where(x => x.f != null)
                 .ToDictionary(x => x.k, x => new BackupIcon(Path.GetExtension(x.f!), Convert.ToBase64String(File.ReadAllBytes(x.f!))));
-            var b = new Backup("Resume Relay", Version, DateTime.UtcNow, store.Devices(), store.Settings(), store.Plex(), icons, store.Jellyfin(), store.Kaleidescape().Players);
+            var b = new Backup("Resume Relay", Version, DateTime.UtcNow, store.Devices(), store.Settings(), store.Plex(), icons, store.Jellyfin(), store.Kaleidescape().Players, store.AppleTv().Devices);
             var json = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(b, new System.Text.Json.JsonSerializerOptions { WriteIndented = true, PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
             return Results.File(json, "application/json", $"resume-relay-backup-{DateTime.Now:yyyy-MM-dd}.json");
         });
@@ -116,7 +119,7 @@ public static class RelayHost
         {
             if (b == null || b.App != "Resume Relay" || b.Devices == null || b.Settings == null)
                 return Results.BadRequest(new { Error = "That isn't a Resume Relay backup file." });
-            store.Restore(b.Devices, b.Settings, b.Plex ?? new PlexConfig(), b.Jellyfin, b.Kaleidescapes);
+            store.Restore(b.Devices, b.Settings, b.Plex ?? new PlexConfig(), b.Jellyfin, b.Kaleidescapes, b.AppleTvs);
             foreach (var k in IconKinds) if (IconFile(store, k) is { } old) File.Delete(old);
             foreach (var (k, icon) in b.Icons ?? new())
                 if (IconKinds.Contains(k) && IconTypes.ContainsKey(icon.Ext))
@@ -229,6 +232,22 @@ public static class RelayHost
                         },
                     };
                 }),
+                // Live Poster only, like Kaleidescapes. Never the pairing keys: only whether it's paired.
+                AppleTvs = appleTv.Devices().Select(a =>
+                {
+                    var l = appleTv.LiveOf(a.Id);
+                    var n = l.Now;
+                    return new
+                    {
+                        a.Id, Kind = "appletv", a.Name, a.Ip, a.Enabled, a.Model, Paired = a.Credentials.Length > 0,
+                        Online = a.Enabled && l.Online, l.LastSeenUtc, Problem = a.Credentials.Length > 0 && !l.Online ? l.Error : "",
+                        Playing = !a.Enabled || n == null ? null : new
+                        {
+                            Title = n.Display, App = n.AppName.Length > 0 ? n.AppName : n.AppId, PositionMs = n.PositionSec * 1000, DurationMs = n.LengthSec * 1000,
+                            n.Paused, FromPlex = n.IsPlex && l.PlexItem != null,
+                        },
+                    };
+                }),
                 Plex = PlexApi.Summary(store),
                 Jellyfin = JellyfinApi.Summary(store),
                 Update = store.Settings().CheckUpdates ? updates.Available : null,
@@ -240,7 +259,7 @@ public static class RelayHost
                     Waiting = catchUp.WaitingFor.Select(id => store.Device(id)?.Name).Where(n => n != null),
                 },
                 WatchedSync = new { watchedSync.Status, watchedSync.LastRunUtc, watchedSync.LastResult },
-                Icons = new { Zidoo = IconFile(store, "zidoo") != null, Plex = IconFile(store, "plex") != null, Jellyfin = IconFile(store, "jellyfin") != null, Kaleidescape = IconFile(store, "kaleidescape") != null, Imdb = IconFile(store, "imdb") != null, Tmdb = IconFile(store, "tmdb") != null, V = IconVersion(store) },
+                Icons = new { Zidoo = IconFile(store, "zidoo") != null, Plex = IconFile(store, "plex") != null, Jellyfin = IconFile(store, "jellyfin") != null, Kaleidescape = IconFile(store, "kaleidescape") != null, Appletv = IconFile(store, "appletv") != null, Imdb = IconFile(store, "imdb") != null, Tmdb = IconFile(store, "tmdb") != null, V = IconVersion(store) },
                 Pending = pending,
                 DataFolder = store.DataDirectory,
             });
@@ -338,9 +357,10 @@ public static class RelayHost
             try
             {
                 var scanK = kaleidescape.ScanAsync(ct);   // Kaleidescapes (port 10000) at the same time
+                var scanA = appleTv.ScanAsync(ct);        // and Apple TVs (they announce themselves)
                 var found = await engine.RescanAsync(addNew: true, ct);
-                int k = await scanK;
-                return Results.Ok(new { Found = found.Count + k, New = found.Count(f => f.IsNew), Kaleidescapes = k, Subnets = Discovery.LocalSubnets() });
+                int k = await scanK, a = await scanA;
+                return Results.Ok(new { Found = found.Count + k + a, New = found.Count(f => f.IsNew), Kaleidescapes = k, AppleTvs = a, Subnets = Discovery.LocalSubnets() });
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -382,6 +402,32 @@ public static class RelayHost
         {
             bool found = false;
             store.UpdateKaleidescape(c => found = c.Players.RemoveAll(p => p.Id == id) > 0);
+            return found ? Results.Ok() : Results.NotFound();
+        });
+
+        // Apple TVs: pair (the TV shows a PIN), rename, switch off, unpair, remove.
+        app.MapPost("/api/appletv/{id}/pair", async (string id, CancellationToken ct) =>
+            await appleTv.BeginPairAsync(id, ct) is { Length: > 0 } err ? Results.BadRequest(new { Error = err }) : Results.Ok());
+        app.MapPost("/api/appletv/{id}/pin", async (string id, PinRequest req) =>
+            await appleTv.FinishPairAsync(id, req.Pin ?? "") is { Length: > 0 } err ? Results.BadRequest(new { Error = err }) : Results.Ok());
+        app.MapDelete("/api/appletv/{id}/pairing", (string id) => { appleTv.Unpair(id); return Results.Ok(); });
+        app.MapPatch("/api/appletv/{id}", (string id, UpdateDeviceRequest req) =>
+        {
+            bool found = false;
+            store.UpdateAppleTv(c =>
+            {
+                if (c.Devices.FirstOrDefault(d => d.Id == id) is not { } d) return;
+                found = true;
+                if (req.Name is { } n && n.Trim().Length > 0) d.Name = n.Trim();
+                if (req.Enabled is { } on) d.Enabled = on;
+            });
+            return found ? Results.Ok() : Results.NotFound();
+        });
+        app.MapDelete("/api/appletv/{id}", (string id) =>
+        {
+            bool found = false;
+            store.UpdateAppleTv(c => found = c.Devices.RemoveAll(d => d.Id == id) > 0);
+            appleTv.Forget(id);
             return found ? Results.Ok() : Results.NotFound();
         });
 
@@ -450,7 +496,7 @@ public static class RelayHost
 
     // ---------- badge icons (Settings: "Activity badges" and "Rating badges") ----------
 
-    private static readonly string[] IconKinds = { "zidoo", "plex", "jellyfin", "kaleidescape", "imdb", "tmdb" };
+    private static readonly string[] IconKinds = { "zidoo", "plex", "jellyfin", "kaleidescape", "appletv", "imdb", "tmdb" };
     private static readonly Dictionary<string, string> IconTypes = new()
     {
         [".png"] = "image/png", [".jpg"] = "image/jpeg", [".webp"] = "image/webp", [".gif"] = "image/gif", [".ico"] = "image/x-icon", [".svg"] = "image/svg+xml",
@@ -571,7 +617,8 @@ public static class RelayHost
     private sealed record ProgressCopyItem(string? Key, string? From, List<string>? To);
     private sealed record WatchSetRequest(string? Key, List<string>? DeviceIds, bool Watched);
     private sealed record BackupIcon(string Ext, string Data);
-    private sealed record Backup(string App, string Version, DateTime CreatedUtc, List<Device> Devices, Settings Settings, PlexConfig? Plex, Dictionary<string, BackupIcon>? Icons, JellyfinConfig? Jellyfin = null, List<KaleidescapePlayer>? Kaleidescapes = null);
+    private sealed record PinRequest(string? Pin);
+    private sealed record Backup(string App, string Version, DateTime CreatedUtc, List<Device> Devices, Settings Settings, PlexConfig? Plex, Dictionary<string, BackupIcon>? Icons, JellyfinConfig? Jellyfin = null, List<KaleidescapePlayer>? Kaleidescapes = null, List<AppleTvDevice>? AppleTvs = null);
     private sealed record ProgressBatchRequest(string? From, List<string>? To, List<string>? Keys, bool IncludeNotStarted, bool DryRun);
     private sealed record WatchBatchRequest(string? From, List<string>? To, string? Show, string? Players, string? Q, bool DryRun);
     private sealed record TidyRequest(List<string>? DeviceIds, bool DryRun);

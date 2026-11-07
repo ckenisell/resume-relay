@@ -1296,6 +1296,62 @@ http("DELETE", RELAY + f"/api/live/screens/{ksid}")
 http("DELETE", RELAY + f"/api/kaleidescape/{KID}")
 check("...and removed", not http("GET", RELAY + "/api/state")["kaleidescapes"])
 
+# ---------------------------------------------------------------- Apple TV (Live Poster only, like a Kaleidescape)
+ATV, TM = "http://127.0.0.10:8080", "http://127.0.0.11:8080"
+def atv(path, **q):
+    return http("GET", f"{ATV}/_test/{path}?" + urllib.parse.urlencode(q))
+def atvs():
+    return http("GET", RELAY + "/api/state")["appleTvs"]
+http("POST", RELAY + "/api/scan")
+a = wait_for(lambda: atvs(), 15) or []
+check("Scan network finds an Apple TV (it announces itself), named from it, not paired yet",
+      len(a) == 1 and a[0]["name"] == "Family Room" and a[0]["kind"] == "appletv" and a[0]["model"] == "AppleTV11,1" and not a[0]["paired"], str(a))
+AID = a[0]["id"] if a else ""
+check("...and keeps it out of the players Progress Reset, Watch Sync and copying use", all(d["id"] != AID for d in http("GET", RELAY + "/api/state")["devices"]))
+check("an unpaired Apple TV isn't offered to Live Poster screens yet", all(p["id"] != AID for p in live()["players"]))
+check("pairing starts (the TV shows a PIN)", refused("POST", RELAY + f"/api/appletv/{AID}/pair") == "")
+check("...a wrong PIN is refused, with a way forward", "PIN" in refused("POST", RELAY + f"/api/appletv/{AID}/pin", {"pin": "0000"}))
+http("POST", RELAY + f"/api/appletv/{AID}/pair")
+http("POST", RELAY + f"/api/appletv/{AID}/pin", {"pin": "1234"})
+check("...the right PIN pairs it, and it connects", wait_for(lambda: atvs()[0]["paired"] and atvs()[0]["online"], 20), str(atvs()))
+check("the pairing keys never reach the page", "mock-cred" not in json.dumps(http("GET", RELAY + "/api/state")))
+check("a paired Apple TV is offered to Live Poster screens, with its own badge", any(p["id"] == AID and p["kind"] == "appletv" for p in live()["players"]))
+atv("play", appId="com.netflix.Netflix", appName="Netflix", title="Woe What a Night", series="Wednesday", season=1, episode=2, pos=600, len=3000)
+pa = wait_for(lambda: atvs()[0]["playing"], 15)
+check("its card shows what an app plays, and which app", pa and pa["title"] == "Wednesday S01E02" and pa["app"] == "Netflix" and pa["positionMs"] == 600000, str(pa))
+ha = http("POST", RELAY + "/api/screen/hello", {"deviceKey": "test-screen-a", "platform": "android", "model": "Test TV", "version": "1"})
+asid = http("POST", RELAY + "/api/live/pair", {"code": ha["code"], "name": "Den", "players": [AID], "mount": "right", "resolution": "1080"})["id"]
+ATOK = http("POST", RELAY + "/api/screen/hello", {"deviceKey": "test-screen-a", "platform": "android", "model": "Test TV", "version": "1"})["token"]
+ast = wait_for(lambda: (lambda x: x if x["mode"] == "playing" and x["title"] == "Wednesday" else None)(http("GET", RELAY + f"/api/screen/state?token={ATOK}")), 240)
+check("a screen following the Apple TV shows a Netflix episode (Now Showing)", ast, str(http("GET", RELAY + f"/api/screen/state?token={ATOK}")))
+check("...with TMDB's poster for its season, the best one there (2000x3000)",
+      wait_for(lambda: screen_of(asid)["posterSource"].startswith("TMDB: Wednesday, season 1, 2000×3000"), 240) and "/season1.png" in http("GET", TM + "/_test/fetched"),
+      str((screen_of(asid)["posterSource"], http("GET", TM + "/_test/fetched"))))
+r = http("GET", RELAY + "/api/live/poster?" + urllib.parse.urlencode({"url": "tmdb:tv|Wednesday|0", "tv": 1}))
+check("TMDB's best poster: the title's language, then the biggest (2000x3000), then the most votes; never one that isn't 2:3",
+      r["source"] == "TMDB: Wednesday, 2000×3000" and http("GET", TM + "/_test/fetched")[-1] == "/best-show.png", str((r, http("GET", TM + "/_test/fetched")[-3:])))
+r = http("GET", RELAY + "/api/live/poster?" + urllib.parse.urlencode({"url": "tmdb:movie|Dune: Part Two|2024"}))
+check("...a movie by its name and year", r["source"] == "TMDB: Dune: Part Two, 2000×3000" and http("GET", TM + "/_test/fetched")[-1] == "/dune.png", str(r))
+# The Plex app on the Apple TV: Plex's own session (matched by the Apple TV's address), so Plex's item and poster.
+plexmock("play", user="1001", key=P_ARR, pos=500000, address="127.0.0.10", platform="tvOS")
+atv("play", appId="com.plexapp.plex", appName="Plex", title="Arrival", year=2016, pos=500, len=6960)
+pa = wait_for(lambda: (lambda p: p if p and p["fromPlex"] else None)(atvs()[0]["playing"]), 20)
+check("when the Plex app plays on the Apple TV, Resume Relay uses Plex's session for it (no Plex user needed)", pa, str(atvs()[0]))
+ast = wait_for(lambda: (lambda x: x if x["mode"] == "playing" and x["title"] == "Arrival" else None)(http("GET", RELAY + f"/api/screen/state?token={ATOK}")), 240)
+check("...and the screen shows it with Plex's (or the folder's) poster, not TMDB's",
+      ast and wait_for(lambda: not screen_of(asid)["posterSource"].startswith(("TMDB", "making", "finding")), 240), str((ast, screen_of(asid)["posterSource"])))
+plexmock("stop", user="1001")
+atv("stop")
+check("when the Apple TV stops, its card does too", wait_for(lambda: atvs()[0]["playing"] is None, 15), str(atvs()))
+http("DELETE", RELAY + f"/api/appletv/{AID}/pairing")
+check("an Apple TV can be unpaired", wait_for(lambda: not atvs()[0]["paired"] and not atvs()[0]["online"], 10), str(atvs()))
+with urllib.request.urlopen(RELAY + "/api/backup", timeout=20) as r:
+    ab = json.loads(r.read())
+check("the backup includes the Apple TV", any(x["id"] == AID for x in ab.get("appleTvs") or []), str(ab.get("appleTvs")))
+http("DELETE", RELAY + f"/api/live/screens/{asid}")
+http("DELETE", RELAY + f"/api/appletv/{AID}")
+check("...and removed", not atvs())
+
 # Without Plex, Highly Acclaimed uses the Zidoo's ratings: IMDb for movies, TMDB for series. (Plex is signed out last.)
 http("POST", RELAY + "/api/plex/signout")
 http("POST", RELAY + "/api/live/acclaimed/refresh")

@@ -8,6 +8,19 @@
     <RootNamespace>ResumeRelay</RootNamespace>
   </PropertyGroup>
 
+  <!-- Apple TV (Live Poster): pairing and now playing, from AppleTvControlLibrary (MIT), see third_party. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\third_party\AppleTvControlLibrary\src\AppleTv.Hap\AppleTv.Hap.csproj" />
+    <ProjectReference Include="..\..\third_party\AppleTvControlLibrary\src\AppleTv.Mrp\AppleTv.Mrp.csproj" />
+    <ProjectReference Include="..\..\third_party\AppleTvControlLibrary\src\AppleTV.Companion.Discovery\AppleTV.Companion.Discovery.csproj" />
+  </ItemGroup>
+
+  <!-- The TMDB key (Live Poster posters for Apple TV apps' titles), built in from the TMDB_API_KEY environment variable
+       (a GitHub Actions secret in release builds). Never in the code; builds without it simply look nothing up. -->
+  <ItemGroup Condition="'$(TMDB_API_KEY)' != ''">
+    <AssemblyMetadata Include="TmdbApiKey" Value="$(TMDB_API_KEY)" />
+  </ItemGroup>
+
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <!-- The page is compiled in, so a single program file is all that ships. -->

@@ -131,7 +131,7 @@ class Server(Base):
                         for med in m["Media"]:
                             for part in med["Part"]:
                                 part.pop("file", None)
-                    m["Player"] = dict(state=s["state"], title="Plex for Android (TV)")
+                    m["Player"] = dict(state=s["state"], title="Plex for Android (TV)", address=s["address"], platform=s["platform"])
                     md.append(m)
                 return self.send(dict(MediaContainer=dict(size=len(md), Metadata=md)))
             if path == "/library/sections":
@@ -197,7 +197,8 @@ class Server(Base):
         with lock:
             if path == "/_test/play":
                 SESSIONS[q["user"]] = dict(key=int(q["key"]), pos=int(q["pos"]), state=q.get("state", "playing"),
-                                           uid=q.get("uid"), utitle=q.get("utitle"), nofile=q.get("nofile"))
+                                           uid=q.get("uid"), utitle=q.get("utitle"), nofile=q.get("nofile"),
+                                           address=q.get("address", "10.0.0.99"), platform=q.get("platform", "Android"))
                 return self.send({"ok": True})
             if path == "/_test/stop":
                 s = SESSIONS.pop(q["user"], None)

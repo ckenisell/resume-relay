@@ -31,6 +31,7 @@ public sealed partial class LiveService : BackgroundService
     private readonly PosterFinder _finder;
     private readonly Renderer _renderer;
     private readonly KaleidescapeService _kaleidescape;
+    private readonly AppleTvService _appleTv;
     private readonly ConcurrentDictionary<string, ScreenRuntime> _rt = new();
     private readonly ConcurrentDictionary<string, PairRequest> _pairs = new();
     private readonly ConcurrentDictionary<string, DateTime> _started = new();      // device|file → when it started playing
@@ -41,9 +42,10 @@ public sealed partial class LiveService : BackgroundService
     private readonly SemaphoreSlim _acclaimedGate = new(1, 1);
     private readonly int _salt = Random.Shared.Next();
 
-    public LiveService(Store store, LiveStore live, RelayEngine engine, PosterFinder finder, Renderer renderer, KaleidescapeService kaleidescape)
+    public LiveService(Store store, LiveStore live, RelayEngine engine, PosterFinder finder, Renderer renderer, KaleidescapeService kaleidescape, AppleTvService appleTv)
     {
         _kaleidescape = kaleidescape;
+        _appleTv = appleTv;
         _store = store;
         _live = live;
         _engine = engine;
@@ -406,6 +408,27 @@ public sealed partial class LiveService : BackgroundService
             string url = PosterFinder.KaleidescapePrefix + m.Handle;
             _started.TryAdd(k.Id + "|" + url, DateTime.UtcNow);
             playing.Add(new NowItem(k.Id, k.Name, url, "", KaleidescapeService.Display(m), false, 0, 0, st.Play == "paused", m.BestCover));
+        }
+        // Apple TVs: the Plex app's title through Plex (its item and poster, and folder posters through its file); any
+        // other app's by its name, with a TMDB poster (or the app's own artwork).
+        foreach (var a in _appleTv.Devices().Where(a => a.Enabled && s.Players.Contains(a.Id)))
+        {
+            var l = _appleTv.LiveOf(a.Id);
+            if (l.Now is not { } n) continue;
+            NowItem item;
+            if (n.IsPlex && l.PlexItem is { } px)
+            {
+                string src = l.PlexFile.Length > 0 ? PlexPaths.ToSourceUrl(l.PlexFile, _store.Plex().Mappings) ?? "" : "";
+                string title = px.IsEpisode ? px.Show : px.Title;
+                item = new NowItem(a.Id, a.Name, src, l.PlexFile, title, px.IsEpisode, px.Season, px.Key, n.Paused);
+            }
+            else
+            {
+                string url = PosterFinder.TmdbUrl(n.IsEpisode ? "tv" : n.Year > 0 ? "movie" : "any", n.ShowOrTitle, n.IsEpisode ? 0 : n.Year);
+                item = new NowItem(a.Id, a.Name, url, "", n.ShowOrTitle, n.IsEpisode, n.Season, 0, n.Paused, PosterFinder.AppleTvArtPrefix + a.Id);
+            }
+            _started.TryAdd(a.Id + "|" + (item.SourceUrl.Length > 0 ? item.SourceUrl : item.PlexFile), DateTime.UtcNow);
+            playing.Add(item);
         }
         foreach (var id in s.Players)
         {

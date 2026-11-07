@@ -26,6 +26,7 @@ public sealed class Store
     private PlexConfig _plex;
     private JellyfinConfig _jellyfin;
     private KaleidescapeConfig _kaleidescape;
+    private AppleTvConfig _appleTv;
     private List<PendingCopy> _pending;
     private readonly LinkedList<ActivityEntry> _activity;
     private readonly LinkedList<StopEvent> _events;
@@ -47,6 +48,7 @@ public sealed class Store
         _jellyfin = Load<JellyfinConfig>("jellyfin.json") ?? new();
         if (_jellyfin.DeviceId.Length == 0) { _jellyfin.DeviceId = "resume-relay-" + Guid.NewGuid().ToString("N"); Save("jellyfin.json", _jellyfin); }
         _kaleidescape = Load<KaleidescapeConfig>("kaleidescape.json") ?? new();
+        _appleTv = Load<AppleTvConfig>("appletv.json") ?? new();
         _pending = Load<List<PendingCopy>>("pending.json") ?? new();
         _activity = new LinkedList<ActivityEntry>(Load<List<ActivityEntry>>("activity.json") ?? new());
         _events = new LinkedList<StopEvent>(Load<List<StopEvent>>("events.json") ?? new());
@@ -148,10 +150,15 @@ public sealed class Store
 
     /// <summary>Restore from a backup: players, names, settings and the Plex setup are replaced. Waiting copies for
     /// players that are no longer there are dropped. Activity is kept.</summary>
-    public void Restore(List<Device> devices, Settings settings, PlexConfig plex, JellyfinConfig? jellyfin, List<KaleidescapePlayer>? kaleidescapes = null)
+    public void Restore(List<Device> devices, Settings settings, PlexConfig plex, JellyfinConfig? jellyfin, List<KaleidescapePlayer>? kaleidescapes = null, List<AppleTvDevice>? appleTvs = null)
     {
         lock (_lock)
         {
+            if (appleTvs != null)
+            {
+                _appleTv.Devices = appleTvs.Select(Clone).ToList();
+                Save("appletv.json", _appleTv);
+            }
             if (kaleidescapes != null)
             {
                 _kaleidescape.Players = kaleidescapes.Select(Clone).ToList();
@@ -206,6 +213,17 @@ public sealed class Store
     public KaleidescapeConfig Kaleidescape()
     {
         lock (_lock) return Clone(_kaleidescape);
+    }
+
+    /// <summary>The Apple TVs (Live Poster only; never one of Devices()), with their pairing keys.</summary>
+    public AppleTvConfig AppleTv()
+    {
+        lock (_lock) return Clone(_appleTv);
+    }
+
+    public void UpdateAppleTv(Action<AppleTvConfig> change)
+    {
+        lock (_lock) { change(_appleTv); Save("appletv.json", _appleTv); }
     }
 
     /// <summary>Changes the Kaleidescape players, seen titles or stops in one step.</summary>

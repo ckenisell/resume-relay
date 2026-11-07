@@ -114,7 +114,8 @@ public sealed record PlexItem(
 }
 
 /// <summary>Something playing on the server right now, and for whom.</summary>
-public sealed record PlexSession(PlexItem Item, string State, string UserId, string UserTitle);
+/// <summary>A session on the server. Address and Platform are the playing device's (its IP, and "tvOS" for an Apple TV).</summary>
+public sealed record PlexSession(PlexItem Item, string State, string UserId, string UserTitle, string Address = "", string Platform = "");
 
 public sealed record PlexSection(string Key, string Type, string Title, List<string> Locations);
 
@@ -256,7 +257,7 @@ public sealed class PlexClient : IMediaServer
             var player = m.TryGetProperty("Player", out var pl) ? pl : default;
             string uid = user.ValueKind == JsonValueKind.Object && user.TryGetProperty("id", out var idv)
                 ? (idv.ValueKind == JsonValueKind.Number ? idv.GetRawText() : idv.GetString() ?? "") : "";
-            return new PlexSession(ParseItem(m), J.Str(player, "state"), uid, J.Str(user, "title"));
+            return new PlexSession(ParseItem(m), J.Str(player, "state"), uid, J.Str(user, "title"), J.Str(player, "address"), J.Str(player, "platform"));
         }).ToList();
     }
 

@@ -31,7 +31,7 @@ public static class LiveApi
             {
                 Renderer = new
                 {
-                    renderer.Ready, renderer.Status, renderer.Encoder, renderer.Queued, renderer.Working, renderer.LastError, renderer.Downloading,
+                    renderer.Ready, renderer.Status, renderer.Encoder, renderer.Queued, renderer.Working, renderer.LastError, renderer.Downloading, Jobs = renderer.JobsWithOwners(),
                     CanDownload = OperatingSystem.IsWindows() && renderer.Ffmpeg == null,
                 },
                 Config = new { cfg.StopWaitSeconds, cfg.SlideSeconds, cfg.AcclaimedMin, cfg.NowPlaying, cfg.ComingSoon, cfg.RecentlyWatched, cfg.Acclaimed, cfg.Feature, cfg.Folders },
@@ -87,18 +87,21 @@ public static class LiveApi
         });
         app.MapPatch("/api/live/screens/{id}", (string id, ScreenBody b) =>
         {
-            bool found = false;
+            bool found = false, rebuild = false;
             live.Update(c =>
             {
                 if (c.Screens.FirstOrDefault(s => s.Id == id) is not { } s) return;
                 found = true;
+                string before = $"{s.Mount}|{s.Resolution}|{s.Codec}|{string.Join(",", s.Sets ?? new())}";
                 if (b.Name is { } n && n.Trim().Length > 0) s.Name = n.Trim();
                 if (b.Players != null) s.Players = b.Players.Distinct().ToList();
                 if (b.Mount is "portrait" or "left" or "right" && b.Mount != s.Mount) { s.Mount = b.Mount; svc.RuntimeOf(id).TestSeconds = 30; }
                 if (b.Resolution is "4k" or "1080") s.Resolution = b.Resolution;
                 if (b.Codec is "auto" or "hevc" or "h264") s.Codec = b.Codec;
                 if (b.Sets != null) s.Sets = LiveService.SetKeys.Where(b.Sets.Contains).ToList();
+                rebuild = before != $"{s.Mount}|{s.Resolution}|{s.Codec}|{string.Join(",", s.Sets ?? new())}";
             });
+            if (rebuild) svc.StopBuild(id);
             if (found) { var rt = svc.RuntimeOf(id); rt.IdleUrl = ""; rt.IdleKey = ""; rt.Shown = null; }
             return found ? Results.Ok() : Results.NotFound();
         });
@@ -253,9 +256,10 @@ public static class LiveApi
         app.MapPut("/api/live/screens/{id}/feature", async (string id, FeatureBody b, CancellationToken ct) =>
         {
             string err = await svc.ChooseFeatureAsync(id, b.Id ?? "", b.Season, ct);
+            if (err.Length == 0) svc.StopBuild(id);
             return err.Length > 0 ? Results.BadRequest(new { Error = err }) : Results.Ok();
         });
-        app.MapDelete("/api/live/screens/{id}/feature", (string id) => { svc.ClearFeature(id); return Results.Ok(); });
+        app.MapDelete("/api/live/screens/{id}/feature", (string id) => { svc.ClearFeature(id); svc.StopBuild(id); return Results.Ok(); });
         app.MapGet("/api/live/screens/{id}/feature/poster", async (string id, CancellationToken ct) =>
         {
             var p = await svc.FeaturePosterAsync(id, ct);

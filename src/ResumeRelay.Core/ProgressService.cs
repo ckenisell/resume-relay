@@ -205,6 +205,9 @@ public sealed class ProgressService
         });
     }
 
+    /// <summary>What the lists show for a file (for the Activity tab).</summary>
+    public string DisplayOf(string key) { lock (_lock) return _files.GetValueOrDefault(key)?.Display ?? key; }
+
     /// <summary>When each player was last read successfully (for Catch Up and the health notes).</summary>
     public DateTime? ReadUtcOf(string deviceId) { lock (_lock) return _devices.GetValueOrDefault(deviceId)?.ReadUtc; }
 
@@ -821,6 +824,13 @@ public sealed class ProgressService
             lock (_lock) cell = _devices.GetValueOrDefault(id)?.Cells.GetValueOrDefault(key);
             if (cell == null || cell.FileId <= 0) { results.Add(new(id, d.Name, false, "not in its library")); continue; }
             if (!_engine.LiveOf(id).Online) { results.Add(new(id, d.Name, false, "is off or not answering")); continue; }
+            // Watch-only (Copying off): Watch Sync writes nothing either, like every other copy; it says what it would do.
+            if (_store.Settings().WatchOnly)
+            {
+                if (cell.Watched != watched) results.Add(new(id, d.Name, false, watched ? "watch-only: would mark watched" : "watch-only: would mark not watched", WatchOnly: true));
+                else results.Add(new(id, d.Name, true, ""));
+                continue;
+            }
             if (d.IsServerUser) { results.Add(await SetPlexWatchedAsync(d, file, key, cell, watched)); continue; }
 
             var api = new ZidooClient(d.Ip, d.Port);
@@ -1064,7 +1074,7 @@ public sealed class ProgressService
                 if (job == null) { _worker = false; return; }
                 job.Running = true;
             }
-            int failed = 0;
+            int failed = 0, would = 0;
             string cardId = "";
             try
             {
@@ -1081,11 +1091,15 @@ public sealed class ProgressService
                     Changed();
                     var r = await SetWatchedAsync(w.Key, w.Devices, w.Watched);
                     job.Done += w.Devices.Count;
-                    failed += r.Count(x => !x.Ok);
-                    foreach (var x in r) _store.UpdateEventTarget(cardId, x.DeviceId, x.Ok ? TargetState.Ok : TargetState.Failed, x.Error, w.Key);
+                    failed += r.Count(x => !x.Ok && !x.WatchOnly);
+                    would += r.Count(x => x.WatchOnly);
+                    foreach (var x in r) _store.UpdateEventTarget(cardId, x.DeviceId, x.WatchOnly ? TargetState.WatchOnly : x.Ok ? TargetState.Ok : TargetState.Failed, x.Error, w.Key);
                     foreach (var dev in w.Devices.Where(d => r.All(x => x.DeviceId != d)))
                         _store.UpdateEventTarget(cardId, dev, TargetState.Skipped, "no longer in the list", w.Key);
                 }
+                if (would > 0 && !job.Cancel)
+                    _store.Log(ActivityLevel.Skip, $"{job.Label}: watch-only, so nothing was written ({would:N0} change{(would == 1 ? "" : "s")} would be made). Turn on Copying to make them.");
+                else
                 _store.Log(failed == 0 && !job.Cancel ? ActivityLevel.Ok : ActivityLevel.Warn,
                     job.Cancel ? $"{job.Label}: stopped after {job.Done:N0} of {job.Total:N0}." : job.Summary(job.Total, failed));
             }
@@ -1381,7 +1395,8 @@ internal sealed class NaturalOrder : IComparer<string>
     }
 }
 
-public sealed record WatchResult(string DeviceId, string Name, bool Ok, string Error);
+/// <summary>One player's result of a Watch Sync change. WatchOnly: Copying is off, so nothing was written (it says what would be).</summary>
+public sealed record WatchResult(string DeviceId, string Name, bool Ok, string Error, bool WatchOnly = false);
 
 /// <summary>Lenient JSON readers (Home Theater sends numbers as strings now and then).</summary>
 internal static class J

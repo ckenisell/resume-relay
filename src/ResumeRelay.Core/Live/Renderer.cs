@@ -49,7 +49,53 @@ public sealed class Renderer
         _store = store;
     }
 
-    private sealed record Job(string Key, string Output, string Label, Func<string, string> Args, TaskCompletionSource<string?> Done);
+    private sealed record Job(string Key, string Output, string Label, Func<string, string> Args, TaskCompletionSource<string?> Done)
+    {
+        /// <summary>The screens that asked for it. A screen whose card changes stops the jobs only it wanted.</summary>
+        public HashSet<string> Owners { get; } = new(StringComparer.Ordinal);
+        public CancellationTokenSource Stop { get; } = new();
+        public bool Stopped;
+    }
+    private readonly Dictionary<string, Job> _jobs = new(StringComparer.Ordinal);
+
+    /// <summary>The screen whose work is being asked for (set around each screen's update; it flows into the tasks it starts).</summary>
+    private static readonly AsyncLocal<string?> CurrentScreen = new();
+
+    /// <summary>Marks the work asked for until disposed as this screen's.</summary>
+    public IDisposable ForScreen(string screenId)
+    {
+        var before = CurrentScreen.Value;
+        CurrentScreen.Value = screenId;
+        return new Restore(() => CurrentScreen.Value = before);
+    }
+    private sealed class Restore(Action undo) : IDisposable { public void Dispose() => undo(); }
+
+    /// <summary>
+    /// A screen's card changed: the videos only that screen was waiting for are dropped, and the one being made now is
+    /// stopped if it's one of them, so the new build starts at once. Videos other screens want too are left alone, and
+    /// whatever was finished is kept (a later build uses it). Returns how many were stopped.
+    /// </summary>
+    public int StopFor(string screenId)
+    {
+        var stop = new List<Job>();
+        lock (_q)
+        {
+            foreach (var j in _jobs.Values)
+                if (!j.Stopped && j.Owners.Count == 1 && j.Owners.Contains(screenId)) { j.Stopped = true; stop.Add(j); }
+            foreach (var j in stop) { _jobs.Remove(j.Key); _inFlight.Remove(j.Key); }
+        }
+        foreach (var j in stop)
+        {
+            try { j.Stop.Cancel(); } catch { }
+            j.Done.TrySetResult(null);
+        }
+        foreach (var k in _rounds.Where(r => !r.Value.IsCompleted).Select(r => r.Key).ToList())
+            if (_roundOwners.TryGetValue(k, out var o) && o == screenId) { _rounds.TryRemove(k, out _); _roundSteps.TryRemove(k, out _); }
+        return stop.Count;
+    }
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _roundOwners = new();
+    /// <summary>The videos waiting or being made, and which screens want each (for troubleshooting).</summary>
+    public List<string> JobsWithOwners() { lock (_q) return _jobs.Values.Select(j => $"{j.Label} [{string.Join(",", j.Owners)}]{(j.Stopped ? " stopped" : "")}").ToList(); }
 
     // ------------------------------------------------------------------ setup
 
@@ -241,8 +287,18 @@ public sealed class Renderer
             return have;
         if (_rounds.Count > 64)
             foreach (var k in _rounds.Where(x => x.Value.IsCompleted).Select(x => x.Key).ToList()) { _rounds.TryRemove(k, out _); _roundSteps.TryRemove(k, out _); }
-        var step = new RoundStep { Total = slides.Count + 1 };
+        // One poster all through (Feature Presentation alone, say): the same slide joined to itself, with no dissolve
+        // from or to black at the start and end, which only showed as a blink each time the video began again.
+        bool onePoster = slides.Count > 1 && slides.All(x => string.Equals(x, slides[0], StringComparison.Ordinal));
+        var step = new RoundStep { Total = onePoster ? 0 : slides.Count + 1 };
         _roundSteps[key] = step;
+        if (CurrentScreen.Value is { } owner) _roundOwners[key] = owner;
+        if (onePoster || slides.Count == 1)
+        {
+            var same = Task.Run(async () => { step.Joining = true; return await ReelAsync(slides, priority); });
+            _rounds[key] = same;
+            return same;
+        }
         var task = Task.Run(async () =>
         {
             var dissolves = new List<Task<string?>>();
@@ -544,10 +600,18 @@ public sealed class Renderer
         Task<string?> task;
         lock (_q)
         {
-            if (_inFlight.TryGetValue(key, out var running)) return running;
+            string? owner = CurrentScreen.Value;
+            if (_inFlight.TryGetValue(key, out var running))
+            {
+                if (_jobs.TryGetValue(key, out var shared)) shared.Owners.Add(owner ?? "");
+                return running;
+            }
             var tcs = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
             task = _inFlight[key] = tcs.Task;
-            _queue.Enqueue(new Job(key, output, label, o => args(o), tcs), (priority, _seq++));
+            var job = new Job(key, output, label, o => args(o), tcs);
+            job.Owners.Add(owner ?? "");
+            _jobs[key] = job;
+            _queue.Enqueue(job, (priority, _seq++));
             if (cleanup != null) tcs.Task.ContinueWith(_ => cleanup(output));
         }
         _signal.Release();
@@ -562,6 +626,7 @@ public sealed class Renderer
             try { await _signal.WaitAsync(ct); } catch (OperationCanceledException) { return; }
             Job? job;
             lock (_q) if (!_queue.TryDequeue(out job, out _)) continue;
+            if (job.Stopped) continue; // dropped while it waited
             string tmp = job.Output + ".part.mp4";
             Working = job.Label;
             string? result = null;
@@ -571,23 +636,29 @@ public sealed class Renderer
                 else
                 {
                     var watch = Stopwatch.StartNew();
-                    var (code, err) = await RunAsync("-hide_banner -loglevel error -y " + job.Args(tmp), TimeSpan.FromMinutes(20), ct, lowPriority: true);
+                    using var both = CancellationTokenSource.CreateLinkedTokenSource(ct, job.Stop.Token);
+                    var (code, err) = job.Stopped ? (-1, "") : await RunAsync("-hide_banner -loglevel error -y " + job.Args(tmp), TimeSpan.FromMinutes(20), both.Token, lowPriority: true);
                     if (code == 0 && File.Exists(tmp))
                     {
                         File.Move(tmp, job.Output, true); result = job.Output; LastError = "";
                         double took = watch.Elapsed.TotalSeconds;
                         _took.AddOrUpdate(job.Label, took, (_, old) => old * 0.7 + took * 0.3);
                     }
-                    else LastError = $"Making a {job.Label} failed: " + LastLine(err);
+                    else if (!job.Stopped) LastError = $"Making a {job.Label} failed: " + LastLine(err);
                 }
             }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested) { } // stopped: its screen's card changed
             catch (OperationCanceledException) { }
             catch (Exception ex) { LastError = $"Making a {job.Label} failed: {ex.Message}"; }
             finally
             {
                 try { if (File.Exists(tmp)) File.Delete(tmp); } catch { }
                 Working = "";
-                lock (_q) _inFlight.Remove(job.Key);
+                lock (_q)
+                {
+                    if (_inFlight.TryGetValue(job.Key, out var t) && t == job.Done.Task) _inFlight.Remove(job.Key);
+                    if (_jobs.TryGetValue(job.Key, out var j) && j == job) _jobs.Remove(job.Key);
+                }
                 job.Done.TrySetResult(result);
             }
         }

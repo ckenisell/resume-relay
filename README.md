@@ -121,8 +121,8 @@ The **Jellyfin** card in **Settings** sets it up (it starts folded away: open it
 4. **Add users.** Each becomes a player card on the Players tab, in purple.
 
 Finishing a file in Jellyfin (it counts 90% as finished by default) marks it watched on the other players. Highly
-Acclaimed uses Jellyfin's rating only for titles neither Plex nor a Zidoo rates; Jellyfin's critic rating (Rotten
-Tomatoes) is never used.
+Acclaimed never uses Jellyfin's ratings: it takes IMDb's rating (or TMDB's when there's no IMDb rating) from Plex or a
+Zidoo.
 
 ## Live Poster
 

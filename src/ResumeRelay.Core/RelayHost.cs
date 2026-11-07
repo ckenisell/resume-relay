@@ -498,6 +498,7 @@ public static class RelayHost
     /// <summary>The Progress Reset tab.</summary>
     private static void MapProgressApi(WebApplication app, ProgressService progress, CancellationToken stopping)
     {
+        var store = app.Services.GetRequiredService<Store>();
         // The page passes the version it already has; an unchanged list isn't sent again.
         app.MapGet("/api/progress", (long? v) =>
             v == progress.Version ? Results.Ok(new { Unchanged = true, progress.Version, progress.Reading, Status = progress.StatusLines, Jobs = progress.Jobs() }) : Results.Ok(progress.Snapshot()));
@@ -508,6 +509,8 @@ public static class RelayHost
         app.MapPost("/api/watched/set", async (WatchSetRequest req) =>
         {
             var r = await progress.SetWatchedAsync(req.Key ?? "", req.DeviceIds ?? new List<string>(), req.Watched);
+            if (r.Where(x => x.WatchOnly).Select(x => x.Name).ToList() is { Count: > 0 } would)
+                store.Log(ActivityLevel.Skip, $"Watch-only: {progress.DisplayOf(req.Key ?? "")} would be marked {(req.Watched ? "watched" : "not watched")} on {string.Join(", ", would)} (Watch Sync). Nothing was written; turn on Copying to make changes.");
             return r.Count == 0 ? Results.BadRequest(new { Error = "That file is no longer in the list. Read the players again." }) : Results.Ok(r);
         });
         // Remove a waiting Watched All / cleanup job, or stop the running one after its current file.

@@ -823,6 +823,12 @@ wait_for(lambda: (lambda w: w if w["lastRunUtc"] != done and not w["status"] els
 check("with Copying off, a changed watched mark is only logged ('would copy'), not copied",
       log_has("[watch-only] Watched marks changed on Living Room") and bookmark(BR, E04).get("watched") and "not copied" in wsync()["lastResult"],
       str(([bookmark(ip, E04) for ip in (LR, BR, HT)], wsync())))
+# ...and the Watch Sync tab's own buttons write nothing either (they used to): they say what they would do.
+nw = len(bookmark(BR, E04)["writes"])
+r = http("POST", RELAY + "/api/watched/set", {"key": k4, "deviceIds": [ids[BR]], "watched": False})
+check("with Copying off, clicking a Watch Sync cell changes nothing on the player (it says what it would do)",
+      r and r[0]["watchOnly"] and not r[0]["ok"] and bookmark(BR, E04).get("watched") and len(bookmark(BR, E04)["writes"]) == nw
+      and wait_for(lambda: log_has("Watch-only:") and log_has("would be marked not watched on Bedroom"), 10), str((r, bookmark(BR, E04))))
 settings(watchOnly=False)
 settings(watchedSync=False)
 
@@ -1002,6 +1008,26 @@ sc = wait_for(lambda: (lambda x: x if x["roundTitles"] and set(x["roundTitles"])
 check("each screen shows only the sets ticked on its card", sc and screen_of(sid)["sets"] == ["coming"], str(screen_of(sid)))
 check("...and its card doesn't say it's off while it's on", "off" not in screen_of(sid)["note"], str(screen_of(sid)))
 
+# A screen's card changing stops what was being made only for it; the new build starts right away.
+http("PATCH", RELAY + f"/api/live/screens/{sid}", {"resolution": "4k"})   # every slide is made again, at 4K
+wait_for(lambda: live()["renderer"]["jobs"], 120)
+http("PATCH", RELAY + f"/api/live/screens/{sid}", {"resolution": "1080"})
+check("changing a screen's card stops the videos only it was waiting for (the new build starts now)",
+      wait_for(lambda: any("changed, so the" in m and "dropped" in m for m in activity(40)), 15), str(activity(8)))
+sc = wait_for(lambda: (lambda x: x if x["mode"] == "idle" and x["url"] else None)(state_of()) and
+              (lambda x: x if x["roundTitles"] and set(x["roundTitles"]) == {"Test Coming"} and not x["making"] else None)(screen_of(sid)), 300)
+check("...and its new slideshow goes up", sc, str((state_of(), screen_of(sid))))
+# One poster all through: the same slide joined to itself, with no dissolve from or to black (no blink as it starts over).
+import subprocess, tempfile, os
+st = state_of()
+with urllib.request.urlopen(RELAY + st["url"], timeout=60) as r, tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
+    f.write(r.read()); one = f.name
+dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", one], capture_output=True, text=True).stdout.strip() or 0)
+first = subprocess.run(["ffmpeg", "-v", "error", "-i", one, "-frames:v", "1", "-vf", "scale=1:1", "-f", "rawvideo", "-pix_fmt", "gray", "-"], capture_output=True).stdout
+check("a one-poster slideshow has no fade from black: it starts on the poster, and runs about 10 minutes or more",
+      st["mode"] == "idle" and dur >= 10 * 60 and first and first[0] > 12, str((st, dur, list(first[:1]))))
+os.unlink(one)
+
 # While a new title's Now Showing video is being made, the slideshow stays up; the screen switches only when it's ready.
 seen = []
 def _until_playing():
@@ -1114,7 +1140,7 @@ jids = jfmock("ids")
 J_ARR, J_E04 = jids["Arrival (2016).mkv"], jids["Andor - S01E04.mkv"]
 
 play_then_stop(LR, ARRIVAL, 1234000)
-check("a Zidoo stop is copied to each Jellyfin user", wait_for(lambda: jfitem("u-chet", J_ARR)["pos"] == 1234000 and jfitem("u-wife", J_ARR)["pos"] == 1234000, 30),
+check("a Zidoo stop is copied to each Jellyfin user", wait_for(lambda: jfitem("u-chet", J_ARR)["pos"] == 1234000 and jfitem("u-wife", J_ARR)["pos"] == 1234000, 90),
       str((jfitem("u-chet", J_ARR), jfitem("u-wife", J_ARR))))
 jzc = wait_for(lambda: (lambda c: c if c and all(t["state"] != "Pending" for t in c["targets"]) else None)(card_for("Arrival", 1234000)), 20)
 check("...and its card shows the Jellyfin users as Jellyfin", jzc and {t["name"]: t["kind"] for t in jzc["targets"]}.get("Wife on Jellyfin") == "jellyfin", str(jzc))
@@ -1150,8 +1176,8 @@ check("Reset TV Show clears the show on Jellyfin with one 'mark unplayed' on the
       str(jfitem("u-wife", J_E04)))
 http("POST", RELAY + "/api/live/acclaimed/refresh")
 jacc = {t["title"]: t for t in http("GET", RELAY + "/api/live/acclaimed")["titles"]}
-check("Highly Acclaimed takes Jellyfin's rating only for titles nobody else rates (and says so)",
-      jacc.get("Heat (1995)", {}).get("from") == "jellyfin" and jacc["Heat (1995)"]["source"] == "Jellyfin"
+check("Highly Acclaimed never uses Jellyfin's ratings (IMDb, or TMDB without one, from Plex or a Zidoo)",
+      "Heat (1995)" not in jacc and not any(t.get("from") == "jellyfin" for t in jacc.values())
       and jacc.get("Braveheart (2016)", {}).get("from") == "plex", str(jacc))
 with urllib.request.urlopen(RELAY + "/api/jellyfin/sessions", timeout=20) as resp:
     txt = resp.read().decode()

@@ -11,7 +11,7 @@
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   video { position: fixed; inset: 0; width: 100vw; height: 100vh; object-fit: contain; background: #000; opacity: 0; transition: opacity .6s; }
   video.on { opacity: 1; }
-  #setup { position: fixed; inset: 0; display: grid; place-items: center; text-align: center; padding: 24px; cursor: default; }
+  #setup { position: fixed; inset: 0; background: #000; display: grid; place-items: center; text-align: center; padding: 24px; cursor: default; }
   #setup[hidden] { display: none; }
   #setup h1 { font-size: clamp(20px, 4vw, 40px); margin: 0 0 8px; font-weight: 700; }
   #setup p { color: var(--muted); font-size: clamp(14px, 2.2vw, 22px); margin: 6px 0; max-width: 40ch; }
@@ -58,7 +58,7 @@ async function hello() {
 
 async function state(ended) {
   const r = await fetch(`/api/screen/state?token=${encodeURIComponent(token)}${ended ? "&ended=" + encodeURIComponent(ended) : ""}`);
-  if (r.status === 401) { token = ""; current = ""; hello(); return null; }
+  if (r.status === 401) { token = ""; current = ""; blank(); hello(); return null; }
   return r.json();
 }
 
@@ -84,6 +84,11 @@ function loading(s) {
   box.style.setProperty("--turn", turn + "deg");
   box.style.setProperty("--long", (turn ? innerHeight : innerWidth) * 0.6 + "px");
   $("#loading .fill").style.width = Math.round((s.progress || 0) * 100) + "%";
+}
+// Removed in Resume Relay (or never added): the poster stops, so the pairing code shows on black, as on day one.
+function blank() {
+  for (const v of [front, back]) { v.pause(); v.classList.remove("on"); v.removeAttribute("src"); v.load(); }
+  $("#loading").hidden = true;
 }
 // Two video elements, so a new video fades in over the old one instead of flashing black.
 function play(s) {

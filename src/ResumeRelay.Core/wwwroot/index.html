@@ -415,6 +415,7 @@ a.btn { text-decoration: none; color: var(--text); display: inline-flex; align-i
 .lp-feat .poster { width: 44px; height: 66px; flex: none; border-radius: 4px; border: 1px solid var(--line); background: #000 center / cover no-repeat; }
 .lp-feat .poster.none { background: var(--panel-2); border-style: dashed; }
 .lp-feat .t { font-size: 13px; min-width: 0; }
+.lp-feat .t .lp-feat-b { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
 .lp-feat .t b { display: block; font-size: 12.5px; color: var(--muted); font-weight: 600; }
 .lp-feat .t span { display: block; overflow-wrap: anywhere; }
 .lp-feat .btn { font-size: 12.5px; padding: 4px 10px; margin-top: 4px; }
@@ -559,6 +560,8 @@ dialog.info { max-width: min(680px, 94vw); }
 .kb { display: inline-flex; align-items: center; gap: 5px; vertical-align: -3px; font-size: 12px; font-weight: 650; padding: 1px 7px 1px 4px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); white-space: nowrap; }
 .kb svg, .kb img { width: 16px; height: 16px; flex: none; object-fit: contain; }
 .kb svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.kb.rating { padding: 1px 7px; }
+.kb.rating img { width: auto; max-width: 40px; }
 .kb.zidoo svg { color: #5FA8E8; }
 .kb.plex svg { color: var(--amber); }
 .kb.jellyfin svg { color: var(--sg-jellyfin); }
@@ -1084,6 +1087,9 @@ function ratingBadge(source) {
   return state?.icons?.[k] ? `<span class="rb img" title="${KIND_NAME[k]}" role="img" aria-label="${KIND_NAME[k]}"><img src="/api/icon/${k}?v=${state.icons.v}" alt=""></span>`
     : `<span class="rb" title="${KIND_NAME[k]}">${KIND_NAME[k]}</span>`;
 }
+// Settings → Rating badges: the same pill as Activity badges (the picture, if one is chosen, then the name), so it's
+// always clear which rating a picture is for.
+const ratingPill = k => `<span class="kb rating" title="${KIND_NAME[k]}">${state?.icons?.[k] ? `<img src="/api/icon/${k}?v=${state.icons.v}" alt="">` : ""}${KIND_NAME[k]}</span>`;
 const kindIcon = kind => state?.icons?.[kind] ? `<img src="/api/icon/${kind}?v=${state.icons.v}" alt="">` : KIND_SVG[kind] || "";
 function kindBadge(kind, iconOnly = false) {
   if (!KIND_SVG[kind]) return "";
@@ -2105,8 +2111,10 @@ async function setWatched(f, devIds, watched) {
   renderWatch();
   try {
     const r = await api("POST", "/api/watched/set", { key: f.key, deviceIds: devIds, watched });
-    const bad = r.filter(x => !x.ok);
-    say($("#ws-msg"), bad.length ? bad.map(x => `${x.name}: ${x.error}`).join(" · ") : "", bad.length ? "err" : "");
+    const bad = r.filter(x => !x.ok && !x.watchOnly), would = r.filter(x => x.watchOnly);
+    say($("#ws-msg"), bad.length ? bad.map(x => `${x.name}: ${x.error}`).join(" · ")
+      : would.length ? `Watch-only is on, so nothing was changed: ${would.map(x => x.name).join(", ")} would be marked ${watched ? "watched" : "not watched"}. Turn on Copying (top right) to make changes.` : "",
+      bad.length ? "err" : "");
   } catch (err) { say($("#ws-msg"), err.message, "err"); }
   for (const id of devIds) wsBusy.delete(f.key + "|" + id);
   loadWatch(true);
@@ -2556,7 +2564,7 @@ $("#jf-card").addEventListener("click", async e => {
 let iconSig = "";
 function renderIcons() {
   const sig = JSON.stringify(state?.icons || {}); if (sig === iconSig) return; iconSig = sig;
-  $("#rating-rows").innerHTML = ["imdb", "tmdb"].map(k => `<div class="icon-row"><span class="rb-cell">${ratingBadge(k)}</span>
+  $("#rating-rows").innerHTML = ["imdb", "tmdb"].map(k => `<div class="icon-row">${ratingPill(k)}
     <label class="btn">Choose image…<input type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/x-icon,image/vnd.microsoft.icon,image/svg+xml" data-icon="${k}" hidden></label>
     ${state.icons[k] ? `<button class="btn quiet" data-icon-reset="${k}">Use the default</button>` : ""}</div>`).join("");
   $("#icon-rows").innerHTML = ["zidoo", "plex", "jellyfin", "kaleidescape"].map(k => `<div class="icon-row">${kindBadge(k)}
@@ -2700,9 +2708,8 @@ const HELP = {
   acclaimed: ["Where the ratings come from", `<p>Highly Acclaimed takes each title's rating from, in this order:</p>
     <ol><li><b>Plex</b>, when it's set up: the rating Plex shows for the movie or series. That's the IMDb rating when IMDb is the ratings source in Plex's library settings.</li>
     <li>For a movie Plex rates only by TMDB, the <b>Zidoo's IMDb rating</b> is used instead when it has one.</li>
-    <li>Titles Plex doesn't have or doesn't rate, and every title when Plex isn't set up: the <b>Zidoo's</b> rating, which is IMDb for movies and TMDB for series (the HT app keeps no IMDb rating for series).</li>
-    <li>Last, titles only <b>Jellyfin</b> rates: Jellyfin's community rating. Jellyfin takes it from TMDB (or from IMDb when its OMDb plugin is installed) and doesn't say which, so it's shown as Jellyfin's.</li></ol>
-    <p>Rotten Tomatoes ratings are never used (Jellyfin's "critic rating" is Rotten Tomatoes'). Each title's table row shows where its rating came from (Plex, a Zidoo or Jellyfin) and which rating it is.</p>`],
+    <li>Titles Plex doesn't have or doesn't rate, and every title when Plex isn't set up: the <b>Zidoo's</b> rating, which is IMDb for movies and TMDB for series (the HT app keeps no IMDb rating for series).</li></ol>
+    <p>Jellyfin's ratings and critics' ratings are never used. Each title's table row shows where its rating came from (Plex or a Zidoo) and which rating it is.</p>`],
   badges: ["Activity badges", `<p>Each Activity card shows whether the stop happened on a Zidoo, on Plex or on Jellyfin, and each player chip shows which kind it is (Kaleidescape players too, on their cards and on Live Poster). You can use your own small image for any of these badges; it's kept in Resume Relay's data folder on this computer.</p>`],
   backup: ["Back up and restore", `<p>One file with your players (Kaleidescapes included), their names, these settings, the Plex and Jellyfin setups and your badge pictures. Use it to move Resume Relay to another computer or a NAS, or after reinstalling.</p>
     <p><b>Back up settings</b> downloads one file. <b>Restore from a backup</b> replaces this Resume Relay's players, names, settings, Plex and Jellyfin setups and badge pictures with the ones in the file. The Activity tab is kept.</p>
@@ -2722,7 +2729,7 @@ const HELP = {
     <p>Images: PNG, JPG or WebP. Videos: MP4, 10 to 20 seconds, made to loop seamlessly (the end flows into the start). Other sizes are scaled to cover the screen.</p>`],
   posterfolders: ["Poster folders", `<p>For each title, Resume Relay uses the first poster it finds, looking in this order:</p>
     <ol><li><b>The NAS:</b> the movie's or show's own folder (the file names below).</li>
-    <li><b>Plex</b>, when it's set up: the poster Plex shows. For a Jellyfin user's title (or a Jellyfin rating), <b>Jellyfin's</b> poster.</li>
+    <li><b>Plex</b>, when it's set up: the poster Plex shows. For a Jellyfin user's title, <b>Jellyfin's</b> poster.</li>
     <li><b>The Zidoo:</b> its poster, which it keeps at only 500×750.</li></ol>
     <h4>Movies</h4>
     <p>In the movie's folder, the first of these that exists:</p>
@@ -3002,7 +3009,7 @@ function renderLive() {
       <span class="lp-field">Slideshow</span>
       <div class="lp-sets-on">${SETS.map(([key, name]) => { const k = SET_KEY[key]; return `<label><input type="checkbox" class="lp-sw" data-lp-showset="${k}"${(s.sets || []).includes(k) ? " checked" : ""}>${name}</label>`; }).join("")}</div>
       <div class="lp-feat">${s.feature ? `<img class="poster" alt="" src="${featPoster(s)}" onerror="this.className='poster none';this.removeAttribute('src')">` : `<span class="poster none"></span>`}
-        <div class="t"><b>Feature Presentation</b><span>${s.feature ? esc(s.feature.display) : "No title chosen yet"}</span><button class="btn" data-lp-feature>Select a title</button></div></div>
+        <div class="t"><b>Feature Presentation</b><span>${s.feature ? esc(s.feature.display) : "No title chosen yet"}</span><span class="lp-feat-b"><button class="btn" data-lp-feature>Select a title</button>${s.feature ? `<button class="btn quiet" data-lp-feature-clear>Remove title</button>` : ""}</span></div></div>
       <span class="lp-field">Mounted</span>
       <div class="lp-row"><select data-lp-mount aria-label="How it's mounted">${MOUNTS.map(([v, t]) => `<option value="${v}"${s.mount === v ? " selected" : ""}>${t}</option>`).join("")}</select>
         <select data-lp-res aria-label="Resolution"><option value="4k"${s.resolution === "4k" ? " selected" : ""}>4K</option><option value="1080"${s.resolution === "1080" ? " selected" : ""}>1080p</option></select>
@@ -3148,6 +3155,7 @@ $("#live").addEventListener("click", async e => {
         ${t.score > 0 ? `<td class="n">${t.score.toFixed(1)}</td><td>${t.from ? kindBadge(t.from, true) : ""}</td><td>${ratingBadge(t.source)}</td>` : `<td class="n none">—</td><td></td><td></td>`}</tr>`).join("")}</tbody></table></div>`);
   }
   if (b.matches("[data-lp-feature]")) return featPick(id, card.querySelector("[data-lp-rename]").value);
+  if (b.matches("[data-lp-feature-clear]")) { await api("DELETE", `/api/live/screens/${encodeURIComponent(id)}/feature`); return loadLive(); }
   if (b.matches("[data-lp-test]")) { await api("POST", `/api/live/screens/${encodeURIComponent(id)}/test`); toast("The test picture shows on the screen for 30 seconds."); return loadLive(); }
   if (b.matches("[data-lp-remove]")) return confirmReset("Remove screen", `Remove <b>${esc(card.querySelector("[data-lp-rename]").value)}</b>? Its app goes back to showing a code, and can be added again.`,
     async () => { await api("DELETE", `/api/live/screens/${encodeURIComponent(id)}`); loadLive(); });

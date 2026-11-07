@@ -250,7 +250,7 @@ public sealed partial class LiveService : BackgroundService
                 // Ratings are reread hourly, and only while a screen is on (pressing "Read the ratings again" always works).
                 if (DateTime.UtcNow - _acclaimedAt > TimeSpan.FromHours(1) && cfg.Screens.Any(sc => Awake(RuntimeOf(sc.Id)) && Shows(sc, cfg, "acclaimed")))
                     _ = RefreshAcclaimedAsync(ct);
-                foreach (var s in cfg.Screens) Update(s, cfg);
+                foreach (var s in cfg.Screens) using (_renderer.ForScreen(s.Id)) Update(s, cfg);
                 foreach (var id in _rt.Keys.Where(k => cfg.Screens.All(s => s.Id != k)).ToList()) _rt.TryRemove(id, out _);
                 if (DateTime.UtcNow - tidy > TimeSpan.FromHours(6)) { tidy = DateTime.UtcNow; _renderer.Tidy(); }
                 if (DateTime.UtcNow - tidyReels > TimeSpan.FromMinutes(5))
@@ -507,8 +507,19 @@ public sealed partial class LiveService : BackgroundService
 
     /// <summary>"Rebuild slideshow": the next round is made now (with any new Coming Soon posters) and goes up as soon
     /// as it's ready, without waiting for the current round to finish.</summary>
+    /// <summary>A screen's card changed (what it shows or how): whatever was being made only for it is stopped, so
+    /// the new build starts now instead of after the old one.</summary>
+    public void StopBuild(string screenId)
+    {
+        int n = _renderer.StopFor(screenId);
+        var rt = RuntimeOf(screenId);
+        rt.Making = null;
+        if (n > 0) _store.Log(ActivityLevel.Info, $"Live Poster: the screen \"{_live.Get().Screens.FirstOrDefault(x => x.Id == screenId)?.Name}\" changed, so the {n} video{(n == 1 ? "" : "s")} it was still waiting for {(n == 1 ? "was" : "were")} dropped; its new slideshow is being made.");
+    }
+
     public void Rebuild(string screenId)
     {
+        StopBuild(screenId);
         _recentAt = DateTime.MinValue;
         var rt = RuntimeOf(screenId);
         rt.Round += Math.Max(1, rt.RoundsUp);
@@ -529,7 +540,8 @@ public sealed partial class LiveService : BackgroundService
         // only has to start a new video (a moment of black on a Roku) a few times an hour.
         var items = RoundItems(s, cfg, rt.Round);
         int perRound = items.Count;
-        int rounds = perRound == 0 ? 1 : Math.Clamp((int)Math.Ceiling(15 * 60.0 / (perRound * Math.Clamp(cfg.SlideSeconds, 4, 120))), 1, 8);
+        // (One poster alone, like a Feature Presentation by itself: as many copies as fill the 15 minutes, joined end to end.)
+        int rounds = perRound == 0 ? 1 : Math.Clamp((int)Math.Ceiling(15 * 60.0 / (perRound * Math.Clamp(cfg.SlideSeconds, 4, 120))), 1, perRound == 1 ? 240 : 8);
         for (int k = 1; k < rounds; k++) items.AddRange(RoundItems(s, cfg, rt.Round + k));
         rt.RoundsUp = rounds;
         // Step 1: each title's poster and slide. Step 2 (once they're all made): the slideshow video.
@@ -720,33 +732,19 @@ public sealed partial class LiveService : BackgroundService
                     if (rel != null) keys.Add(PlexPaths.Key(rel));
                     keys.Add(r.Kind + "|" + r.Title.ToLowerInvariant());
                 }
-            // Last, Jellyfin's community rating, for what neither Plex nor the Zidoo rates. Jellyfin gets it from TMDB
-            // (or IMDb with its OMDb plugin) and can't say which, so it's shown as Jellyfin's. Never its critic rating
-            // (Rotten Tomatoes).
-            var jellyfin = _engine.JellyfinServer();
+            // Jellyfin's ratings are never used (Chet, 2026-11-06): IMDb first, TMDB only when there's no IMDb rating,
+            // from Plex or the Zidoo. Jellyfin's community rating can't say where it came from, and some are nonsense
+            // (series showing 3,039,430.0).
             int fromJellyfin = 0;
             bool jellyfinRead = false;
-            if (jellyfin != null && await jellyfin.RatedTitlesAsync(ct) is { } jrated)
-            {
-                jellyfinRead = true;
-                var jmaps = _store.Jellyfin().Mappings;
-                var jdev = _store.Devices().FirstOrDefault(d => d.IsJellyfin && d.Enabled);
-                foreach (var r in jrated.Where(r => r.Score >= min - 1e-9))
-                {
-                    string file = r.Files.FirstOrDefault() ?? "";
-                    string url = file.Length > 0 ? PlexPaths.ToSourceUrl(file, jmaps) ?? "" : "";
-                    string? key = url.Length > 0 && PlexPaths.RelOfUrl(url) is { } rel ? PlexPaths.Key(rel) : null;
-                    if ((key != null && keys.Contains(key)) || keys.Contains(r.Type + "|" + r.Title.ToLowerInvariant())) continue;
-                    if (r.Type == "show") { file = await jellyfin.AnyEpisodeFileAsync(r.Key, ct) ?? ""; url = file.Length > 0 ? PlexPaths.ToSourceUrl(file, jmaps) ?? "" : ""; }
-                    string title = r.Year > 0 && r.Type == "movie" ? $"{r.Title} ({r.Year})" : r.Title;
-                    keys.Add(r.Type + "|" + r.Title.ToLowerInvariant());
-                    list.Add(new SlideItem("acclaimed", title, new PosterRequest(url, file, jdev?.Id ?? "", false, 0, r.Type == "show", title, r.Key, r.Thumb, "jellyfin"), null)
-                        { Score = r.Score, Source = "Jellyfin", Kind = r.Type, From = "jellyfin" });
-                    fromJellyfin++;
-                }
-            }
             if (plexFailed && !zidooRead && !jellyfinRead) { _acclaimedNote = "The Plex server didn't answer (and no Zidoo or Jellyfin could be read); trying again in 10 minutes."; _acclaimedAt = DateTime.UtcNow.AddMinutes(-50); return; }
-            if (plex == null && !zidooRead && !jellyfinRead) { _acclaimedNote = "No player is on to read ratings from; trying again in 10 minutes."; _acclaimedAt = DateTime.UtcNow.AddMinutes(-50); return; }
+            if (plex == null && !zidooRead && !jellyfinRead)
+            {
+                _acclaimedNote = _engine.JellyfinServer() != null
+                    ? "Highly Acclaimed takes its ratings from Plex or a Zidoo (IMDb, or TMDB when there's no IMDb rating); Jellyfin's aren't used. No Plex, and no Zidoo is on; trying again in 10 minutes."
+                    : "No player is on to read ratings from; trying again in 10 minutes.";
+                _acclaimedAt = DateTime.UtcNow.AddMinutes(-50); return;
+            }
             _acclaimed = list.OrderBy(i => i.Title, StringComparer.OrdinalIgnoreCase).ToList();
             var parts = new List<string>();
             if (fromPlex > 0) parts.Add($"{fromPlex:N0} rated by Plex");

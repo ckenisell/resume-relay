@@ -250,6 +250,7 @@ public static class RelayHost
                 }),
                 Plex = PlexApi.Summary(store),
                 Jellyfin = JellyfinApi.Summary(store),
+                TmdbPosters = Live.Tmdb.Available,   // whether this build has its TMDB key (Settings → About says so)
                 Update = store.Settings().CheckUpdates ? updates.Available : null,
                 UpdateCheckedUtc = updates.CheckedUtc,
                 Health = Health(store, engine, app.Services.GetRequiredService<ProgressService>()),

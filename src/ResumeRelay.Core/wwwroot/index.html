@@ -1004,7 +1004,7 @@ dialog.confirm .go { background: var(--amber); color: #1B1406; border-color: tra
         <div class="st stack">
           <div class="row"><span class="st-l st-t">About</span></div>
           <div class="row"><span class="st-d">Resume Relay is free and open source (MIT license): <a href="https://github.com/ckenisell/resume-relay" target="_blank" rel="noopener">github.com/ckenisell/resume-relay</a>.</span></div>
-          <div class="row"><span class="st-d">This product uses the TMDB API but is not endorsed or certified by TMDB.</span></div>
+          <div class="row"><span class="st-d">This product uses the TMDB API but is not endorsed or certified by TMDB. <span id="about-tmdb"></span></span></div>
           <div class="row"><span class="st-d">Apple TV support uses AppleTvControlLibrary (MIT, by Neil Colvin), a port of pyatv. Apple TV is a trademark of Apple Inc.; Resume Relay isn't affiliated with or endorsed by Apple, Plex, Jellyfin, Zidoo or Kaleidescape.</span></div>
         </div>
         <div class="sg-col">
@@ -2621,6 +2621,10 @@ $("#jf-card").addEventListener("click", async e => {
 
 // ---------------- Settings: badge pictures ----------------
 let iconSig = "";
+function renderAbout() {
+  const el = $("#about-tmdb"); if (!el || !state) return;
+  el.textContent = state.tmdbPosters ? "(TMDB posters: on.)" : "(TMDB posters: off in this build.)";
+}
 function renderIcons() {
   const sig = JSON.stringify(state?.icons || {}); if (sig === iconSig) return; iconSig = sig;
   $("#rating-rows").innerHTML = ["imdb", "tmdb"].map(k => `<div class="icon-row">${ratingPill(k)}
@@ -3354,7 +3358,7 @@ async function refresh() {
     const [s, ev, sys] = await Promise.all([api("GET", "/api/state"), api("GET", "/api/events?n=300"), api("GET", "/api/activity?n=150&system=true")]);
     state = s; events = ev; systemRows = sys;
     for (const [id, t] of launching) if (Date.now() - t > 60000) launching.delete(id);
-    gateTabs(); renderMode(s.settings); renderRooms(s.devices); renderPlex(); renderJellyfin(); renderFeed(); renderSettings(s.settings); renderIcons(); renderBadges();
+    gateTabs(); renderMode(s.settings); renderRooms(s.devices); renderPlex(); renderJellyfin(); renderFeed(); renderSettings(s.settings); renderIcons(); renderAbout(); renderBadges();
     renderUpdate(); renderUpdateSettings(s.settings); renderHealth(); renderSetup(); renderCatchUp(); renderWatchedSync();
     if (!$("#progress").hidden || progress?.reading) await loadProgress(); else renderProgressControls();
     if (!$("#watch").hidden) await loadWatch(false); else renderWatchControls();

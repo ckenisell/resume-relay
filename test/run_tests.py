@@ -1029,6 +1029,7 @@ check("a one-poster slideshow has no fade from black: it starts on the poster, a
 os.unlink(one)
 
 # While a new title's Now Showing video is being made, the slideshow stays up; the screen switches only when it's ready.
+wait_for(lambda: (lambda x: x["mode"] == "idle" and x["url"])(state_of()), 300)   # a slideshow is up to stay up
 seen = []
 def _until_playing():
     x = state_of(); seen.append((x["mode"], x["title"]))

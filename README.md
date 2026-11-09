@@ -343,8 +343,6 @@ docker run -d --name resume-relay --network host --restart unless-stopped \
 
 ## Known limitations
 
-- Resume points are copied when playback stops. Anything watched while Resume Relay itself isn't
-  running isn't copied afterwards.
 - Files played from a USB drive or a player's internal disk can't be matched across players, so
   they aren't copied.
 

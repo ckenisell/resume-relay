@@ -17,8 +17,9 @@ nothing to the developer or to anyone else.
 **Resume Relay itself** keeps its settings, players and posters on your computer. It talks to your own media players
 and, if you set them up, your own Plex and Jellyfin servers. It checks GitHub for new versions. When an Apple TV plays a
 title from a streaming app, Resume Relay looks up that title's poster on TMDB (themoviedb.org) and the app's icon on
-Apple's App Store; only the title's name, year and length, or the app's ID, are sent. It sends nothing to the
-developer. If you request an access code, the email you send (with your player's ID) is the only thing the
-developer receives, and only because you sent it.
+Apple's App Store; only the title's name, year and length, or the app's ID, are sent. To find the show of an episode
+an app names without its show, it downloads TV listings and shows' episode lists from TVmaze (tvmaze.com); those
+requests name only dates and shows, never what you watch. It sends nothing to the developer. If you request an access
+code, the email you send (with your player's ID) is the only thing the developer receives, and only because you sent it.
 
 Questions: open an issue at https://github.com/ckenisell/resume-relay/issues.

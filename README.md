@@ -126,7 +126,7 @@ Zidoo.
 
 ## Live Poster
 
-A TV, stick or tablet hung outside a room shows the poster of what that room is playing, over a background of your
+A TV, stick or tablet hung outside a room shows the poster of what that room is playing, framed by a foreground of your
 own design ("NOW SHOWING"…), and a slideshow when nothing is: **Coming Soon** (posters you add), **Recently Watched**
 **Highly Acclaimed** (movies and series rated 8.0 or higher: Plex's ratings, or without Plex the Zidoo's, IMDb for
 movies and TMDB for series; 10 picked at random each round) and **Feature Presentation** (one movie, or one season of a
@@ -154,7 +154,7 @@ copies of movies, so nothing is copied to or from it); its movie shows with the 
   Zidoo (which keeps them at 500×750). TV shows: the season poster in the show's folder (`season01-poster.jpg`,
   `Show S01-poster.jpg`, or `poster.jpg` inside a `Season 01` folder), then the series poster, then Plex's, then the
   Zidoo's.
-- **Backgrounds:** marquee designs are built in; or your own 2160×3840 PNG/JPG/WebP or a 10–20 second MP4 loop. A PNG or WebP
+- **Foregrounds:** marquee designs are built in; or your own 2160×3840 PNG/JPG/WebP or a 10–20 second MP4 loop. A PNG or WebP
   with a see-through window goes in front of the poster (its frame and shadows fall on the poster). The poster is 2000×3000, centered across and set low, which
   leaves 80 px at the sides, 750 px at the top and 90 px at the bottom.
 - **Screens:** the easiest today is **any web browser**: open `http://<this computer>:8090/screen` on the TV, tablet or

@@ -16,6 +16,9 @@ Resume Relay includes or uses the following third-party software, each under its
 Poster information for streaming apps comes from TMDB. This product uses TMDB and the TMDB APIs but is not
 endorsed, certified, or otherwise approved by TMDB.
 
+TV listings and episode names come from [TVmaze](https://www.tvmaze.com), licensed under
+[CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).
+
 Apple TV is a trademark of Apple Inc. Resume Relay isn't affiliated with or endorsed by Apple, Plex, Jellyfin, Zidoo
 or Kaleidescape.
 

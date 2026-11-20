@@ -1,15 +1,17 @@
 # Privacy policy: Resume Relay and the Resume Relay Live Poster screen apps
 
-_Last updated: November 9, 2026_
+_Last updated: November 19, 2026_
 
 Resume Relay is free software. It runs on a computer in your home, and its screen apps (Live Poster, for
-Roku, Fire TV, Android TV, Google TV, Android phones and tablets, and web browsers) show what it sends them.
+Roku, Fire TV (including Vega OS), Android TV, Google TV, Android phones and tablets, and web browsers) show what it
+sends them.
 
 **What the screen apps collect: nothing.** They have no accounts, no ads, no analytics and no tracking, and they send
 nothing to the developer or to anyone else.
 
 - **What they talk to:** only the Resume Relay program on your own home network (found by a broadcast on your local
-  network, or at an address you type). They fetch the poster videos it makes and tell it whether a video is playing.
+  network, or at an address you type). They fetch the posters it makes (pictures or videos) and tell it whether one is
+  showing.
 - **What they keep on the device:** the address of your Resume Relay, a random number that identifies the screen to
   your Resume Relay, and the pairing token it gave the screen. Uninstalling the app removes them.
 - **The demo** uses pictures built into the app and connects to nothing.
@@ -21,9 +23,11 @@ Apple's App Store; only the title's name, year and length, or the app's ID, are 
 an app names without its show, it downloads TV listings and shows' episode lists from TVmaze (tvmaze.com); those
 requests name only dates and shows. When an app sends a show's name that no show has (a misspelling), that name and
 the episode's season and number are looked up on TVmaze, and so is a show you search for with "What show is this?".
-If you set up Netflix, Resume Relay reads your Netflix account's Viewing Activity on netflix.com, with the sign-in
-codes you copy into it; those codes are kept on your computer only and sent only to netflix.com. It sends nothing to
-the developer. If you request an access code, the email you send (with your player's ID) is the only thing the developer
-receives, and only because you sent it.
+For Live Poster's Highly Acclaimed, a title only your Jellyfin server has is rated by TMDB: only its TMDB number is sent.
+If Live Poster's Trivia is on with questions from the web, Resume Relay asks Open Trivia DB (opentdb.com) for questions:
+only the category, the number of questions and a session code the site gives it are sent. If you set up Netflix, Resume
+Relay reads your Netflix account's Viewing Activity on netflix.com, with the sign-in codes you copy into it; those codes
+are kept on your computer only and sent only to netflix.com. It sends nothing to the developer. If you request an access
+code, the email you send (with your player's ID) is the only thing the developer receives, and only because you sent it.
 
 Questions: open an issue at https://github.com/ckenisell/resume-relay/issues.

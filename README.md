@@ -192,8 +192,8 @@ copies of movies, so nothing is copied to or from it); its movie shows with the 
 - **Screens:** install the screen app, open it, and add the 4-digit code it shows on the Live Poster tab:
   - **Roku:** **Resume Relay Live Poster** in the Roku Channel Store (or add it at
     [my.roku.com/account/add/ResumeRelay](https://my.roku.com/account/add/ResumeRelay)).
-  - **Fire TV:** **Resume Relay Live Poster** in the Amazon Appstore. A version for the newest Fire TV sticks (Vega OS,
-    like the Fire TV Stick 4K Select) is on its way.
+  - **Fire TV:** **Resume Relay Live Poster** in the Amazon Appstore, for every Fire TV, including the newest sticks
+    that run Vega OS (like the Fire TV Stick 4K Select; that version is a beta).
   - **Android phone or tablet, Google TV:** Google Play is still in testing. Until then, open the
     `ResumeRelay-Screen-…-android.apk` download on it and allow installing it (on Google TV, with the *Downloader* app:
     enter the APK's download link).

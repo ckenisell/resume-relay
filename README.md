@@ -54,8 +54,8 @@ Resume Relay is free to download. If it saves you some walking, you can
 - **Tells you when there's a new version,** with the exact steps to update.
 - **Catches up after downtime.** If Resume Relay was off, it reads the players when it starts and copies whatever
   was watched meanwhile (newest wins), with Undo.
-- **Easy to set up and move.** A getting-started checklist for new installs, health notes when something needs
-  attention, and a one-file backup of your players and settings.
+- **Easy to set up and move.** Easy Setup walks a new install through finding, naming and setting up each player,
+  health notes when something needs attention, and a one-file backup of your players and settings.
 - **See every copy.** The Activity tab shows a card for each stop, with the poster, whether it happened on a Zidoo
   or on Plex, and a mark for every other player: ✓ copied, ◷ waiting, – skipped, ✕ failed.
 - **Every write is checked.** Before writing, it confirms the player's entry really is that file.

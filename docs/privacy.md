@@ -25,9 +25,11 @@ requests name only dates and shows. When an app sends a show's name that no show
 the episode's season and number are looked up on TVmaze, and so is a show you search for with "What show is this?".
 For Live Poster's Highly Acclaimed, a title only your Jellyfin server has is rated by TMDB: only its TMDB number is sent.
 If Live Poster's Trivia is on with questions from the web, Resume Relay asks Open Trivia DB (opentdb.com) for questions:
-only the category, the number of questions and a session code the site gives it are sent. If you set up Netflix, Resume
-Relay reads your Netflix account's Viewing Activity on netflix.com, with the sign-in codes you copy into it; those codes
-are kept on your computer only and sent only to netflix.com. It sends nothing to the developer. If you request an access
-code, the email you send (with your player's ID) is the only thing the developer receives, and only because you sent it.
+only the category, the number of questions and a session code the site gives it are sent. Trivia's questions about actors
+show their photos, downloaded from where your library keeps them (Plex's metadata site, your Jellyfin server, or TMDB's
+image site for a Zidoo); only the photo's address is sent. If you set up Netflix, Resume Relay reads your Netflix account's
+Viewing Activity on netflix.com, with the sign-in codes you copy into it; those codes are kept on your computer only and
+sent only to netflix.com. It sends nothing to the developer. If you request an access code, the email you send (with your
+player's ID) is the only thing the developer receives, and only because you sent it.
 
 Questions: open an issue at https://github.com/ckenisell/resume-relay/issues.

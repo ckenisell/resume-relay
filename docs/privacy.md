@@ -1,6 +1,6 @@
 # Privacy policy: Resume Relay and the Resume Relay Live Poster screen apps
 
-_Last updated: November 19, 2026_
+_Last updated: November 20, 2026_
 
 Resume Relay is free software. It runs on a computer in your home, and its screen apps (Live Poster, for
 Roku, Fire TV (including Vega OS), Android TV, Google TV, Android phones and tablets, and web browsers) show what it

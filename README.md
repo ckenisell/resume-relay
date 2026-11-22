@@ -68,7 +68,7 @@ Resume Relay is free to download. If it saves you some walking, you can
   After writing, it reads the position back, because some Home Theater builds report errors for
   writes that actually worked.
 - **Finds your players for you.** Scan the network, then give each player a room name. Players are
-  recognised by their hardware address, so a name stays put even if your router gives the player a
+  recognized by their hardware address, so a name stays put even if your router gives the player a
   new IP.
 - **Use it from your phone.** Open `http://<computer-address>:8090` on any device on your network.
 

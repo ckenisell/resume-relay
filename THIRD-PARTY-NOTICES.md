@@ -11,7 +11,7 @@ Resume Relay includes or uses the following third-party software, each under its
 | [Google.Protobuf](https://github.com/protocolbuffers/protobuf) | Apple TV messages | BSD 3-Clause |
 | [plist-cil](https://github.com/claunia/plist-cil) | Apple TV details | MIT |
 | [ag-psd](https://github.com/Agamnentzar/ag-psd) by Agamnentzar | reading Photoshop files in the theme editor | MIT (below) |
-| Limelight, Poiret One, Monoton, Righteous, Rye, Bebas Neue (from [Google Fonts](https://github.com/google/fonts)) | the theme editor's built-in fonts | SIL Open Font License 1.1 (below) |
+| Limelight, Poiret One, Monoton, Righteous, Rye, Bebas Neue, Tilt Neon (from [Google Fonts](https://github.com/google/fonts)) | the theme editor's built-in fonts | SIL Open Font License 1.1 (below) |
 | [Google Fonts](https://github.com/google/fonts) catalog | the theme editor's list of fonts (names, categories, languages, files); fonts you add are downloaded from it | each font's own license (OFL, Apache 2.0 or UFL) |
 | [Microsoft Edge WebView2](https://developer.microsoft.com/microsoft-edge/webview2/) | the Windows app window | Microsoft Software License |
 | [FFmpeg](https://ffmpeg.org) (Docker and Linux, a separate program) | making Live Poster videos | LGPL / GPL |
@@ -309,4 +309,6 @@ Copyright (c) 2011 by Sorkin Type Co (www.sorkintype.com),
 with Reserved Font Name "Rye".
 
 Copyright © 2010 by Dharma Type.
+
+Copyright 2019 The Tilt Project Authors (https://github.com/googlefonts/Tilt-Fonts)
 ```

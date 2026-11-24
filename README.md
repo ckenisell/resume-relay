@@ -183,6 +183,11 @@ copies of movies, so nothing is copied to or from it); its movie shows with the 
   Jellyfin, then the Zidoo (which keeps them at 500×750). TV shows: the season poster in the show's folder (`season01-poster.jpg`,
   `Show S01-poster.jpg`, or `poster.jpg` inside a `Season 01` folder), then the series poster, then Plex's or
   Jellyfin's, then the Zidoo's.
+- **Themes:** a theme is the whole look of the marquees: every part, with the border and full width. Classic Light
+  Bulbs and others come with it; choose one for all screens or for each screen, and mix and match parts.
+  Make your own in the theme editor (a background you tint, your titles in any language, any Google font, gradients,
+  glow, shadow, outline and your own pictures), or upload a .zip of pictures or videos made with the
+  [template pack](docs/theme-template-pack.zip).
 - **Foregrounds:** marquee designs are built in, one for each part; or your own 2160×3840 PNG/JPG/WebP or a 10–20
   second MP4 loop. A PNG or WebP with a see-through window goes in front of the poster (its frame and shadows fall on
   the poster); a JPG, an MP4 or a solid PNG goes behind it. The poster is 2000×3000, centered across and set low, which

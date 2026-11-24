@@ -1,6 +1,6 @@
 # Privacy policy: Resume Relay and the Resume Relay Live Poster screen apps
 
-_Last updated: November 20, 2026_
+_Last updated: November 23, 2026_
 
 Resume Relay is free software. It runs on a computer in your home, and its screen apps (Live Poster, for
 Roku, Fire TV (including Vega OS), Android TV, Google TV, Android phones and tablets, and web browsers) show what it
@@ -28,9 +28,12 @@ If Live Poster's Trivia is on with questions from the web, Resume Relay asks Ope
 only the category, the number of questions and a session code the site gives it are sent. Trivia's questions about actors
 show their photos, downloaded from where your library keeps them (Plex's metadata site, your Jellyfin server, or TMDB's
 image site for a Zidoo); only the photo's address is sent. So that a question's choices match, those actors' genders are
-looked up on TMDB, once each: only the actor's name (or TMDB number) is sent. If you set up Netflix, Resume Relay reads
-your Netflix account's Viewing Activity on netflix.com, with the sign-in codes you copy into it; those codes are kept on
-your computer only and sent only to netflix.com. It sends nothing to the developer. If you request an access code, the
-email you send (with your player's ID) is the only thing the developer receives, and only because you sent it.
+looked up on TMDB, once each: only the actor's name (or TMDB number) is sent. In Live Poster's theme editor, the Google
+Fonts list shows each font's preview from Google Fonts (fonts.googleapis.com): the font's name and the title you're
+previewing are sent. A font you add is downloaded from Google Fonts' collection on GitHub (raw.githubusercontent.com);
+only the font's file name is sent. If you set up Netflix, Resume Relay reads your Netflix account's Viewing Activity on
+netflix.com, with the sign-in codes you copy into it; those codes are kept on your computer only and sent only to
+netflix.com. It sends nothing to the developer. If you request an access code, the email you send (with your player's ID)
+is the only thing the developer receives, and only because you sent it.
 
 Questions: open an issue at https://github.com/ckenisell/resume-relay/issues.
